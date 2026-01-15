@@ -307,6 +307,7 @@ async def reset_conversation():
 # ============== OpenAI-Compatible Endpoints for OpenWebUI ==============
 
 @app.get("/v1/models")
+@app.get("/v1/models/")
 async def list_models():
     """OpenAI-compatible models list for OpenWebUI"""
     return {
