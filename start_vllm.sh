@@ -16,7 +16,7 @@ source ~/vllm_env/venv/bin/activate
 python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}')" 2>/dev/null || echo "GPU check failed"
 
 vllm serve "fbaldassarri/meta-llama_Llama-3.1-8B-Instruct-auto_gptq-int4-gs128-sym" \
-  --gpu-memory-utilization 0.85 \
+  --gpu-memory-utilization 0.70 \
   --max-model-len 4096 \
   --quantization gptq \
   --dtype float16 \
@@ -24,3 +24,4 @@ vllm serve "fbaldassarri/meta-llama_Llama-3.1-8B-Instruct-auto_gptq-int4-gs128-s
   --port 11434 \
   --enforce-eager \
   --trust-remote-code
+  
