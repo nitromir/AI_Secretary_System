@@ -30,6 +30,14 @@ from stt_service import STTService
 from llm_service import LLMService
 from piper_tts_service import PiperTTSService
 
+# vLLM импорт (опциональный - локальная Llama через vLLM)
+try:
+    from vllm_llm_service import VLLMLLMService
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+    VLLMLLMService = None
+
 # OpenVoice импорт (опциональный - для GPU P104-100)
 try:
     from openvoice_service import OpenVoiceService
@@ -37,6 +45,9 @@ try:
 except ImportError:
     OPENVOICE_AVAILABLE = False
     OpenVoiceService = None
+
+# Определяем какой LLM backend использовать
+LLM_BACKEND = os.getenv("LLM_BACKEND", "gemini").lower()  # "gemini" или "vllm"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -375,8 +386,22 @@ async def startup_event():
             logger.warning(f"⚠️ XTTS недоступен (требуется GPU CC >= 7.0): {e}")
             voice_service = None
 
-        logger.info("📦 Загрузка LLM Service...")
-        llm_service = LLMService()
+        # Инициализация LLM Service (vLLM или Gemini)
+        if LLM_BACKEND == "vllm" and VLLM_AVAILABLE:
+            logger.info("📦 Загрузка vLLM LLM Service (Llama-3.1-8B)...")
+            try:
+                llm_service = VLLMLLMService()
+                if llm_service.is_available():
+                    logger.info("✅ vLLM подключен")
+                else:
+                    logger.warning("⚠️ vLLM не отвечает, пробуем Gemini...")
+                    llm_service = LLMService()
+            except Exception as e:
+                logger.warning(f"⚠️ vLLM недоступен ({e}), используем Gemini")
+                llm_service = LLMService()
+        else:
+            logger.info("📦 Загрузка Gemini LLM Service...")
+            llm_service = LLMService()
 
         # Инициализация Streaming TTS Manager
         logger.info("📦 Инициализация Streaming TTS Manager...")
@@ -413,12 +438,21 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Проверка здоровья всех сервисов"""
+    # Определяем тип LLM сервиса
+    llm_backend_type = "unknown"
+    if llm_service:
+        if hasattr(llm_service, 'api_url'):  # vLLM
+            llm_backend_type = f"vllm ({llm_service.model_name})"
+        elif hasattr(llm_service, 'model_name'):  # Gemini
+            llm_backend_type = f"gemini ({llm_service.model_name})"
+
     services_status = {
         "voice_clone_xtts": voice_service is not None,
         "voice_clone_openvoice": openvoice_service is not None,
         "piper_tts": piper_service is not None,
         "stt": stt_service is not None,
         "llm": llm_service is not None,
+        "llm_backend": llm_backend_type,
         "streaming_tts": streaming_tts_manager is not None,
     }
 
