@@ -281,9 +281,10 @@ llm_service: Optional[LLMService] = None
 
 # Конфигурация текущего голоса
 # engine: "xtts" (Лидия) или "piper" (Dmitri/Irina)
+# По умолчанию используем Piper (CPU) для работы без GPU
 current_voice_config = {
-    "engine": "xtts",
-    "voice": "lidia",  # lidia / dmitri / irina
+    "engine": "piper",
+    "voice": "irina",  # lidia / dmitri / irina
 }
 
 # Папка для временных файлов
@@ -336,17 +337,21 @@ async def startup_event():
     logger.info("🚀 Запуск AI Secretary Orchestrator")
 
     try:
-        # Инициализация XTTS (Лидия)
-        logger.info("📦 Загрузка Voice Clone Service (XTTS)...")
-        voice_service = VoiceCloneService()
-
-        # Инициализация Piper TTS (Dmitri, Irina)
-        logger.info("📦 Загрузка Piper TTS Service...")
+        # Инициализация Piper TTS (Dmitri, Irina) - CPU, загружаем первым
+        logger.info("📦 Загрузка Piper TTS Service (CPU)...")
         try:
             piper_service = PiperTTSService()
         except Exception as e:
             logger.warning(f"⚠️ Piper TTS недоступен: {e}")
             piper_service = None
+
+        # Инициализация XTTS (Лидия) - GPU, опционально
+        logger.info("📦 Загрузка Voice Clone Service (XTTS)...")
+        try:
+            voice_service = VoiceCloneService()
+        except Exception as e:
+            logger.warning(f"⚠️ XTTS недоступен (работаем без GPU): {e}")
+            voice_service = None
 
         logger.info("📦 Загрузка LLM Service...")
         llm_service = LLMService()

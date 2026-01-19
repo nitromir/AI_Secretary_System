@@ -34,19 +34,25 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
 ## Commands
 
 ```bash
-# Start orchestrator (main command)
+# Start orchestrator with GPU (XTTS voice cloning)
 COQUI_TOS_AGREED=1 ./venv/bin/python orchestrator.py
+
+# Start orchestrator CPU-only (Piper TTS)
+./start_cpu.sh
 
 # Health check
 curl http://localhost:8002/health
 
 # Test individual services
-./venv/bin/python voice_clone_service.py    # Test XTTS
+./venv/bin/python voice_clone_service.py    # Test XTTS (requires GPU)
 ./venv/bin/python piper_tts_service.py      # Test Piper
 ./venv/bin/python llm_service.py            # Test LLM + FAQ
 
+# Run integration tests
+./test_system.sh
+
 # First-time setup
-./setup.sh && cp .env.example .env          # Add GEMINI_API_KEY
+./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY
 ```
 
 ## Key Components
@@ -63,10 +69,10 @@ Three voices available, switchable via admin panel or API:
 **Voice switching:**
 - Admin: http://localhost:8002/admin → TTS tab
 - API: `POST /admin/voice {"voice": "dmitri"}`
-- Code: `current_voice_config` dict in orchestrator.py
+- Code: `current_voice_config` dict in orchestrator.py:285
 
 ### FAQ System (`typical_responses.json`)
-Bypasses LLM for common questions. Checked before every Gemini API call.
+Bypasses LLM for common questions. Checked before every Gemini API call in `llm_service.py:79`.
 
 ```json
 {
@@ -79,7 +85,15 @@ Templates: `{current_time}`, `{current_date}`, `{day_of_week}`
 
 Hot reload: `llm_service.reload_faq()`
 
+### Streaming TTS Manager
+Pre-synthesizes audio during LLM streaming for faster response. Caches audio by text hash.
+- Location: `orchestrator.py:38` (`StreamingTTSManager` class)
+- Active during `/v1/chat/completions` streaming
+- Cache checked in `/v1/audio/speech` before synthesis
+
 ### XTTS Voice Presets
+Defined in `voice_clone_service.py:120` (`INTONATION_PRESETS`)
+
 ```python
 service.synthesize(text, preset="warm")      # Тёплый
 service.synthesize(text, preset="calm")      # Спокойный
@@ -116,43 +130,53 @@ Model: lidia-gemini
 
 ## Environment Variables
 
+Required:
 ```bash
-GEMINI_API_KEY=...           # Required
-ORCHESTRATOR_PORT=8002       # Default
-VOICE_SAMPLES_DIR=./Лидия    # XTTS samples
+GEMINI_API_KEY=...           # Google AI Studio API key
+```
+
+Optional:
+```bash
+ORCHESTRATOR_PORT=8002       # Default port
+VOICE_SAMPLES_DIR=./Лидия    # XTTS samples directory
+GEMINI_MODEL=gemini-2.5-pro-latest
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, routes, voice switching |
-| `voice_clone_service.py` | XTTS v2, GPU synthesis, presets |
-| `piper_tts_service.py` | Piper ONNX wrapper |
+| `orchestrator.py` | FastAPI server, routes, voice switching, StreamingTTSManager |
+| `voice_clone_service.py` | XTTS v2, GPU synthesis, presets, Е→Ё replacement |
+| `piper_tts_service.py` | Piper ONNX wrapper (CPU) |
 | `llm_service.py` | Gemini API + FAQ system |
-| `typical_responses.json` | FAQ data |
+| `typical_responses.json` | FAQ data (hot-reloadable) |
 | `admin_web.html` | Admin panel UI |
-| `Лидия/` | 53 WAV samples for voice cloning |
-| `models/*.onnx` | Piper voice models |
+| `Лидия/` | WAV samples for voice cloning |
+| `models/*.onnx` | Piper voice models (dmitri, irina) |
 
 ## Known Issues
 
 1. **STT disabled** — faster-whisper hangs on load; use text chat only
-2. **P104-100 GPU** — Compute capability 6.1 < 7.0 required, use RTX 3060
+2. **P104-100 GPU** — Compute capability 6.1 < 7.0 required by PyTorch 2.9+, use RTX 3060+
 3. **Gemini 429** — Quota exceeded; use `gemini-2.5-flash` not `pro`
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
 
 ## Code Patterns
 
-**Adding a new voice (Piper):**
+**Adding a new Piper voice:**
 1. Add ONNX model to `./models/`
-2. Add entry to `PiperTTSService.VOICES` dict
+2. Add entry to `PiperTTSService.VOICES` dict in `piper_tts_service.py:26`
 3. Voice auto-appears in admin panel
 
 **Adding FAQ response:**
 1. Edit `typical_responses.json`
-2. Call `llm_service.reload_faq()` or restart
+2. Call `llm_service.reload_faq()` or restart orchestrator
 
-**Changing TTS for all endpoints:**
-- Modify `synthesize_with_current_voice()` in orchestrator.py
-- All TTS endpoints (`/tts`, `/v1/audio/speech`) use this function
+**Changing default TTS for all endpoints:**
+1. Modify `current_voice_config` dict in `orchestrator.py:285`
+2. Or use API: `POST /admin/voice {"voice": "irina"}`
+
+**Text preprocessing for TTS:**
+- Е→Ё replacement: `voice_clone_service.py:69` (`YO_REPLACEMENTS` dict)
+- Add pause words: `voice_clone_service.py:210` (`add_pauses` method)
