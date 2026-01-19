@@ -30,6 +30,14 @@ from stt_service import STTService
 from llm_service import LLMService
 from piper_tts_service import PiperTTSService
 
+# OpenVoice импорт (опциональный - для GPU P104-100)
+try:
+    from openvoice_service import OpenVoiceService
+    OPENVOICE_AVAILABLE = True
+except ImportError:
+    OPENVOICE_AVAILABLE = False
+    OpenVoiceService = None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -274,17 +282,18 @@ app.add_middleware(
 )
 
 # Глобальные сервисы
-voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия)
-piper_service: Optional[PiperTTSService] = None    # Piper (Dmitri, Irina)
+voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0
+piper_service: Optional[PiperTTSService] = None    # Piper (Dmitri, Irina) - CPU
+openvoice_service: Optional["OpenVoiceService"] = None  # OpenVoice v2 (Лидия) - GPU CC 6.1+
 stt_service: Optional[STTService] = None
 llm_service: Optional[LLMService] = None
 
 # Конфигурация текущего голоса
-# engine: "xtts" (Лидия) или "piper" (Dmitri/Irina)
+# engine: "xtts" (Лидия на GPU CC>=7.0), "piper" (Dmitri/Irina на CPU), "openvoice" (Лидия на GPU CC 6.1+)
 # По умолчанию используем Piper (CPU) для работы без GPU
 current_voice_config = {
     "engine": "piper",
-    "voice": "irina",  # lidia / dmitri / irina
+    "voice": "irina",  # lidia / dmitri / irina / lidia_openvoice
 }
 
 # Папка для временных файлов
@@ -332,7 +341,7 @@ class ChatCompletionRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Инициализация всех сервисов при старте"""
-    global voice_service, piper_service, stt_service, llm_service, streaming_tts_manager
+    global voice_service, piper_service, openvoice_service, stt_service, llm_service, streaming_tts_manager
 
     logger.info("🚀 Запуск AI Secretary Orchestrator")
 
@@ -345,12 +354,25 @@ async def startup_event():
             logger.warning(f"⚠️ Piper TTS недоступен: {e}")
             piper_service = None
 
-        # Инициализация XTTS (Лидия) - GPU, опционально
+        # Инициализация OpenVoice v2 (Лидия) - GPU CC 6.1+ (P104-100)
+        if OPENVOICE_AVAILABLE:
+            logger.info("📦 Загрузка OpenVoice TTS Service (GPU CC 6.1+)...")
+            try:
+                openvoice_service = OpenVoiceService()
+                logger.info("✅ OpenVoice v2 загружен (P104-100)")
+            except Exception as e:
+                logger.warning(f"⚠️ OpenVoice недоступен: {e}")
+                openvoice_service = None
+        else:
+            logger.info("⏭️ OpenVoice не установлен (пропускаем)")
+            openvoice_service = None
+
+        # Инициализация XTTS (Лидия) - GPU CC >= 7.0, опционально
         logger.info("📦 Загрузка Voice Clone Service (XTTS)...")
         try:
             voice_service = VoiceCloneService()
         except Exception as e:
-            logger.warning(f"⚠️ XTTS недоступен (работаем без GPU): {e}")
+            logger.warning(f"⚠️ XTTS недоступен (требуется GPU CC >= 7.0): {e}")
             voice_service = None
 
         logger.info("📦 Загрузка LLM Service...")
@@ -392,14 +414,17 @@ async def root():
 async def health_check():
     """Проверка здоровья всех сервисов"""
     services_status = {
-        "voice_clone": voice_service is not None,
+        "voice_clone_xtts": voice_service is not None,
+        "voice_clone_openvoice": openvoice_service is not None,
+        "piper_tts": piper_service is not None,
         "stt": stt_service is not None,
         "llm": llm_service is not None,
         "streaming_tts": streaming_tts_manager is not None,
     }
 
-    # Для health check достаточно voice + llm
-    core_ok = services_status["voice_clone"] and services_status["llm"]
+    # Для health check достаточно любой TTS + llm
+    any_tts = services_status["voice_clone_xtts"] or services_status["voice_clone_openvoice"] or services_status["piper_tts"]
+    core_ok = any_tts and services_status["llm"]
 
     result = {
         "status": "healthy" if core_ok else "degraded",
@@ -418,6 +443,11 @@ def synthesize_with_current_voice(text: str, output_path: str, language: str = "
     """
     Синтезирует речь с текущим выбранным голосом.
     Учитывает current_voice_config.
+
+    Engines:
+    - piper: CPU, быстрый, предобученные голоса (dmitri, irina)
+    - openvoice: GPU CC 6.1+, клонирование голоса (lidia_openvoice)
+    - xtts: GPU CC >= 7.0, лучшее качество клонирования (lidia)
     """
     engine = current_voice_config["engine"]
     voice = current_voice_config["voice"]
@@ -425,9 +455,24 @@ def synthesize_with_current_voice(text: str, output_path: str, language: str = "
     if engine == "piper" and piper_service:
         logger.info(f"🎙️ Piper синтез ({voice}): '{text[:40]}...'")
         piper_service.synthesize_to_file(text, output_path, voice=voice)
-    elif voice_service:
+    elif engine == "openvoice" and openvoice_service:
+        logger.info(f"🎙️ OpenVoice синтез (Лидия): '{text[:40]}...'")
+        openvoice_service.synthesize_to_file(text, output_path, language=language)
+    elif engine == "xtts" and voice_service:
         logger.info(f"🎙️ XTTS синтез (Лидия): '{text[:40]}...'")
         voice_service.synthesize_to_file(text, output_path, language=language)
+    elif voice_service:
+        # Fallback to XTTS if available
+        logger.info(f"🎙️ XTTS синтез (fallback): '{text[:40]}...'")
+        voice_service.synthesize_to_file(text, output_path, language=language)
+    elif openvoice_service:
+        # Fallback to OpenVoice if XTTS not available
+        logger.info(f"🎙️ OpenVoice синтез (fallback): '{text[:40]}...'")
+        openvoice_service.synthesize_to_file(text, output_path, language=language)
+    elif piper_service:
+        # Fallback to Piper
+        logger.info(f"🎙️ Piper синтез (fallback): '{text[:40]}...'")
+        piper_service.synthesize_to_file(text, output_path, voice="irina")
     else:
         raise RuntimeError("No TTS service available")
 
@@ -1104,18 +1149,29 @@ async def admin_get_voices():
     """Получить список всех доступных голосов"""
     voices = []
 
-    # XTTS голос (Лидия)
+    # XTTS голос (Лидия) - требует GPU CC >= 7.0
     if voice_service:
         voices.append({
             "id": "lidia",
-            "name": "Лидия",
+            "name": "Лидия (XTTS)",
             "engine": "xtts",
-            "description": "Клонированный голос (XTTS v2)",
+            "description": "Клонированный голос (XTTS v2, GPU CC >= 7.0)",
             "available": True,
             "samples_count": len(voice_service.voice_samples),
         })
 
-    # Piper голоса
+    # OpenVoice голос (Лидия) - работает на GPU CC 6.1+
+    if openvoice_service:
+        voices.append({
+            "id": "lidia_openvoice",
+            "name": "Лидия (OpenVoice)",
+            "engine": "openvoice",
+            "description": "Клонированный голос (OpenVoice v2, GPU CC 6.1+)",
+            "available": True,
+            "samples_count": len(openvoice_service.voice_samples) if openvoice_service.voice_samples else 0,
+        })
+
+    # Piper голоса (CPU)
     if piper_service:
         piper_voices = piper_service.get_available_voices()
         for voice_id, info in piper_voices.items():
@@ -1149,9 +1205,15 @@ async def admin_set_voice(request: AdminVoiceRequest):
     # Проверяем доступность голоса
     if voice_id == "lidia":
         if not voice_service:
-            raise HTTPException(status_code=503, detail="XTTS service not available")
+            raise HTTPException(status_code=503, detail="XTTS service not available (requires GPU CC >= 7.0)")
         current_voice_config = {"engine": "xtts", "voice": "lidia"}
         logger.info(f"🎤 Голос изменён на: Лидия (XTTS)")
+
+    elif voice_id == "lidia_openvoice":
+        if not openvoice_service:
+            raise HTTPException(status_code=503, detail="OpenVoice service not available")
+        current_voice_config = {"engine": "openvoice", "voice": "lidia_openvoice"}
+        logger.info(f"🎤 Голос изменён на: Лидия (OpenVoice)")
 
     elif voice_id in ["dmitri", "irina"]:
         if not piper_service:
@@ -1165,7 +1227,7 @@ async def admin_set_voice(request: AdminVoiceRequest):
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown voice: {voice_id}. Available: lidia, dmitri, irina"
+            detail=f"Unknown voice: {voice_id}. Available: lidia, lidia_openvoice, dmitri, irina"
         )
 
     return {"status": "ok", **current_voice_config}
@@ -1182,8 +1244,13 @@ async def admin_test_voice(request: AdminVoiceRequest):
     try:
         if voice_id == "lidia":
             if not voice_service:
-                raise HTTPException(status_code=503, detail="XTTS not available")
+                raise HTTPException(status_code=503, detail="XTTS not available (requires GPU CC >= 7.0)")
             voice_service.synthesize_to_file(test_text, str(output_path), preset="natural")
+
+        elif voice_id == "lidia_openvoice":
+            if not openvoice_service:
+                raise HTTPException(status_code=503, detail="OpenVoice not available")
+            openvoice_service.synthesize_to_file(test_text, str(output_path), language="ru")
 
         elif voice_id in ["dmitri", "irina"]:
             if not piper_service:
@@ -1191,7 +1258,7 @@ async def admin_test_voice(request: AdminVoiceRequest):
             piper_service.synthesize_to_file(test_text, str(output_path), voice=voice_id)
 
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_id}")
+            raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_id}. Available: lidia, lidia_openvoice, dmitri, irina")
 
         return FileResponse(
             output_path,

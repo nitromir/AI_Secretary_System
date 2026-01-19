@@ -72,3 +72,26 @@ logs/
 
 # Claude Code
 .claude/
+
+# OpenVoice environment and checkpoints
+openvoice_env/
+checkpoints_v2/
+checkpoints/
+OpenVoice/
+
+# vLLM environment
+vllm_env/
+
+# Cache directories
+cache/
+.cache/
+__pycache__/
+*.pyc
+
+# HuggingFace cache
+.huggingface/
+
+# Temporary pytorch wheels
+/tmp/pytorch_wheels/
+
+/openvoice_env/
