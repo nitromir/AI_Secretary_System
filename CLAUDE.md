@@ -14,16 +14,22 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
                          │         orchestrator.py             │
                          └──────────────┬──────────────────────┘
                                         │
-        ┌───────────────┬───────────────┼───────────────┬──────────────────┐
-        ↓               ↓               ↓               ↓                  ↓
-   STT Service     LLM Service    Voice Clone      Piper TTS        Admin Panel
-  (disabled)      llm_service.py  (XTTS v2)     piper_tts_service   admin_web.html
-                        │         voice_clone_      (CPU)
-                        │         service.py
-                        │         (GPU)
+        ┌───────────────┬───────────────┼───────────────┬───────────────┬──────────────────┐
+        ↓               ↓               ↓               ↓               ↓                  ↓
+   STT Service     LLM Service    Voice Clone    OpenVoice v2     Piper TTS        Admin Panel
+  (disabled)      llm_service.py  (XTTS v2)     openvoice_       piper_tts_service admin_web.html
+                        │         voice_clone_   service.py       (CPU)
+                        │         service.py     (GPU CC 6.1+)
+                        │         (GPU CC 7.0+)
                         ↓
                   FAQ System
               typical_responses.json
+```
+
+**GPU Distribution (Multi-GPU Setup):**
+```
+GPU 0: P104-100  (8GB, CC 6.1)  → OpenVoice TTS (port 8003)
+GPU 1: RTX 3060  (12GB, CC 8.6) → vLLM Llama-3.1-8B (port 11434)
 ```
 
 **Request flow:**
@@ -34,42 +40,54 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
 ## Commands
 
 ```bash
+# Start all services (Multi-GPU: OpenVoice + vLLM)
+./start_all.sh
+
 # Start orchestrator with GPU (XTTS voice cloning)
 COQUI_TOS_AGREED=1 ./venv/bin/python orchestrator.py
 
 # Start orchestrator CPU-only (Piper TTS)
 ./start_cpu.sh
 
+# Start individual services
+./start_openvoice.sh    # OpenVoice on GPU 0 (P104-100)
+./start_vllm.sh         # vLLM on GPU 1 (RTX 3060)
+
 # Health check
 curl http://localhost:8002/health
 
 # Test individual services
-./venv/bin/python voice_clone_service.py    # Test XTTS (requires GPU)
+./venv/bin/python voice_clone_service.py    # Test XTTS (requires GPU CC >= 7.0)
 ./venv/bin/python piper_tts_service.py      # Test Piper
 ./venv/bin/python llm_service.py            # Test LLM + FAQ
+./openvoice_env/bin/python openvoice_service.py --test  # Test OpenVoice
 
 # Run integration tests
 ./test_system.sh
 
 # First-time setup
 ./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY
+
+# Setup OpenVoice (for P104-100 GPU)
+./setup_openvoice.sh
 ```
 
 ## Key Components
 
 ### Multi-Voice TTS System
-Three voices available, switchable via admin panel or API:
+Four voices available, switchable via admin panel or API:
 
-| Voice | Engine | Speed | Quality |
-|-------|--------|-------|---------|
-| lidia | XTTS v2 (GPU) | ~5-10s | Cloned voice |
-| dmitri | Piper (CPU) | ~0.5s | Pre-trained male |
-| irina | Piper (CPU) | ~0.5s | Pre-trained female |
+| Voice | Engine | GPU | Speed | Quality |
+|-------|--------|-----|-------|---------|
+| lidia | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning quality |
+| lidia_openvoice | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning, works on P104-100 |
+| dmitri | Piper | CPU | ~0.5s | Pre-trained male |
+| irina | Piper | CPU | ~0.5s | Pre-trained female |
 
 **Voice switching:**
 - Admin: http://localhost:8002/admin → TTS tab
-- API: `POST /admin/voice {"voice": "dmitri"}`
-- Code: `current_voice_config` dict in orchestrator.py:285
+- API: `POST /admin/voice {"voice": "lidia_openvoice"}`
+- Code: `current_voice_config` dict in orchestrator.py:294
 
 ### FAQ System (`typical_responses.json`)
 Bypasses LLM for common questions. Checked before every Gemini API call in `llm_service.py:79`.
@@ -147,20 +165,27 @@ GEMINI_MODEL=gemini-2.5-pro-latest
 | File | Purpose |
 |------|---------|
 | `orchestrator.py` | FastAPI server, routes, voice switching, StreamingTTSManager |
-| `voice_clone_service.py` | XTTS v2, GPU synthesis, presets, Е→Ё replacement |
+| `voice_clone_service.py` | XTTS v2, GPU synthesis (CC >= 7.0), presets, Е→Ё replacement |
+| `openvoice_service.py` | OpenVoice v2, GPU synthesis (CC >= 6.1), voice cloning |
 | `piper_tts_service.py` | Piper ONNX wrapper (CPU) |
 | `llm_service.py` | Gemini API + FAQ system |
 | `typical_responses.json` | FAQ data (hot-reloadable) |
 | `admin_web.html` | Admin panel UI |
 | `Лидия/` | WAV samples for voice cloning |
 | `models/*.onnx` | Piper voice models (dmitri, irina) |
+| `checkpoints_v2/` | OpenVoice v2 model checkpoints |
+| `start_all.sh` | Launch all services (multi-GPU) |
+| `start_openvoice.sh` | Launch OpenVoice on GPU 0 |
+| `start_vllm.sh` | Launch vLLM on GPU 1 |
+| `setup_openvoice.sh` | Install OpenVoice dependencies |
 
 ## Known Issues
 
 1. **STT disabled** — faster-whisper hangs on load; use text chat only
-2. **P104-100 GPU** — Compute capability 6.1 < 7.0 required by PyTorch 2.9+, use RTX 3060+
+2. **XTTS on P104-100** — XTTS requires CC >= 7.0, use OpenVoice instead for CC 6.1
 3. **Gemini 429** — Quota exceeded; use `gemini-2.5-flash` not `pro`
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
+5. **OpenVoice Russian** — Russian not native, uses cross-lingual cloning (quality varies)
 
 ## Code Patterns
 
