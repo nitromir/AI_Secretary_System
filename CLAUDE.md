@@ -26,32 +26,29 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
               typical_responses.json
 ```
 
-**GPU Distribution (Multi-GPU Setup):**
+**GPU Mode (Single GPU - RTX 3060):**
 ```
-GPU 0: P104-100  (8GB, CC 6.1)  → OpenVoice TTS (port 8003)
-GPU 1: RTX 3060  (12GB, CC 8.6) → vLLM Llama-3.1-8B (port 11434)
+RTX 3060 (12GB, CC 8.6):
+  - vLLM Llama-3.1-8B (70% GPU memory = ~8.4GB)
+  - XTTS v2 voice cloning (remaining ~3.6GB)
 ```
 
 **Request flow:**
-1. User message → FAQ check (instant) OR Gemini LLM
+1. User message → FAQ check (instant) OR vLLM/Gemini LLM
 2. Response text → TTS (XTTS/Piper based on `current_voice_config`)
 3. Audio returned to user
 
 ## Commands
 
 ```bash
-# Start all services (Multi-GPU: OpenVoice + vLLM)
-./start_all.sh
+# GPU Mode: XTTS + vLLM on RTX 3060 (recommended)
+./start_gpu.sh
 
-# Start orchestrator with GPU (XTTS voice cloning)
-COQUI_TOS_AGREED=1 ./venv/bin/python orchestrator.py
-
-# Start orchestrator CPU-only (Piper TTS)
+# CPU-only mode (Piper TTS + Gemini API)
 ./start_cpu.sh
 
-# Start individual services
-./start_openvoice.sh    # OpenVoice on GPU 0 (P104-100)
-./start_vllm.sh         # vLLM on GPU 1 (RTX 3060)
+# Start vLLM separately (for debugging)
+./start_vllm.sh
 
 # Health check
 curl http://localhost:8002/health
@@ -59,17 +56,11 @@ curl http://localhost:8002/health
 # Test individual services
 ./venv/bin/python voice_clone_service.py    # Test XTTS (requires GPU CC >= 7.0)
 ./venv/bin/python piper_tts_service.py      # Test Piper
-./venv/bin/python llm_service.py            # Test LLM + FAQ
-./openvoice_env/bin/python openvoice_service.py --test  # Test OpenVoice
-
-# Run integration tests
-./test_system.sh
+./venv/bin/python llm_service.py            # Test Gemini LLM + FAQ
+./venv/bin/python vllm_llm_service.py       # Test vLLM (requires running vLLM server)
 
 # First-time setup
-./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY
-
-# Setup OpenVoice (for P104-100 GPU)
-./setup_openvoice.sh
+./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY (optional with vLLM)
 ```
 
 ## Key Components
@@ -148,16 +139,18 @@ Model: lidia-gemini
 
 ## Environment Variables
 
-Required:
 ```bash
-GEMINI_API_KEY=...           # Google AI Studio API key
-```
+# LLM Backend selection
+LLM_BACKEND=vllm             # "vllm" (local Llama) or "gemini" (cloud API)
+VLLM_API_URL=http://localhost:11434  # vLLM server URL
 
-Optional:
-```bash
+# Gemini (only needed if LLM_BACKEND=gemini)
+GEMINI_API_KEY=...           # Google AI Studio API key
+
+# Optional
 ORCHESTRATOR_PORT=8002       # Default port
 VOICE_SAMPLES_DIR=./Лидия    # XTTS samples directory
-GEMINI_MODEL=gemini-2.5-pro-latest
+CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 ```
 
 ## Key Files
@@ -166,26 +159,23 @@ GEMINI_MODEL=gemini-2.5-pro-latest
 |------|---------|
 | `orchestrator.py` | FastAPI server, routes, voice switching, StreamingTTSManager |
 | `voice_clone_service.py` | XTTS v2, GPU synthesis (CC >= 7.0), presets, Е→Ё replacement |
-| `openvoice_service.py` | OpenVoice v2, GPU synthesis (CC >= 6.1), voice cloning |
 | `piper_tts_service.py` | Piper ONNX wrapper (CPU) |
 | `llm_service.py` | Gemini API + FAQ system |
+| `vllm_llm_service.py` | vLLM API (local Llama-3.1-8B) + FAQ system |
 | `typical_responses.json` | FAQ data (hot-reloadable) |
 | `admin_web.html` | Admin panel UI |
 | `Лидия/` | WAV samples for voice cloning |
 | `models/*.onnx` | Piper voice models (dmitri, irina) |
-| `checkpoints_v2/` | OpenVoice v2 model checkpoints |
-| `start_all.sh` | Launch all services (multi-GPU) |
-| `start_openvoice.sh` | Launch OpenVoice on GPU 0 |
-| `start_vllm.sh` | Launch vLLM on GPU 1 |
-| `setup_openvoice.sh` | Install OpenVoice dependencies |
+| `start_gpu.sh` | Launch XTTS + vLLM on RTX 3060 |
+| `start_cpu.sh` | Launch Piper + Gemini (CPU mode) |
+| `start_vllm.sh` | Launch vLLM separately |
 
 ## Known Issues
 
 1. **STT disabled** — faster-whisper hangs on load; use text chat only
-2. **XTTS on P104-100** — XTTS requires CC >= 7.0, use OpenVoice instead for CC 6.1
-3. **Gemini 429** — Quota exceeded; use `gemini-2.5-flash` not `pro`
+2. **XTTS requires CC >= 7.0** — Use RTX 3060 or newer GPU
+3. **GPU memory sharing** — vLLM uses 70% (~8.4GB), XTTS needs ~3.6GB, works on 12GB GPU
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
-5. **OpenVoice Russian** — Russian not native, uses cross-lingual cloning (quality varies)
 
 ## Code Patterns
 

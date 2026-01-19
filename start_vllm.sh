@@ -2,6 +2,8 @@
 # Запуск vLLM на GPU 1 (RTX 3060, 12GB)
 # Llama-3.1-8B GPTQ INT4
 
+# ВАЖНО: CUDA_DEVICE_ORDER=PCI_BUS_ID чтобы GPU нумеровались по PCI bus
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=1
 
 echo "=========================================="

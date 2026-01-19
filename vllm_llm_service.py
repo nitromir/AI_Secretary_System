@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""
+Сервис интеграции с vLLM (OpenAI-compatible API) для генерации ответов секретаря.
+Замена Gemini API на локальную Llama-3.1-8B через vLLM.
+"""
+import os
+import logging
+from typing import List, Dict, Optional, Generator
+import httpx
+import json
+from pathlib import Path
+from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class VLLMLLMService:
+    """
+    LLM сервис через vLLM (OpenAI-compatible API).
+    Использует Llama-3.1-8B-Instruct для генерации ответов.
+    """
+
+    def __init__(
+        self,
+        api_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        timeout: float = 60.0
+    ):
+        """
+        Инициализация сервиса vLLM
+
+        Args:
+            api_url: URL vLLM API (default: http://localhost:11434)
+            model_name: Название модели (auto-detect from vLLM)
+            system_prompt: Системный промпт для секретаря
+            timeout: Таймаут запросов в секундах
+        """
+        self.api_url = api_url or os.getenv("VLLM_API_URL", "http://localhost:11434")
+        self.model_name = model_name  # Will be auto-detected
+        self.timeout = timeout
+        self.conversation_history: List[Dict[str, str]] = []
+
+        # HTTP клиент
+        self.client = httpx.Client(timeout=timeout)
+
+        # Системный промпт
+        self.system_prompt = system_prompt or self._default_system_prompt()
+
+        # FAQ
+        self.faq_path = Path("typical_responses.json")
+        self.faq: Dict[str, str] = self._load_faq()
+
+        logger.info(f"🤖 Инициализация vLLM Service: {self.api_url}")
+        logger.info(f"📚 Загружено типовых ответов: {len(self.faq)}")
+
+        # Проверяем подключение и получаем имя модели
+        self._check_connection()
+
+    def _check_connection(self):
+        """Проверяет подключение к vLLM и получает имя модели"""
+        try:
+            response = self.client.get(f"{self.api_url}/v1/models")
+            response.raise_for_status()
+            models = response.json()
+
+            if models.get("data"):
+                self.model_name = models["data"][0]["id"]
+                logger.info(f"✅ vLLM подключен, модель: {self.model_name}")
+            else:
+                logger.warning("⚠️ vLLM не вернул список моделей")
+                self.model_name = "unknown"
+
+        except httpx.ConnectError:
+            logger.warning(f"⚠️ vLLM недоступен по адресу {self.api_url}")
+            self.model_name = "offline"
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка подключения к vLLM: {e}")
+            self.model_name = "error"
+
+    def _load_faq(self) -> Dict[str, str]:
+        """Загружает типовые вопросы-ответы из JSON"""
+        if not self.faq_path.exists():
+            logger.warning("Файл типовых ответов не найден: %s → FAQ отключён", self.faq_path)
+            return {}
+
+        try:
+            with self.faq_path.open(encoding="utf-8") as f:
+                raw_data = json.load(f)
+            return {k.lower().strip(): v for k, v in raw_data.items()}
+        except Exception as e:
+            logger.error("Ошибка загрузки типовых ответов %s: %s", self.faq_path, e)
+            return {}
+
+    def _check_faq(self, user_message: str) -> Optional[str]:
+        """Проверяет сообщение на совпадение с FAQ"""
+        if not self.faq:
+            return None
+
+        normalized = user_message.lower().strip().rstrip("?!.,")
+
+        if normalized in self.faq:
+            response = self.faq[normalized]
+            logger.info(f"📋 FAQ match (exact): '{normalized}'")
+            return self._apply_faq_templates(response)
+
+        for key, response in self.faq.items():
+            if key in normalized or normalized in key:
+                logger.info(f"📋 FAQ match (partial): '{key}' in '{normalized}'")
+                return self._apply_faq_templates(response)
+
+        return None
+
+    def _apply_faq_templates(self, response: str) -> str:
+        """Подставляет переменные шаблона в ответ"""
+        now = datetime.now()
+
+        replacements = {
+            "{current_time}": now.strftime("%H:%M"),
+            "{current_date}": now.strftime("%d.%m.%Y"),
+            "{day_of_week}": ["понедельник", "вторник", "среда", "четверг",
+                             "пятница", "суббота", "воскресенье"][now.weekday()],
+        }
+
+        for placeholder, value in replacements.items():
+            response = response.replace(placeholder, value)
+
+        return response
+
+    def reload_faq(self):
+        """Перезагружает FAQ из файла (hot reload)"""
+        self.faq = self._load_faq()
+        logger.info(f"🔄 FAQ перезагружен: {len(self.faq)} записей")
+
+    def _default_system_prompt(self) -> str:
+        """Системный промпт секретаря"""
+        return """Ты — Лидия, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
+
+ПРАВИЛА:
+1. Отвечай кратко (2-3 предложения максимум)
+2. Никакой разметки - только чистый текст
+3. Используй букву "ё" (всё, идёт, пришлёт)
+4. Числа пиши словами (пятьсот рублей)
+5. ООО произноси как "о-о-о", IT как "ай-ти"
+
+РОЛЬ:
+- Фильтруй спам и продажи
+- Записывай сообщения для Артёма Юрьевича
+- Будь профессиональной и дружелюбной
+
+ПРИМЕРЫ:
+- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Лидия. Слушаю вас."
+- "Принято. Я передам Артёму Юрьевичу, что вы звонили."
+- "К сожалению, это предложение сейчас не актуально. Всего доброго."
+"""
+
+    def generate_response(
+        self,
+        user_message: str,
+        use_history: bool = True
+    ) -> str:
+        """Генерирует ответ на сообщение пользователя"""
+        logger.info(f"💬 Запрос к vLLM: '{user_message[:50]}...'")
+
+        # Сначала проверяем FAQ
+        faq_response = self._check_faq(user_message)
+        if faq_response:
+            logger.info(f"⚡ FAQ ответ (без LLM): '{faq_response[:50]}...'")
+            if use_history:
+                self.conversation_history.append({"role": "user", "content": user_message})
+                self.conversation_history.append({"role": "assistant", "content": faq_response})
+            return faq_response
+
+        try:
+            # Формируем сообщения
+            messages = [{"role": "system", "content": self.system_prompt}]
+
+            if use_history:
+                messages.extend(self.conversation_history)
+
+            messages.append({"role": "user", "content": user_message})
+
+            # Запрос к vLLM
+            response = self.client.post(
+                f"{self.api_url}/v1/chat/completions",
+                json={
+                    "model": self.model_name,
+                    "messages": messages,
+                    "max_tokens": 256,
+                    "temperature": 0.7,
+                    "stream": False
+                }
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            assistant_message = result["choices"][0]["message"]["content"].strip()
+
+            # Добавляем в историю
+            if use_history:
+                self.conversation_history.append({"role": "user", "content": user_message})
+                self.conversation_history.append({"role": "assistant", "content": assistant_message})
+
+            logger.info(f"✅ Ответ vLLM: '{assistant_message[:50]}...'")
+            return assistant_message
+
+        except httpx.ConnectError:
+            logger.error("❌ vLLM недоступен")
+            return "Извините, сервис временно недоступен. Попробуйте позже."
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации ответа: {e}")
+            return "Извините, возникла техническая проблема. Пожалуйста, повторите ваш вопрос."
+
+    def generate_response_stream(
+        self,
+        user_message: str,
+        use_history: bool = True
+    ) -> Generator[str, None, None]:
+        """Генерирует ответ в потоковом режиме"""
+        logger.info(f"💬 Streaming запрос к vLLM: '{user_message[:50]}...'")
+
+        # Сначала проверяем FAQ
+        faq_response = self._check_faq(user_message)
+        if faq_response:
+            logger.info(f"⚡ FAQ ответ (без LLM): '{faq_response[:50]}...'")
+            if use_history:
+                self.conversation_history.append({"role": "user", "content": user_message})
+                self.conversation_history.append({"role": "assistant", "content": faq_response})
+            yield faq_response
+            return
+
+        try:
+            messages = [{"role": "system", "content": self.system_prompt}]
+
+            if use_history:
+                messages.extend(self.conversation_history)
+
+            messages.append({"role": "user", "content": user_message})
+
+            # Streaming запрос
+            with self.client.stream(
+                "POST",
+                f"{self.api_url}/v1/chat/completions",
+                json={
+                    "model": self.model_name,
+                    "messages": messages,
+                    "max_tokens": 256,
+                    "temperature": 0.7,
+                    "stream": True
+                }
+            ) as response:
+                response.raise_for_status()
+
+                full_response = ""
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk["choices"][0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_response += content
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
+
+                # Добавляем в историю
+                if use_history and full_response:
+                    self.conversation_history.append({"role": "user", "content": user_message})
+                    self.conversation_history.append({"role": "assistant", "content": full_response})
+
+                logger.info(f"✅ Streaming ответ завершён: '{full_response[:50]}...'")
+
+        except httpx.ConnectError:
+            logger.error("❌ vLLM недоступен")
+            yield "Извините, сервис временно недоступен."
+        except Exception as e:
+            logger.error(f"❌ Ошибка streaming генерации: {e}")
+            yield "Извините, возникла техническая проблема."
+
+    def generate_response_from_messages(
+        self,
+        messages: List[Dict[str, str]],
+        stream: bool = False
+    ):
+        """
+        Генерирует ответ на основе списка сообщений OpenAI формата.
+        Совместимо с форматом orchestrator.py.
+        """
+        # Добавляем system prompt если его нет
+        has_system = any(m.get("role") == "system" for m in messages)
+
+        if not has_system:
+            final_messages = [{"role": "system", "content": self.system_prompt}]
+            final_messages.extend(messages)
+        else:
+            final_messages = messages
+
+        # Получаем последнее сообщение пользователя для FAQ
+        last_user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user_message = msg.get("content", "")
+                break
+
+        # Проверяем FAQ (только если мало контекста)
+        user_messages_count = sum(1 for m in messages if m.get("role") == "user")
+        if last_user_message and user_messages_count <= 1:
+            faq_response = self._check_faq(last_user_message)
+            if faq_response:
+                logger.info(f"⚡ FAQ ответ: '{faq_response[:50]}...'")
+                if stream:
+                    yield faq_response
+                    return
+                else:
+                    return faq_response
+
+        try:
+            if stream:
+                # Streaming
+                with self.client.stream(
+                    "POST",
+                    f"{self.api_url}/v1/chat/completions",
+                    json={
+                        "model": self.model_name,
+                        "messages": final_messages,
+                        "max_tokens": 512,
+                        "temperature": 0.7,
+                        "stream": True
+                    }
+                ) as response:
+                    response.raise_for_status()
+
+                    for line in response.iter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                                delta = chunk["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                continue
+            else:
+                # Non-streaming
+                response = self.client.post(
+                    f"{self.api_url}/v1/chat/completions",
+                    json={
+                        "model": self.model_name,
+                        "messages": final_messages,
+                        "max_tokens": 512,
+                        "temperature": 0.7,
+                        "stream": False
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+                return result["choices"][0]["message"]["content"].strip()
+
+        except httpx.ConnectError:
+            logger.error("❌ vLLM недоступен")
+            if stream:
+                yield "Извините, сервис временно недоступен."
+            else:
+                return "Извините, сервис временно недоступен."
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации: {e}")
+            if stream:
+                yield "Извините, возникла техническая проблема."
+            else:
+                return "Извините, возникла техническая проблема."
+
+    def reset_conversation(self):
+        """Сбрасывает историю диалога"""
+        self.conversation_history = []
+        logger.info("🔄 История диалога сброшена")
+
+    def get_conversation_history(self) -> List[Dict[str, str]]:
+        """Возвращает историю диалога"""
+        return self.conversation_history
+
+    def is_available(self) -> bool:
+        """Проверяет доступность vLLM"""
+        try:
+            response = self.client.get(f"{self.api_url}/health", timeout=5.0)
+            return response.status_code == 200
+        except:
+            return False
+
+
+if __name__ == "__main__":
+    # Тестирование
+    print("=== Тест vLLM LLM Service ===\n")
+
+    try:
+        service = VLLMLLMService()
+
+        if not service.is_available():
+            print("⚠️ vLLM недоступен. Запустите: ./start_vllm.sh")
+            exit(1)
+
+        # Тест FAQ
+        print("=== Тест FAQ ===")
+        faq_tests = ["Привет", "сколько времени?", "Какой сегодня день"]
+        for test in faq_tests:
+            response = service.generate_response(test, use_history=False)
+            print(f"  '{test}' → {response}")
+
+        # Тест LLM
+        print("\n=== Тест vLLM ===")
+        service.reset_conversation()
+
+        response1 = service.generate_response("Здравствуйте, это компания XYZ?")
+        print(f"Секретарь: {response1}")
+
+        response2 = service.generate_response("Какой у вас график работы?")
+        print(f"Секретарь: {response2}")
+
+        # Тест streaming
+        print("\n=== Тест Streaming ===")
+        print("Секретарь: ", end="", flush=True)
+        for chunk in service.generate_response_stream("Расскажите о компании", use_history=False):
+            print(chunk, end="", flush=True)
+        print()
+
+    except Exception as e:
+        print(f"Ошибка при тестировании: {e}")
