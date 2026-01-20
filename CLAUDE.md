@@ -134,7 +134,7 @@ service.synthesize(text, preset="neutral")   # Деловой
 URL: http://172.17.0.1:8002/v1  (Docker bridge IP)
 API Key: sk-dummy (any value)
 TTS Voice: lidia
-Model: lidia-gemini
+Model: lidia-secretary
 ```
 
 ## Environment Variables

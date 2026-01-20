@@ -342,7 +342,7 @@ class ChatMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat completion request"""
-    model: str = "lidia-gemini"
+    model: str = "lidia-secretary"
     messages: List[ChatMessage]
     stream: bool = False
     temperature: Optional[float] = None
@@ -678,26 +678,21 @@ async def reset_conversation():
 @app.get("/v1/models/")
 async def list_models():
     """OpenAI-compatible models list for OpenWebUI"""
+    # Определяем имя backend-а для описания
+    backend_name = "vLLM Llama-3.1-8B" if (llm_service and hasattr(llm_service, 'api_url')) else "Gemini"
+
     return {
         "object": "list",
         "data": [
             {
-                "id": "lidia-gemini",
+                "id": "lidia-secretary",
                 "object": "model",
                 "created": 1700000000,
                 "owned_by": "ai-secretary",
                 "permission": [],
-                "root": "lidia-gemini",
-                "parent": None
-            },
-            {
-                "id": "lidia-voice",
-                "object": "model",
-                "created": 1700000000,
-                "owned_by": "ai-secretary",
-                "permission": [],
-                "root": "lidia-voice",
-                "parent": None
+                "root": "lidia-secretary",
+                "parent": None,
+                "description": f"Лидия - цифровой секретарь ({backend_name})"
             }
         ]
     }
@@ -975,7 +970,15 @@ async def admin_status():
 
     # LLM конфигурация
     if llm_service:
-        status["llm_config"] = llm_service.get_config()
+        if hasattr(llm_service, 'get_config'):
+            status["llm_config"] = llm_service.get_config()
+        else:
+            # Для vLLM и других сервисов без get_config
+            status["llm_config"] = {
+                "model_name": getattr(llm_service, 'model_name', 'unknown'),
+                "api_url": getattr(llm_service, 'api_url', None),
+                "backend": "vllm" if hasattr(llm_service, 'api_url') else "gemini",
+            }
 
     # TTS конфигурация
     if voice_service:
