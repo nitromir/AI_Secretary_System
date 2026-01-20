@@ -291,6 +291,15 @@ class VLLMLLMService:
         Генерирует ответ на основе списка сообщений OpenAI формата.
         Совместимо с форматом orchestrator.py.
         """
+        # Для non-streaming используем отдельный метод (избегаем yield в non-stream)
+        if not stream:
+            return self._generate_response_non_stream(messages)
+
+        # Streaming режим - возвращает генератор
+        return self._generate_response_stream(messages)
+
+    def _generate_response_non_stream(self, messages: List[Dict[str, str]]) -> str:
+        """Non-streaming генерация ответа"""
         # Добавляем system prompt если его нет
         has_system = any(m.get("role") == "system" for m in messages)
 
@@ -313,69 +322,92 @@ class VLLMLLMService:
             faq_response = self._check_faq(last_user_message)
             if faq_response:
                 logger.info(f"⚡ FAQ ответ: '{faq_response[:50]}...'")
-                if stream:
-                    yield faq_response
-                    return
-                else:
-                    return faq_response
+                return faq_response
 
         try:
-            if stream:
-                # Streaming
-                with self.client.stream(
-                    "POST",
-                    f"{self.api_url}/v1/chat/completions",
-                    json={
-                        "model": self.model_name,
-                        "messages": final_messages,
-                        "max_tokens": 512,
-                        "temperature": 0.7,
-                        "stream": True
-                    }
-                ) as response:
-                    response.raise_for_status()
-
-                    for line in response.iter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                delta = chunk["choices"][0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    yield content
-                            except json.JSONDecodeError:
-                                continue
-            else:
-                # Non-streaming
-                response = self.client.post(
-                    f"{self.api_url}/v1/chat/completions",
-                    json={
-                        "model": self.model_name,
-                        "messages": final_messages,
-                        "max_tokens": 512,
-                        "temperature": 0.7,
-                        "stream": False
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                return result["choices"][0]["message"]["content"].strip()
+            response = self.client.post(
+                f"{self.api_url}/v1/chat/completions",
+                json={
+                    "model": self.model_name,
+                    "messages": final_messages,
+                    "max_tokens": 512,
+                    "temperature": 0.7,
+                    "stream": False
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
 
         except httpx.ConnectError:
             logger.error("❌ vLLM недоступен")
-            if stream:
-                yield "Извините, сервис временно недоступен."
-            else:
-                return "Извините, сервис временно недоступен."
+            return "Извините, сервис временно недоступен."
         except Exception as e:
             logger.error(f"❌ Ошибка генерации: {e}")
-            if stream:
-                yield "Извините, возникла техническая проблема."
-            else:
-                return "Извините, возникла техническая проблема."
+            return "Извините, возникла техническая проблема."
+
+    def _generate_response_stream(self, messages: List[Dict[str, str]]) -> Generator[str, None, None]:
+        """Streaming генерация ответа"""
+        # Добавляем system prompt если его нет
+        has_system = any(m.get("role") == "system" for m in messages)
+
+        if not has_system:
+            final_messages = [{"role": "system", "content": self.system_prompt}]
+            final_messages.extend(messages)
+        else:
+            final_messages = messages
+
+        # Получаем последнее сообщение пользователя для FAQ
+        last_user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user_message = msg.get("content", "")
+                break
+
+        # Проверяем FAQ (только если мало контекста)
+        user_messages_count = sum(1 for m in messages if m.get("role") == "user")
+        if last_user_message and user_messages_count <= 1:
+            faq_response = self._check_faq(last_user_message)
+            if faq_response:
+                logger.info(f"⚡ FAQ ответ: '{faq_response[:50]}...'")
+                yield faq_response
+                return
+
+        try:
+            # Streaming
+            with self.client.stream(
+                "POST",
+                f"{self.api_url}/v1/chat/completions",
+                json={
+                    "model": self.model_name,
+                    "messages": final_messages,
+                    "max_tokens": 512,
+                    "temperature": 0.7,
+                    "stream": True
+                }
+            ) as response:
+                response.raise_for_status()
+
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk["choices"][0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
+
+        except httpx.ConnectError:
+            logger.error("❌ vLLM недоступен")
+            yield "Извините, сервис временно недоступен."
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации: {e}")
+            yield "Извините, возникла техническая проблема."
 
     def reset_conversation(self):
         """Сбрасывает историю диалога"""

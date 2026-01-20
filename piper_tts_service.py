@@ -40,7 +40,7 @@ class PiperTTSService:
         self,
         models_dir: str = "./models",
         piper_path: Optional[str] = None,
-        default_voice: str = "irina"
+        default_voice: str = "dmitri"
     ):
         self.models_dir = Path(models_dir)
         self.default_voice = default_voice
