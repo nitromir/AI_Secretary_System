@@ -95,3 +95,8 @@ __pycache__/
 /tmp/pytorch_wheels/
 
 /openvoice_env/
+
+# экспорт Telegram
+result.json
+lydia_dataset_v2.jsonl
+lydia_dataset.jsonl
