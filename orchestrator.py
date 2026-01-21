@@ -304,7 +304,7 @@ llm_service: Optional[LLMService] = None
 # По умолчанию используем Piper (CPU) для работы без GPU
 current_voice_config = {
     "engine": "piper",
-    "voice": "irina",  # lidia / dmitri / irina / lidia_openvoice
+    "voice": "dmitri",  # lidia / dmitri / irina / lidia_openvoice
 }
 
 # Папка для временных файлов

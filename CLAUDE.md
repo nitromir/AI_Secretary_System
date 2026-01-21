@@ -17,9 +17,9 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
         ┌───────────────┬───────────────┼───────────────┬───────────────┬──────────────────┐
         ↓               ↓               ↓               ↓               ↓                  ↓
    STT Service     LLM Service    Voice Clone    OpenVoice v2     Piper TTS        Admin Panel
-  (disabled)      llm_service.py  (XTTS v2)     openvoice_       piper_tts_service admin_web.html
-                        │         voice_clone_   service.py       (CPU)
-                        │         service.py     (GPU CC 6.1+)
+  (disabled)       vLLM/Gemini   (XTTS v2)      openvoice_       piper_tts_       admin_web.html
+                        │         voice_clone_   service.py       service.py
+                        │         service.py     (GPU CC 6.1+)    (CPU)
                         │         (GPU CC 7.0+)
                         ↓
                   FAQ System
@@ -29,7 +29,7 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
 **GPU Mode (Single GPU - RTX 3060):**
 ```
 RTX 3060 (12GB, CC 8.6):
-  - vLLM Llama-3.1-8B (70% GPU memory = ~8.4GB)
+  - vLLM Llama-3.1-8B-GPTQ (70% GPU = ~8.4GB, port 11434)
   - XTTS v2 voice cloning (remaining ~3.6GB)
 ```
 
@@ -61,6 +61,10 @@ curl http://localhost:8002/health
 
 # First-time setup
 ./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY (optional with vLLM)
+
+# Check logs (after start_gpu.sh)
+tail -f logs/orchestrator.log               # Main service logs
+tail -f logs/vllm.log                       # vLLM logs
 ```
 
 ## Key Components
@@ -78,10 +82,17 @@ Four voices available, switchable via admin panel or API:
 **Voice switching:**
 - Admin: http://localhost:8002/admin → TTS tab
 - API: `POST /admin/voice {"voice": "lidia_openvoice"}`
-- Code: `current_voice_config` dict in orchestrator.py:294
+- Code: `current_voice_config` dict in `orchestrator.py:305`
+
+### LLM Backend Selection
+Controlled by `LLM_BACKEND` env var (`orchestrator.py:50`):
+- `vllm` — Local Llama-3.1-8B via vLLM (default for GPU mode)
+- `gemini` — Google Gemini API (requires GEMINI_API_KEY)
+
+Both backends share the same interface and FAQ system.
 
 ### FAQ System (`typical_responses.json`)
-Bypasses LLM for common questions. Checked before every Gemini API call in `llm_service.py:79`.
+Bypasses LLM for common questions. Checked in `llm_service.py:79` and `vllm_llm_service.py:96`.
 
 ```json
 {
@@ -96,20 +107,9 @@ Hot reload: `llm_service.reload_faq()`
 
 ### Streaming TTS Manager
 Pre-synthesizes audio during LLM streaming for faster response. Caches audio by text hash.
-- Location: `orchestrator.py:38` (`StreamingTTSManager` class)
+- Location: `orchestrator.py:57` (`StreamingTTSManager` class)
 - Active during `/v1/chat/completions` streaming
 - Cache checked in `/v1/audio/speech` before synthesis
-
-### XTTS Voice Presets
-Defined in `voice_clone_service.py:120` (`INTONATION_PRESETS`)
-
-```python
-service.synthesize(text, preset="warm")      # Тёплый
-service.synthesize(text, preset="calm")      # Спокойный
-service.synthesize(text, preset="energetic") # Энергичный
-service.synthesize(text, preset="natural")   # Default
-service.synthesize(text, preset="neutral")   # Деловой
-```
 
 ## API Quick Reference
 
@@ -170,6 +170,14 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 | `start_cpu.sh` | Launch Piper + Gemini (CPU mode) |
 | `start_vllm.sh` | Launch vLLM separately |
 
+### Dataset Preparation (for fine-tuning)
+
+| File | Purpose |
+|------|---------|
+| `prepare_telegram.py` | Convert Telegram export (result.json) to ShareGPT JSONL for QLoRA training |
+| `analyze_dataset.py` | Statistics and analysis of prepared dataset |
+| `augment_dataset.py` | Data augmentation for training |
+
 ## Known Issues
 
 1. **STT disabled** — faster-whisper hangs on load; use text chat only
@@ -181,7 +189,7 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 
 **Adding a new Piper voice:**
 1. Add ONNX model to `./models/`
-2. Add entry to `PiperTTSService.VOICES` dict in `piper_tts_service.py:26`
+2. Add entry to `PiperTTSService.VOICES` dict in `piper_tts_service.py`
 3. Voice auto-appears in admin panel
 
 **Adding FAQ response:**
@@ -189,9 +197,9 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 2. Call `llm_service.reload_faq()` or restart orchestrator
 
 **Changing default TTS for all endpoints:**
-1. Modify `current_voice_config` dict in `orchestrator.py:285`
+1. Modify `current_voice_config` dict in `orchestrator.py:305`
 2. Or use API: `POST /admin/voice {"voice": "irina"}`
 
-**Text preprocessing for TTS:**
-- Е→Ё replacement: `voice_clone_service.py:69` (`YO_REPLACEMENTS` dict)
-- Add pause words: `voice_clone_service.py:210` (`add_pauses` method)
+**Modifying system prompt:**
+- Gemini: `llm_service.py:128` (`_default_system_prompt` method)
+- vLLM: `vllm_llm_service.py:136` (`_default_system_prompt` method)
