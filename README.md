@@ -5,30 +5,21 @@
 ## Архитектура
 
 ```
-┌─────────────┐
-│  Телефонный │  Twilio / SIP
-│    звонок   │
-└──────┬──────┘
-       │
-       v
-┌─────────────────────────────────────┐
-│      Phone Service (port 8001)      │
-│   Прием звонков, запись аудио       │
-└──────────────┬──────────────────────┘
-               │
-               v
-┌─────────────────────────────────────┐
-│    Orchestrator (port 8000)         │
-│  Координация всех компонентов       │
-└─────────────┬───────────────────────┘
-              │
-    ┌─────────┼─────────┐
-    │         │         │
-    v         v         v
-┌───────┐ ┌───────┐ ┌───────┐
-│  STT  │ │  LLM  │ │  TTS  │
-│Whisper│ │Gemini │ │XTTS v2│
-└───────┘ └───────┘ └───────┘
+                         ┌─────────────────────────────────────┐
+                         │     Orchestrator (port 8002)        │
+                         │         orchestrator.py             │
+                         └──────────────┬──────────────────────┘
+                                        │
+        ┌───────────────┬───────────────┼───────────────┬───────────────┬──────────────────┐──────────────────┐
+        ↓               ↓               ↓               ↓               ↓                  ↓
+   STT Service     LLM Service    Voice Clone    OpenVoice v2     Piper TTS          Admin Panel          RAG (fine Tunning)
+  (disabled)       vLLM/Gemini   (XTTS v2)        openvoice_       piper_tts_       admin_web.html
+               vLLM/Llama-3.1-8B   voice_clone_   service.py       service.py
+                        │         service.py       (GPU CC 6.1+)     (CPU)
+                        │        (GPU CC 7.0+)
+                        ↓
+                  FAQ System
+              typical_responses.json
 ```
 
 ### Компоненты
