@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Сервис интеграции с vLLM (OpenAI-compatible API) для генерации ответов секретаря.
-Замена Gemini API на локальную Llama-3.1-8B через vLLM.
+Поддерживает Qwen2.5-7B с LoRA (Лидия) и Llama-3.1-8B через vLLM.
 """
 import os
 import logging
@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 class VLLMLLMService:
     """
     LLM сервис через vLLM (OpenAI-compatible API).
-    Использует Llama-3.1-8B-Instruct для генерации ответов.
+    Поддерживает:
+    - Qwen2.5-7B-Instruct + Lydia LoRA (по умолчанию)
+    - Llama-3.1-8B-Instruct GPTQ
     """
 
     def __init__(
@@ -33,12 +35,13 @@ class VLLMLLMService:
 
         Args:
             api_url: URL vLLM API (default: http://localhost:11434)
-            model_name: Название модели (auto-detect from vLLM)
+            model_name: Название модели (auto-detect from vLLM, или VLLM_MODEL_NAME env)
             system_prompt: Системный промпт для секретаря
             timeout: Таймаут запросов в секундах
         """
         self.api_url = api_url or os.getenv("VLLM_API_URL", "http://localhost:11434")
-        self.model_name = model_name  # Will be auto-detected
+        # Приоритет: аргумент > env var > auto-detect
+        self.model_name = model_name or os.getenv("VLLM_MODEL_NAME", "")
         self.timeout = timeout
         self.conversation_history: List[Dict[str, str]] = []
 
@@ -55,29 +58,48 @@ class VLLMLLMService:
         logger.info(f"🤖 Инициализация vLLM Service: {self.api_url}")
         logger.info(f"📚 Загружено типовых ответов: {len(self.faq)}")
 
-        # Проверяем подключение и получаем имя модели
+        # Проверяем подключение и получаем/проверяем имя модели
         self._check_connection()
 
     def _check_connection(self):
-        """Проверяет подключение к vLLM и получает имя модели"""
+        """Проверяет подключение к vLLM и получает/проверяет имя модели"""
         try:
             response = self.client.get(f"{self.api_url}/v1/models")
             response.raise_for_status()
             models = response.json()
 
-            if models.get("data"):
-                self.model_name = models["data"][0]["id"]
-                logger.info(f"✅ vLLM подключен, модель: {self.model_name}")
+            available_models = [m["id"] for m in models.get("data", [])]
+
+            if self.model_name:
+                # Модель указана явно - проверяем её наличие
+                if self.model_name in available_models:
+                    logger.info(f"✅ vLLM подключен, модель: {self.model_name}")
+                else:
+                    logger.warning(f"⚠️ Модель '{self.model_name}' не найдена, доступны: {available_models}")
+                    # Fallback на первую доступную
+                    if available_models:
+                        self.model_name = available_models[0]
+                        logger.info(f"📌 Используем: {self.model_name}")
+            elif available_models:
+                # Auto-detect: берём первую модель
+                self.model_name = available_models[0]
+                logger.info(f"✅ vLLM подключен, модель (auto): {self.model_name}")
             else:
                 logger.warning("⚠️ vLLM не вернул список моделей")
                 self.model_name = "unknown"
 
+            # Логируем все доступные модели (для LoRA)
+            if len(available_models) > 1:
+                logger.info(f"📋 Доступные модели: {available_models}")
+
         except httpx.ConnectError:
             logger.warning(f"⚠️ vLLM недоступен по адресу {self.api_url}")
-            self.model_name = "offline"
+            if not self.model_name:
+                self.model_name = "offline"
         except Exception as e:
             logger.warning(f"⚠️ Ошибка подключения к vLLM: {e}")
-            self.model_name = "error"
+            if not self.model_name:
+                self.model_name = "error"
 
     def _load_faq(self) -> Dict[str, str]:
         """Загружает типовые вопросы-ответы из JSON"""

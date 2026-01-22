@@ -33,6 +33,7 @@ calls_log/
 
 # Voice samples directory (НЕ КОММИТИМ образцы голоса!)
 Лидия/
+Гуля/
 voice_samples/
 
 # Models (НЕ КОММИТИМ большие модели AI!)
@@ -100,3 +101,4 @@ __pycache__/
 result.json
 lydia_dataset_v2.jsonl
 lydia_dataset.jsonl
+Гуля
