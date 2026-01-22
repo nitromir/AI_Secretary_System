@@ -679,7 +679,17 @@ async def reset_conversation():
 async def list_models():
     """OpenAI-compatible models list for OpenWebUI"""
     # Определяем имя backend-а для описания
-    backend_name = "vLLM Llama-3.1-8B" if (llm_service and hasattr(llm_service, 'api_url')) else "Gemini"
+    if llm_service and hasattr(llm_service, 'api_url'):
+        # vLLM backend - проверяем модель
+        model_name = getattr(llm_service, 'model_name', 'unknown')
+        if model_name == "lydia" or "qwen" in model_name.lower():
+            backend_name = "vLLM Qwen2.5-7B + Lydia LoRA"
+        elif "llama" in model_name.lower():
+            backend_name = "vLLM Llama-3.1-8B"
+        else:
+            backend_name = f"vLLM {model_name}"
+    else:
+        backend_name = "Gemini"
 
     return {
         "object": "list",

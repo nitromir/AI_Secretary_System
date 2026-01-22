@@ -29,7 +29,7 @@ AI Secretary "Лидия" - virtual secretary with voice cloning (XTTS v2) and p
 **GPU Mode (Single GPU - RTX 3060):**
 ```
 RTX 3060 (12GB, CC 8.6):
-  - vLLM Llama-3.1-8B-GPTQ (70% GPU = ~8.4GB, port 11434)
+  - vLLM Qwen2.5-7B + Lydia LoRA (default, 70% GPU = ~8.4GB, port 11434)
   - XTTS v2 voice cloning (remaining ~3.6GB)
 ```
 
@@ -41,14 +41,20 @@ RTX 3060 (12GB, CC 8.6):
 ## Commands
 
 ```bash
-# GPU Mode: XTTS + vLLM on RTX 3060 (recommended)
+# GPU Mode: XTTS + Qwen2.5-7B + Lydia LoRA (recommended)
 ./start_gpu.sh
+
+# GPU Mode with Llama (fallback)
+./start_gpu.sh --llama
+
+# Start Qwen vLLM separately (for debugging)
+./start_qwen.sh
+
+# Start Llama vLLM separately (for debugging)
+./start_vllm.sh
 
 # CPU-only mode (Piper TTS + Gemini API)
 ./start_cpu.sh
-
-# Start vLLM separately (for debugging)
-./start_vllm.sh
 
 # Health check
 curl http://localhost:8002/health
@@ -61,6 +67,10 @@ curl http://localhost:8002/health
 
 # First-time setup
 ./setup.sh && cp .env.example .env          # Edit .env: add GEMINI_API_KEY (optional with vLLM)
+
+# Start OpenVoice mode (GPU CC 6.1+, e.g. P104-100)
+./setup_openvoice.sh                        # First-time OpenVoice setup
+./start_openvoice.sh
 
 # Check logs (after start_gpu.sh)
 tail -f logs/orchestrator.log               # Main service logs
@@ -86,10 +96,14 @@ Four voices available, switchable via admin panel or API:
 
 ### LLM Backend Selection
 Controlled by `LLM_BACKEND` env var (`orchestrator.py:50`):
-- `vllm` — Local Llama-3.1-8B via vLLM (default for GPU mode)
+- `vllm` — Local LLM via vLLM (default for GPU mode)
+  - **Qwen2.5-7B + Lydia LoRA** (default): `./start_gpu.sh`
+  - Llama-3.1-8B GPTQ (fallback): `./start_gpu.sh --llama`
 - `gemini` — Google Gemini API (requires GEMINI_API_KEY)
 
 Both backends share the same interface and FAQ system.
+
+**LoRA adapter path:** `/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final`
 
 ### FAQ System (`typical_responses.json`)
 Bypasses LLM for common questions. Checked in `llm_service.py:79` and `vllm_llm_service.py:96`.
@@ -141,8 +155,9 @@ Model: lidia-secretary
 
 ```bash
 # LLM Backend selection
-LLM_BACKEND=vllm             # "vllm" (local Llama) or "gemini" (cloud API)
+LLM_BACKEND=vllm             # "vllm" (local Qwen/Llama) or "gemini" (cloud API)
 VLLM_API_URL=http://localhost:11434  # vLLM server URL
+VLLM_MODEL_NAME=lydia        # LoRA adapter name (auto-detect if empty)
 
 # Gemini (only needed if LLM_BACKEND=gemini)
 GEMINI_API_KEY=...           # Google AI Studio API key
@@ -159,16 +174,20 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 |------|---------|
 | `orchestrator.py` | FastAPI server, routes, voice switching, StreamingTTSManager |
 | `voice_clone_service.py` | XTTS v2, GPU synthesis (CC >= 7.0), presets, Е→Ё replacement |
+| `openvoice_service.py` | OpenVoice v2, GPU synthesis (CC >= 6.1), fallback for older GPUs |
 | `piper_tts_service.py` | Piper ONNX wrapper (CPU) |
 | `llm_service.py` | Gemini API + FAQ system |
-| `vllm_llm_service.py` | vLLM API (local Llama-3.1-8B) + FAQ system |
+| `vllm_llm_service.py` | vLLM API (Qwen/Llama) + FAQ system |
 | `typical_responses.json` | FAQ data (hot-reloadable) |
 | `admin_web.html` | Admin panel UI |
 | `Лидия/` | WAV samples for voice cloning |
 | `models/*.onnx` | Piper voice models (dmitri, irina) |
-| `start_gpu.sh` | Launch XTTS + vLLM on RTX 3060 |
+| `start_gpu.sh` | Launch XTTS + Qwen/Llama on RTX 3060 (default: Qwen + LoRA) |
+| `start_qwen.sh` | Launch Qwen2.5-7B + Lydia LoRA only (vLLM) |
+| `start_vllm.sh` | Launch Llama-3.1-8B GPTQ only (vLLM) |
 | `start_cpu.sh` | Launch Piper + Gemini (CPU mode) |
-| `start_vllm.sh` | Launch vLLM separately |
+| `start_openvoice.sh` | Launch OpenVoice + vLLM (for older GPUs CC 6.1+) |
+| `setup_openvoice.sh` | First-time OpenVoice environment setup |
 
 ### Dataset Preparation (for fine-tuning)
 
