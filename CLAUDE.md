@@ -80,24 +80,42 @@ tail -f logs/vllm.log                       # vLLM logs
 ## Key Components
 
 ### Multi-Voice TTS System
-Four voices available, switchable via admin panel or API:
+Five voices available, switchable via admin panel or API:
 
-| Voice | Engine | GPU | Speed | Quality |
-|-------|--------|-----|-------|---------|
-| lidia | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning quality |
-| lidia_openvoice | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning, works on P104-100 |
-| dmitri | Piper | CPU | ~0.5s | Pre-trained male |
-| irina | Piper | CPU | ~0.5s | Pre-trained female |
+| Voice | Engine | GPU | Speed | Quality | Default |
+|-------|--------|-----|-------|---------|---------|
+| gulya | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning quality | ✅ |
+| lidia | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning quality | |
+| lidia_openvoice | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning, works on P104-100 | |
+| dmitri | Piper | CPU | ~0.5s | Pre-trained male | |
+| irina | Piper | CPU | ~0.5s | Pre-trained female | |
+
+**Voice samples:**
+- Гуля: `./Гуля/` (122 WAV files, converted from OGG)
+- Лидия: `./Лидия/` (WAV files)
 
 **Voice switching:**
 - Admin: http://localhost:8002/admin → TTS tab
-- API: `POST /admin/voice {"voice": "lidia_openvoice"}`
+- API: `POST /admin/voice {"voice": "gulya"}` or `{"voice": "lidia"}`
 - Code: `current_voice_config` dict in `orchestrator.py:305`
+
+### Secretary Personas
+Two personas available, controlled by `SECRETARY_PERSONA` env var (default: `gulya`):
+
+| Persona | Name | Description |
+|---------|------|-------------|
+| gulya | Гуля (Гульнара) | Default persona, friendly digital secretary |
+| lidia | Лидия | Alternative persona |
+
+**Persona switching:**
+- Env: `SECRETARY_PERSONA=gulya` or `SECRETARY_PERSONA=lidia`
+- Code: `SECRETARY_PERSONAS` dict in `vllm_llm_service.py:18`
+- Runtime: `llm_service.set_persona("lidia")`
 
 ### LLM Backend Selection
 Controlled by `LLM_BACKEND` env var (`orchestrator.py:50`):
 - `vllm` — Local LLM via vLLM (default for GPU mode)
-  - **Qwen2.5-7B + Lydia LoRA** (default): `./start_gpu.sh`
+  - **Qwen2.5-7B + LoRA** (default): `./start_gpu.sh`
   - Llama-3.1-8B GPTQ (fallback): `./start_gpu.sh --llama`
 - `gemini` — Google Gemini API (requires GEMINI_API_KEY)
 
@@ -106,7 +124,7 @@ Both backends share the same interface and FAQ system.
 **LoRA adapter path:** `/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final`
 
 ### FAQ System (`typical_responses.json`)
-Bypasses LLM for common questions. Checked in `llm_service.py:79` and `vllm_llm_service.py:96`.
+Bypasses LLM for common questions. Checked in `llm_service.py:79` and `vllm_llm_service.py:118`.
 
 ```json
 {
@@ -147,9 +165,13 @@ Pre-synthesizes audio during LLM streaming for faster response. Caches audio by 
 ```
 URL: http://172.17.0.1:8002/v1  (Docker bridge IP)
 API Key: sk-dummy (any value)
-TTS Voice: lidia
-Model: lidia-secretary
+TTS Voice: gulya (or lidia)
+Model: gulya-secretary-qwen (or lidia-secretary-qwen, gulya-secretary-llama, gulya-secretary-gemini)
 ```
+
+**Model naming format:** `{persona}-secretary-{backend}`
+- Personas: `gulya`, `lidia`
+- Backends: `qwen` (Qwen2.5-7B + LoRA), `llama` (Llama-3.1-8B), `gemini`
 
 ## Environment Variables
 
@@ -159,12 +181,14 @@ LLM_BACKEND=vllm             # "vllm" (local Qwen/Llama) or "gemini" (cloud API)
 VLLM_API_URL=http://localhost:11434  # vLLM server URL
 VLLM_MODEL_NAME=lydia        # LoRA adapter name (auto-detect if empty)
 
+# Secretary persona
+SECRETARY_PERSONA=gulya      # "gulya" (default) or "lidia"
+
 # Gemini (only needed if LLM_BACKEND=gemini)
 GEMINI_API_KEY=...           # Google AI Studio API key
 
 # Optional
 ORCHESTRATOR_PORT=8002       # Default port
-VOICE_SAMPLES_DIR=./Лидия    # XTTS samples directory
 CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 ```
 
@@ -180,7 +204,8 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 | `vllm_llm_service.py` | vLLM API (Qwen/Llama) + FAQ system |
 | `typical_responses.json` | FAQ data (hot-reloadable) |
 | `admin_web.html` | Admin panel UI |
-| `Лидия/` | WAV samples for voice cloning |
+| `Гуля/` | WAV samples for Гуля voice cloning (122 files, default) |
+| `Лидия/` | WAV samples for Лидия voice cloning |
 | `models/*.onnx` | Piper voice models (dmitri, irina) |
 | `start_gpu.sh` | Launch XTTS + Qwen/Llama on RTX 3060 (default: Qwen + LoRA) |
 | `start_qwen.sh` | Launch Qwen2.5-7B + Lydia LoRA only (vLLM) |
@@ -206,6 +231,17 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 
 ## Code Patterns
 
+**Adding a new XTTS voice (like Гуля):**
+1. Create folder with WAV samples (e.g., `./NewVoice/`)
+2. Add new service instance in `orchestrator.py` (see `gulya_voice_service`)
+3. Add voice ID to admin endpoints (`admin_get_voices`, `admin_set_voice`, `admin_test_voice`)
+4. Add synthesis case in `synthesize_with_current_voice()`
+
+**Adding a new secretary persona:**
+1. Add entry to `SECRETARY_PERSONAS` dict in `vllm_llm_service.py:18`
+2. Include: name, full_name, company, boss, prompt
+3. Persona available via `SECRETARY_PERSONA` env var or `llm_service.set_persona()`
+
 **Adding a new Piper voice:**
 1. Add ONNX model to `./models/`
 2. Add entry to `PiperTTSService.VOICES` dict in `piper_tts_service.py`
@@ -217,8 +253,8 @@ CUDA_VISIBLE_DEVICES=1       # GPU index for RTX 3060
 
 **Changing default TTS for all endpoints:**
 1. Modify `current_voice_config` dict in `orchestrator.py:305`
-2. Or use API: `POST /admin/voice {"voice": "irina"}`
+2. Or use API: `POST /admin/voice {"voice": "gulya"}`
 
 **Modifying system prompt:**
+- vLLM: Edit persona in `SECRETARY_PERSONAS` dict (`vllm_llm_service.py:18`)
 - Gemini: `llm_service.py:128` (`_default_system_prompt` method)
-- vLLM: `vllm_llm_service.py:136` (`_default_system_prompt` method)

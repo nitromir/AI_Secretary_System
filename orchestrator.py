@@ -294,17 +294,18 @@ app.add_middleware(
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0
+gulya_voice_service: Optional[VoiceCloneService] = None  # XTTS (Гуля) - GPU CC >= 7.0
 piper_service: Optional[PiperTTSService] = None    # Piper (Dmitri, Irina) - CPU
 openvoice_service: Optional["OpenVoiceService"] = None  # OpenVoice v2 (Лидия) - GPU CC 6.1+
 stt_service: Optional[STTService] = None
 llm_service: Optional[LLMService] = None
 
 # Конфигурация текущего голоса
-# engine: "xtts" (Лидия на GPU CC>=7.0), "piper" (Dmitri/Irina на CPU), "openvoice" (Лидия на GPU CC 6.1+)
-# По умолчанию используем Piper (CPU) для работы без GPU
+# engine: "xtts" (Лидия/Гуля на GPU CC>=7.0), "piper" (Dmitri/Irina на CPU), "openvoice" (Лидия на GPU CC 6.1+)
+# По умолчанию используем Гулю (XTTS) если доступна, иначе Piper
 current_voice_config = {
-    "engine": "piper",
-    "voice": "dmitri",  # lidia / dmitri / irina / lidia_openvoice
+    "engine": "xtts",
+    "voice": "gulya",  # gulya / lidia / dmitri / irina / lidia_openvoice
 }
 
 # Папка для временных файлов
@@ -342,7 +343,7 @@ class ChatMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat completion request"""
-    model: str = "lidia-secretary"
+    model: str = "gulya-secretary-qwen"  # Format: {persona}-secretary-{backend}
     messages: List[ChatMessage]
     stream: bool = False
     temperature: Optional[float] = None
@@ -352,7 +353,7 @@ class ChatCompletionRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Инициализация всех сервисов при старте"""
-    global voice_service, piper_service, openvoice_service, stt_service, llm_service, streaming_tts_manager
+    global voice_service, gulya_voice_service, piper_service, openvoice_service, stt_service, llm_service, streaming_tts_manager
 
     logger.info("🚀 Запуск AI Secretary Orchestrator")
 
@@ -378,13 +379,35 @@ async def startup_event():
             logger.info("⏭️ OpenVoice не установлен (пропускаем)")
             openvoice_service = None
 
-        # Инициализация XTTS (Лидия) - GPU CC >= 7.0, опционально
-        logger.info("📦 Загрузка Voice Clone Service (XTTS)...")
+        # Инициализация XTTS (Гуля) - GPU CC >= 7.0, по умолчанию
+        logger.info("📦 Загрузка Voice Clone Service (XTTS - Гуля)...")
         try:
-            voice_service = VoiceCloneService()
+            gulya_voice_service = VoiceCloneService(voice_samples_dir="./Гуля")
+            logger.info(f"✅ XTTS (Гуля) загружен: {len(gulya_voice_service.voice_samples)} образцов")
         except Exception as e:
-            logger.warning(f"⚠️ XTTS недоступен (требуется GPU CC >= 7.0): {e}")
+            logger.warning(f"⚠️ XTTS (Гуля) недоступен: {e}")
+            gulya_voice_service = None
+
+        # Инициализация XTTS (Лидия) - GPU CC >= 7.0, опционально
+        logger.info("📦 Загрузка Voice Clone Service (XTTS - Лидия)...")
+        try:
+            voice_service = VoiceCloneService(voice_samples_dir="./Лидия")
+            logger.info(f"✅ XTTS (Лидия) загружен: {len(voice_service.voice_samples)} образцов")
+        except Exception as e:
+            logger.warning(f"⚠️ XTTS (Лидия) недоступен (требуется GPU CC >= 7.0): {e}")
             voice_service = None
+
+        # Устанавливаем голос по умолчанию
+        global current_voice_config
+        if gulya_voice_service:
+            current_voice_config = {"engine": "xtts", "voice": "gulya"}
+            logger.info("🎤 Голос по умолчанию: Гуля (XTTS)")
+        elif voice_service:
+            current_voice_config = {"engine": "xtts", "voice": "lidia"}
+            logger.info("🎤 Голос по умолчанию: Лидия (XTTS)")
+        elif piper_service:
+            current_voice_config = {"engine": "piper", "voice": "dmitri"}
+            logger.info("🎤 Голос по умолчанию: Дмитрий (Piper)")
 
         # Инициализация LLM Service (vLLM или Gemini)
         if LLM_BACKEND == "vllm" and VLLM_AVAILABLE:
@@ -447,17 +470,19 @@ async def health_check():
             llm_backend_type = f"gemini ({llm_service.model_name})"
 
     services_status = {
-        "voice_clone_xtts": voice_service is not None,
+        "voice_clone_xtts_gulya": gulya_voice_service is not None,
+        "voice_clone_xtts_lidia": voice_service is not None,
         "voice_clone_openvoice": openvoice_service is not None,
         "piper_tts": piper_service is not None,
         "stt": stt_service is not None,
         "llm": llm_service is not None,
         "llm_backend": llm_backend_type,
         "streaming_tts": streaming_tts_manager is not None,
+        "current_voice": current_voice_config,
     }
 
     # Для health check достаточно любой TTS + llm
-    any_tts = services_status["voice_clone_xtts"] or services_status["voice_clone_openvoice"] or services_status["piper_tts"]
+    any_tts = services_status["voice_clone_xtts_gulya"] or services_status["voice_clone_xtts_lidia"] or services_status["voice_clone_openvoice"] or services_status["piper_tts"]
     core_ok = any_tts and services_status["llm"]
 
     result = {
@@ -481,7 +506,7 @@ def synthesize_with_current_voice(text: str, output_path: str, language: str = "
     Engines:
     - piper: CPU, быстрый, предобученные голоса (dmitri, irina)
     - openvoice: GPU CC 6.1+, клонирование голоса (lidia_openvoice)
-    - xtts: GPU CC >= 7.0, лучшее качество клонирования (lidia)
+    - xtts: GPU CC >= 7.0, лучшее качество клонирования (gulya, lidia)
     """
     engine = current_voice_config["engine"]
     voice = current_voice_config["voice"]
@@ -492,12 +517,19 @@ def synthesize_with_current_voice(text: str, output_path: str, language: str = "
     elif engine == "openvoice" and openvoice_service:
         logger.info(f"🎙️ OpenVoice синтез (Лидия): '{text[:40]}...'")
         openvoice_service.synthesize_to_file(text, output_path, language=language)
-    elif engine == "xtts" and voice_service:
+    elif engine == "xtts" and voice == "gulya" and gulya_voice_service:
+        logger.info(f"🎙️ XTTS синтез (Гуля): '{text[:40]}...'")
+        gulya_voice_service.synthesize_to_file(text, output_path, language=language)
+    elif engine == "xtts" and voice == "lidia" and voice_service:
         logger.info(f"🎙️ XTTS синтез (Лидия): '{text[:40]}...'")
         voice_service.synthesize_to_file(text, output_path, language=language)
+    elif gulya_voice_service:
+        # Fallback to Гуля if available (default)
+        logger.info(f"🎙️ XTTS синтез (Гуля fallback): '{text[:40]}...'")
+        gulya_voice_service.synthesize_to_file(text, output_path, language=language)
     elif voice_service:
-        # Fallback to XTTS if available
-        logger.info(f"🎙️ XTTS синтез (fallback): '{text[:40]}...'")
+        # Fallback to Лидия if available
+        logger.info(f"🎙️ XTTS синтез (Лидия fallback): '{text[:40]}...'")
         voice_service.synthesize_to_file(text, output_path, language=language)
     elif openvoice_service:
         # Fallback to OpenVoice if XTTS not available
@@ -678,31 +710,45 @@ async def reset_conversation():
 @app.get("/v1/models/")
 async def list_models():
     """OpenAI-compatible models list for OpenWebUI"""
-    # Определяем имя backend-а для описания
+    # Определяем backend и суффикс для имени модели
     if llm_service and hasattr(llm_service, 'api_url'):
         # vLLM backend - проверяем модель
         model_name = getattr(llm_service, 'model_name', 'unknown')
         if model_name == "lydia" or "qwen" in model_name.lower():
-            backend_name = "vLLM Qwen2.5-7B + Lydia LoRA"
+            backend_suffix = "qwen"
+            backend_desc = "Qwen2.5-7B + LoRA"
         elif "llama" in model_name.lower():
-            backend_name = "vLLM Llama-3.1-8B"
+            backend_suffix = "llama"
+            backend_desc = "Llama-3.1-8B"
         else:
-            backend_name = f"vLLM {model_name}"
+            backend_suffix = "vllm"
+            backend_desc = model_name
     else:
-        backend_name = "Gemini"
+        backend_suffix = "gemini"
+        backend_desc = "Gemini"
 
     return {
         "object": "list",
         "data": [
             {
-                "id": "lidia-secretary",
+                "id": f"gulya-secretary-{backend_suffix}",
                 "object": "model",
                 "created": 1700000000,
                 "owned_by": "ai-secretary",
                 "permission": [],
-                "root": "lidia-secretary",
+                "root": f"gulya-secretary-{backend_suffix}",
                 "parent": None,
-                "description": f"Лидия - цифровой секретарь ({backend_name})"
+                "description": f"Гуля - цифровой секретарь ({backend_desc})"
+            },
+            {
+                "id": f"lidia-secretary-{backend_suffix}",
+                "object": "model",
+                "created": 1700000000,
+                "owned_by": "ai-secretary",
+                "permission": [],
+                "root": f"lidia-secretary-{backend_suffix}",
+                "parent": None,
+                "description": f"Лидия - цифровой секретарь ({backend_desc})"
             }
         ]
     }
@@ -711,11 +757,15 @@ async def list_models():
 @app.get("/v1/voices")
 async def list_voices():
     """List available voices"""
-    return {
-        "voices": [
-            {"voice_id": "lidia", "name": "Лидия", "language": "ru"}
-        ]
-    }
+    voices = []
+    if gulya_voice_service:
+        voices.append({"voice_id": "gulya", "name": "Гуля", "language": "ru"})
+    if voice_service:
+        voices.append({"voice_id": "lidia", "name": "Лидия", "language": "ru"})
+    if piper_service:
+        voices.append({"voice_id": "dmitri", "name": "Дмитрий", "language": "ru"})
+        voices.append({"voice_id": "irina", "name": "Ирина", "language": "ru"})
+    return {"voices": voices}
 
 
 @app.post("/v1/audio/speech")
@@ -1188,7 +1238,7 @@ async def admin_get_llm_history():
 # ============== Voice Selection API ==============
 
 class AdminVoiceRequest(BaseModel):
-    voice: str  # lidia / dmitri / irina
+    voice: str  # gulya / lidia / dmitri / irina
 
 
 @app.get("/admin/voices")
@@ -1196,13 +1246,25 @@ async def admin_get_voices():
     """Получить список всех доступных голосов"""
     voices = []
 
+    # XTTS голос (Гуля) - требует GPU CC >= 7.0 (по умолчанию)
+    if gulya_voice_service:
+        voices.append({
+            "id": "gulya",
+            "name": "Гуля (XTTS)",
+            "engine": "xtts",
+            "description": "Клонированный голос Гули (XTTS v2, GPU CC >= 7.0)",
+            "available": True,
+            "samples_count": len(gulya_voice_service.voice_samples),
+            "default": True,
+        })
+
     # XTTS голос (Лидия) - требует GPU CC >= 7.0
     if voice_service:
         voices.append({
             "id": "lidia",
             "name": "Лидия (XTTS)",
             "engine": "xtts",
-            "description": "Клонированный голос (XTTS v2, GPU CC >= 7.0)",
+            "description": "Клонированный голос Лидии (XTTS v2, GPU CC >= 7.0)",
             "available": True,
             "samples_count": len(voice_service.voice_samples),
         })
@@ -1250,9 +1312,15 @@ async def admin_set_voice(request: AdminVoiceRequest):
     voice_id = request.voice.lower()
 
     # Проверяем доступность голоса
-    if voice_id == "lidia":
+    if voice_id == "gulya":
+        if not gulya_voice_service:
+            raise HTTPException(status_code=503, detail="XTTS service (Гуля) not available (requires GPU CC >= 7.0)")
+        current_voice_config = {"engine": "xtts", "voice": "gulya"}
+        logger.info(f"🎤 Голос изменён на: Гуля (XTTS)")
+
+    elif voice_id == "lidia":
         if not voice_service:
-            raise HTTPException(status_code=503, detail="XTTS service not available (requires GPU CC >= 7.0)")
+            raise HTTPException(status_code=503, detail="XTTS service (Лидия) not available (requires GPU CC >= 7.0)")
         current_voice_config = {"engine": "xtts", "voice": "lidia"}
         logger.info(f"🎤 Голос изменён на: Лидия (XTTS)")
 
@@ -1274,7 +1342,7 @@ async def admin_set_voice(request: AdminVoiceRequest):
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown voice: {voice_id}. Available: lidia, lidia_openvoice, dmitri, irina"
+            detail=f"Unknown voice: {voice_id}. Available: gulya, lidia, lidia_openvoice, dmitri, irina"
         )
 
     return {"status": "ok", **current_voice_config}
@@ -1289,9 +1357,14 @@ async def admin_test_voice(request: AdminVoiceRequest):
     output_path = TEMP_DIR / f"voice_test_{voice_id}_{int(time.time())}.wav"
 
     try:
-        if voice_id == "lidia":
+        if voice_id == "gulya":
+            if not gulya_voice_service:
+                raise HTTPException(status_code=503, detail="XTTS (Гуля) not available (requires GPU CC >= 7.0)")
+            gulya_voice_service.synthesize_to_file(test_text, str(output_path), preset="natural")
+
+        elif voice_id == "lidia":
             if not voice_service:
-                raise HTTPException(status_code=503, detail="XTTS not available (requires GPU CC >= 7.0)")
+                raise HTTPException(status_code=503, detail="XTTS (Лидия) not available (requires GPU CC >= 7.0)")
             voice_service.synthesize_to_file(test_text, str(output_path), preset="natural")
 
         elif voice_id == "lidia_openvoice":
@@ -1305,7 +1378,7 @@ async def admin_test_voice(request: AdminVoiceRequest):
             piper_service.synthesize_to_file(test_text, str(output_path), voice=voice_id)
 
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_id}. Available: lidia, lidia_openvoice, dmitri, irina")
+            raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_id}. Available: gulya, lidia, lidia_openvoice, dmitri, irina")
 
         return FileResponse(
             output_path,
@@ -1323,12 +1396,15 @@ def get_current_tts_service():
     engine = current_voice_config["engine"]
     voice = current_voice_config["voice"]
 
-    if engine == "xtts":
+    if engine == "xtts" and voice == "gulya":
+        return gulya_voice_service, {"preset": "natural"}
+    elif engine == "xtts" and voice == "lidia":
         return voice_service, {"preset": "natural"}
     elif engine == "piper":
         return piper_service, {"voice": voice}
     else:
-        return voice_service, {"preset": "natural"}
+        # Default to gulya if available
+        return gulya_voice_service or voice_service, {"preset": "natural"}
 
 
 if __name__ == "__main__":

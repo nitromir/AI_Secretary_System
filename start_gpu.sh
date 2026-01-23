@@ -30,7 +30,7 @@ echo "=========================================="
 echo ""
 
 if [[ "$MODEL" == "qwen" ]]; then
-    echo "  LLM: Qwen2.5-7B + Lydia LoRA (default)"
+    echo "  LLM: Qwen2.5-7B-AWQ + Lydia LoRA (default)"
     echo "  LoRA: $LORA_PATH"
 else
     echo "  LLM: Llama-3.1-8B GPTQ"
@@ -68,33 +68,36 @@ export CUDA_VISIBLE_DEVICES=1
 echo "[1/2] Запуск vLLM..."
 
 if [[ "$MODEL" == "qwen" ]]; then
-    echo "      Модель: Qwen2.5-7B-Instruct + Lydia LoRA"
+    echo "      Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
     echo "      Память GPU: 70%"
 
-    # Проверка LoRA
+    # Проверка LoRA (не критично - работает и без)
     if [ ! -f "$LORA_PATH/adapter_config.json" ]; then
-        echo "      ✗ LoRA adapter not found at $LORA_PATH"
-        echo "      Fallback to Llama..."
-        MODEL="llama"
+        echo "      ⚠ LoRA adapter not found at $LORA_PATH"
+        echo "      Running Qwen without LoRA..."
     fi
 fi
 
 if [[ "$MODEL" == "qwen" ]]; then
-    # Qwen с LoRA
+    # Qwen AWQ с LoRA
+    LORA_ARGS=""
+    if [ -f "$LORA_PATH/adapter_config.json" ]; then
+        LORA_ARGS="--enable-lora --lora-modules lydia=$LORA_PATH"
+    fi
+
     (
         export CUDA_DEVICE_ORDER=PCI_BUS_ID
         export CUDA_VISIBLE_DEVICES=1
         source ~/vllm_env/venv/bin/activate
-        vllm serve "Qwen/Qwen2.5-7B-Instruct" \
+        vllm serve "Qwen/Qwen2.5-7B-Instruct-AWQ" \
             --gpu-memory-utilization 0.70 \
             --max-model-len 4096 \
-            --dtype bfloat16 \
+            --dtype float16 \
             --max-num-seqs 32 \
             --port 11434 \
             --enforce-eager \
             --trust-remote-code \
-            --enable-lora \
-            --lora-modules lydia="$LORA_PATH"
+            $LORA_ARGS
     ) > logs/vllm.log 2>&1 &
 else
     # Llama GPTQ
@@ -180,7 +183,7 @@ echo "=========================================="
 echo "  ✓ Все сервисы запущены!"
 echo ""
 if [[ "$MODEL" == "qwen" ]]; then
-    echo "  Модель: Qwen2.5-7B + Lydia LoRA"
+    echo "  Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
 else
     echo "  Модель: Llama-3.1-8B GPTQ"
 fi
