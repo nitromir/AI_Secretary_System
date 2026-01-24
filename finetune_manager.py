@@ -1,0 +1,754 @@
+#!/usr/bin/env python3
+"""
+Fine-tune Manager - управление дообучением LoRA адаптеров для AI Secretary System.
+Поддерживает загрузку датасета, настройку параметров и мониторинг обучения.
+"""
+import subprocess
+import threading
+import asyncio
+import os
+import json
+import logging
+import re
+import shutil
+from pathlib import Path
+from dataclasses import dataclass, asdict, field
+from typing import Optional, List, Dict, AsyncGenerator
+from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TrainingConfig:
+    """Конфигурация обучения LoRA"""
+    # Model
+    base_model: str = "Qwen/Qwen2.5-7B-Instruct"
+
+    # LoRA params
+    lora_rank: int = 8
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+
+    # Training params
+    batch_size: int = 1
+    gradient_accumulation_steps: int = 64
+    learning_rate: float = 2e-4
+    num_epochs: int = 1
+    warmup_ratio: float = 0.03
+    weight_decay: float = 0.01
+    max_seq_length: int = 768
+
+    # Output
+    output_dir: str = "qwen2.5-7b-lydia-lora-new"
+
+    # Advanced
+    gradient_checkpointing: bool = True
+    fp16: bool = True
+    logging_steps: int = 1
+    save_steps: int = 100
+
+
+@dataclass
+class AdapterInfo:
+    """Информация о LoRA адаптере"""
+    name: str
+    path: str
+    size_mb: float
+    modified: str
+    active: bool = False
+    config: Optional[dict] = None
+
+
+@dataclass
+class TrainingStatus:
+    """Статус текущего обучения"""
+    is_running: bool = False
+    current_step: int = 0
+    total_steps: int = 0
+    current_epoch: int = 0
+    total_epochs: int = 0
+    loss: float = 0.0
+    learning_rate: float = 0.0
+    elapsed_seconds: float = 0.0
+    eta_seconds: float = 0.0
+    error: Optional[str] = None
+
+
+@dataclass
+class DatasetStats:
+    """Статистика датасета"""
+    total_sessions: int = 0
+    total_messages: int = 0
+    total_tokens: int = 0
+    avg_tokens_per_message: float = 0.0
+    file_path: Optional[str] = None
+    file_size_mb: float = 0.0
+    modified: Optional[str] = None
+
+
+class FinetuneManager:
+    """
+    Менеджер дообучения LoRA адаптеров.
+
+    Функции:
+    - Загрузка и обработка датасетов (Telegram export)
+    - Настройка параметров обучения
+    - Запуск/остановка обучения
+    - Мониторинг прогресса (SSE)
+    - Управление адаптерами (активация, удаление)
+    """
+
+    # Пути по умолчанию
+    FINETUNE_DIR = Path(os.path.expanduser("~/qwen-finetune"))
+    ADAPTERS_BASE = FINETUNE_DIR / "qwen2.5-7b-lydia-lora"
+    VENV_PATH = FINETUNE_DIR / "venv"
+    DATASET_DIR = FINETUNE_DIR / "data"
+
+    # Скрипты
+    PREPARE_SCRIPT = "prepare_telegram.py"
+    ANALYZE_SCRIPT = "analyze_dataset.py"
+    AUGMENT_SCRIPT = "augment_dataset.py"
+    TRAIN_SCRIPT = "train_qlora.py"
+
+    def __init__(self, base_dir: Optional[Path] = None):
+        self.base_dir = base_dir or Path(__file__).parent
+        self.finetune_dir = self.FINETUNE_DIR
+        self.adapters_base = self.ADAPTERS_BASE
+
+        # Состояние обучения
+        self.training_process: Optional[subprocess.Popen] = None
+        self.training_config: Optional[TrainingConfig] = None
+        self.training_status = TrainingStatus()
+        self.training_log: List[str] = []
+        self.training_start_time: Optional[datetime] = None
+        self._training_lock = threading.Lock()
+
+        # Создаем директории
+        self.DATASET_DIR.mkdir(parents=True, exist_ok=True)
+        self.adapters_base.mkdir(parents=True, exist_ok=True)
+
+        # Текущий активный адаптер
+        self.active_adapter: Optional[str] = None
+        self._load_active_adapter()
+
+        logger.info(f"🎓 FinetuneManager инициализирован")
+        logger.info(f"   📁 Finetune dir: {self.finetune_dir}")
+        logger.info(f"   🔧 Adapters: {self.adapters_base}")
+
+    def _load_active_adapter(self):
+        """Загружает информацию об активном адаптере"""
+        active_file = self.adapters_base / ".active"
+        if active_file.exists():
+            self.active_adapter = active_file.read_text().strip()
+
+    def _save_active_adapter(self, adapter_name: str):
+        """Сохраняет активный адаптер"""
+        active_file = self.adapters_base / ".active"
+        active_file.write_text(adapter_name)
+        self.active_adapter = adapter_name
+
+    def _run_script(self, script_name: str, args: List[str] = None, capture_output: bool = True) -> dict:
+        """Запускает Python скрипт в venv finetune"""
+        script_path = self.finetune_dir / script_name
+        if not script_path.exists():
+            # Пробуем в base_dir
+            script_path = self.base_dir / script_name
+            if not script_path.exists():
+                return {"status": "error", "message": f"Скрипт не найден: {script_name}"}
+
+        python_path = self.VENV_PATH / "bin" / "python"
+        if not python_path.exists():
+            # Fallback на системный python
+            python_path = "python3"
+
+        cmd = [str(python_path), str(script_path)]
+        if args:
+            cmd.extend(args)
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.finetune_dir),
+                capture_output=capture_output,
+                text=True,
+                timeout=300  # 5 минут таймаут
+            )
+
+            if result.returncode == 0:
+                return {
+                    "status": "ok",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": result.stderr or result.stdout,
+                    "returncode": result.returncode
+                }
+        except subprocess.TimeoutExpired:
+            return {"status": "error", "message": "Таймаут выполнения скрипта"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    # ============== Dataset Operations ==============
+
+    async def upload_dataset(self, content: bytes, filename: str) -> dict:
+        """
+        Сохраняет загруженный датасет (Telegram export JSON).
+        """
+        try:
+            # Определяем путь для сохранения
+            if filename.endswith('.json'):
+                dest_path = self.DATASET_DIR / "result.json"
+            else:
+                dest_path = self.DATASET_DIR / filename
+
+            dest_path.write_bytes(content)
+            file_size = len(content) / (1024 * 1024)
+
+            logger.info(f"📥 Датасет загружен: {dest_path} ({file_size:.2f} MB)")
+
+            return {
+                "status": "ok",
+                "message": f"Файл сохранён: {dest_path.name}",
+                "path": str(dest_path),
+                "size_mb": round(file_size, 2)
+            }
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки датасета: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def process_dataset(self) -> dict:
+        """
+        Обрабатывает Telegram export и создает JSONL для обучения.
+        Запускает prepare_telegram.py
+        """
+        result = self._run_script(self.PREPARE_SCRIPT)
+
+        if result["status"] == "ok":
+            # Проверяем результат
+            output_file = self.DATASET_DIR / "train.jsonl"
+            if output_file.exists():
+                lines = len(output_file.read_text().strip().split('\n'))
+                return {
+                    "status": "ok",
+                    "message": f"Датасет обработан: {lines} примеров",
+                    "output_file": str(output_file),
+                    "examples_count": lines
+                }
+
+        return result
+
+    def get_dataset_stats(self) -> DatasetStats:
+        """
+        Возвращает статистику датасета.
+        """
+        stats = DatasetStats()
+
+        # Проверяем наличие обработанного датасета
+        train_file = self.DATASET_DIR / "train.jsonl"
+        if not train_file.exists():
+            return stats
+
+        try:
+            stat = train_file.stat()
+            stats.file_path = str(train_file)
+            stats.file_size_mb = round(stat.st_size / (1024 * 1024), 2)
+            stats.modified = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+            # Парсим JSONL
+            with open(train_file, 'r', encoding='utf-8') as f:
+                sessions = [json.loads(line) for line in f if line.strip()]
+
+            stats.total_sessions = len(sessions)
+
+            total_messages = 0
+            total_chars = 0
+
+            for session in sessions:
+                messages = session.get("conversations", session.get("messages", []))
+                total_messages += len(messages)
+                for msg in messages:
+                    content = msg.get("value", msg.get("content", ""))
+                    total_chars += len(content)
+
+            stats.total_messages = total_messages
+            # Приблизительная оценка токенов (1 токен ~ 4 символа для русского)
+            stats.total_tokens = total_chars // 3
+            stats.avg_tokens_per_message = round(stats.total_tokens / max(1, total_messages), 1)
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка анализа датасета: {e}")
+
+        return stats
+
+    async def augment_dataset(self) -> dict:
+        """
+        Аугментирует датасет (увеличивает разнообразие).
+        Запускает augment_dataset.py
+        """
+        result = self._run_script(self.AUGMENT_SCRIPT)
+
+        if result["status"] == "ok":
+            stats = self.get_dataset_stats()
+            return {
+                "status": "ok",
+                "message": f"Датасет аугментирован. Теперь: {stats.total_sessions} сессий",
+                "stats": asdict(stats)
+            }
+
+        return result
+
+    # ============== Training Configuration ==============
+
+    def get_config(self) -> TrainingConfig:
+        """Возвращает текущую конфигурацию обучения"""
+        if self.training_config:
+            return self.training_config
+
+        # Загружаем из файла если есть
+        config_file = self.finetune_dir / "training_config.json"
+        if config_file.exists():
+            try:
+                data = json.loads(config_file.read_text())
+                self.training_config = TrainingConfig(**data)
+            except Exception:
+                self.training_config = TrainingConfig()
+        else:
+            self.training_config = TrainingConfig()
+
+        return self.training_config
+
+    def set_config(self, config: TrainingConfig) -> dict:
+        """Устанавливает конфигурацию обучения"""
+        self.training_config = config
+
+        # Сохраняем в файл
+        config_file = self.finetune_dir / "training_config.json"
+        try:
+            config_file.write_text(json.dumps(asdict(config), indent=2))
+            logger.info(f"⚙️ Конфигурация сохранена: {config_file}")
+            return {"status": "ok", "config": asdict(config)}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_config_presets(self) -> Dict[str, TrainingConfig]:
+        """Возвращает предустановленные конфигурации"""
+        return {
+            "quick": TrainingConfig(
+                lora_rank=4,
+                lora_alpha=8,
+                batch_size=1,
+                gradient_accumulation_steps=32,
+                num_epochs=1,
+                max_seq_length=512,
+                output_dir="adapter-quick",
+            ),
+            "standard": TrainingConfig(
+                lora_rank=8,
+                lora_alpha=16,
+                batch_size=1,
+                gradient_accumulation_steps=64,
+                num_epochs=1,
+                max_seq_length=768,
+                output_dir="adapter-standard",
+            ),
+            "thorough": TrainingConfig(
+                lora_rank=16,
+                lora_alpha=32,
+                batch_size=1,
+                gradient_accumulation_steps=128,
+                num_epochs=2,
+                max_seq_length=1024,
+                output_dir="adapter-thorough",
+            ),
+        }
+
+    # ============== Training Operations ==============
+
+    async def start_training(self, config: Optional[TrainingConfig] = None) -> dict:
+        """
+        Запускает обучение в фоновом режиме.
+        """
+        if self.training_process and self.training_process.poll() is None:
+            return {"status": "error", "message": "Обучение уже запущено"}
+
+        # Используем переданную или текущую конфигурацию
+        if config:
+            self.training_config = config
+        elif not self.training_config:
+            self.training_config = TrainingConfig()
+
+        config = self.training_config
+
+        # Проверяем датасет
+        train_file = self.DATASET_DIR / "train.jsonl"
+        if not train_file.exists():
+            return {"status": "error", "message": "Датасет не найден. Сначала загрузите и обработайте данные."}
+
+        # Создаем директорию для адаптера
+        output_dir = self.adapters_base / config.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Формируем команду обучения
+        python_path = self.VENV_PATH / "bin" / "python"
+        if not python_path.exists():
+            return {"status": "error", "message": "venv для обучения не найден. Запустите setup."}
+
+        train_script = self.finetune_dir / self.TRAIN_SCRIPT
+        if not train_script.exists():
+            return {"status": "error", "message": f"Скрипт обучения не найден: {train_script}"}
+
+        cmd = [
+            str(python_path),
+            str(train_script),
+            "--model_name", config.base_model,
+            "--dataset_path", str(train_file),
+            "--output_dir", str(output_dir),
+            "--lora_r", str(config.lora_rank),
+            "--lora_alpha", str(config.lora_alpha),
+            "--lora_dropout", str(config.lora_dropout),
+            "--per_device_train_batch_size", str(config.batch_size),
+            "--gradient_accumulation_steps", str(config.gradient_accumulation_steps),
+            "--learning_rate", str(config.learning_rate),
+            "--num_train_epochs", str(config.num_epochs),
+            "--warmup_ratio", str(config.warmup_ratio),
+            "--max_seq_length", str(config.max_seq_length),
+            "--logging_steps", str(config.logging_steps),
+            "--save_steps", str(config.save_steps),
+        ]
+
+        if config.gradient_checkpointing:
+            cmd.append("--gradient_checkpointing")
+        if config.fp16:
+            cmd.append("--fp16")
+
+        try:
+            # Очищаем предыдущий лог
+            with self._training_lock:
+                self.training_log = []
+                self.training_status = TrainingStatus(is_running=True, total_epochs=config.num_epochs)
+                self.training_start_time = datetime.now()
+
+            # Запускаем процесс
+            log_file = self.finetune_dir / "training.log"
+            self.training_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=str(self.finetune_dir),
+                text=True,
+                bufsize=1,
+            )
+
+            # Запускаем поток для чтения вывода
+            threading.Thread(target=self._read_training_output, daemon=True).start()
+
+            logger.info(f"🎓 Обучение запущено: {' '.join(cmd[:5])}...")
+
+            return {
+                "status": "ok",
+                "message": "Обучение запущено",
+                "config": asdict(config),
+                "pid": self.training_process.pid
+            }
+
+        except Exception as e:
+            with self._training_lock:
+                self.training_status.is_running = False
+                self.training_status.error = str(e)
+            logger.error(f"❌ Ошибка запуска обучения: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _read_training_output(self):
+        """Читает вывод процесса обучения в фоне"""
+        if not self.training_process:
+            return
+
+        # Регулярки для парсинга прогресса
+        step_pattern = re.compile(r"Step (\d+)/(\d+)")
+        loss_pattern = re.compile(r"loss[=:\s]+([0-9.]+)", re.IGNORECASE)
+        epoch_pattern = re.compile(r"Epoch (\d+)/(\d+)")
+        lr_pattern = re.compile(r"lr[=:\s]+([0-9.e-]+)", re.IGNORECASE)
+
+        for line in iter(self.training_process.stdout.readline, ''):
+            if not line:
+                break
+
+            line = line.strip()
+
+            with self._training_lock:
+                self.training_log.append(line)
+
+                # Ограничиваем размер лога
+                if len(self.training_log) > 10000:
+                    self.training_log = self.training_log[-5000:]
+
+                # Парсим прогресс
+                step_match = step_pattern.search(line)
+                if step_match:
+                    self.training_status.current_step = int(step_match.group(1))
+                    self.training_status.total_steps = int(step_match.group(2))
+
+                loss_match = loss_pattern.search(line)
+                if loss_match:
+                    self.training_status.loss = float(loss_match.group(1))
+
+                epoch_match = epoch_pattern.search(line)
+                if epoch_match:
+                    self.training_status.current_epoch = int(epoch_match.group(1))
+                    self.training_status.total_epochs = int(epoch_match.group(2))
+
+                lr_match = lr_pattern.search(line)
+                if lr_match:
+                    self.training_status.learning_rate = float(lr_match.group(1))
+
+                # Вычисляем время
+                if self.training_start_time:
+                    elapsed = (datetime.now() - self.training_start_time).total_seconds()
+                    self.training_status.elapsed_seconds = elapsed
+
+                    # ETA
+                    if self.training_status.current_step > 0 and self.training_status.total_steps > 0:
+                        steps_remaining = self.training_status.total_steps - self.training_status.current_step
+                        time_per_step = elapsed / self.training_status.current_step
+                        self.training_status.eta_seconds = steps_remaining * time_per_step
+
+        # Процесс завершился
+        with self._training_lock:
+            self.training_status.is_running = False
+            returncode = self.training_process.wait()
+            if returncode != 0:
+                self.training_status.error = f"Процесс завершился с кодом {returncode}"
+            else:
+                logger.info("✅ Обучение завершено успешно")
+
+    async def stop_training(self) -> dict:
+        """Останавливает обучение"""
+        if not self.training_process or self.training_process.poll() is not None:
+            return {"status": "ok", "message": "Обучение не запущено"}
+
+        try:
+            self.training_process.terminate()
+            try:
+                self.training_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.training_process.kill()
+
+            with self._training_lock:
+                self.training_status.is_running = False
+
+            logger.info("🛑 Обучение остановлено")
+            return {"status": "ok", "message": "Обучение остановлено"}
+
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_training_status(self) -> TrainingStatus:
+        """Возвращает текущий статус обучения"""
+        with self._training_lock:
+            return TrainingStatus(
+                is_running=self.training_status.is_running,
+                current_step=self.training_status.current_step,
+                total_steps=self.training_status.total_steps,
+                current_epoch=self.training_status.current_epoch,
+                total_epochs=self.training_status.total_epochs,
+                loss=self.training_status.loss,
+                learning_rate=self.training_status.learning_rate,
+                elapsed_seconds=self.training_status.elapsed_seconds,
+                eta_seconds=self.training_status.eta_seconds,
+                error=self.training_status.error,
+            )
+
+    def get_training_log(self, lines: int = 100, offset: int = 0) -> dict:
+        """Возвращает лог обучения"""
+        with self._training_lock:
+            total = len(self.training_log)
+            if offset > 0:
+                end_idx = max(0, total - offset)
+                start_idx = max(0, end_idx - lines)
+            else:
+                start_idx = max(0, total - lines)
+                end_idx = total
+
+            return {
+                "lines": self.training_log[start_idx:end_idx],
+                "total_lines": total,
+                "start_line": start_idx,
+                "end_line": end_idx,
+            }
+
+    async def stream_training_log(self, interval: float = 0.5) -> AsyncGenerator[str, None]:
+        """SSE streaming лога обучения"""
+        last_line_idx = 0
+
+        while True:
+            with self._training_lock:
+                # Отправляем новые строки
+                if len(self.training_log) > last_line_idx:
+                    new_lines = self.training_log[last_line_idx:]
+                    last_line_idx = len(self.training_log)
+
+                    for line in new_lines:
+                        yield json.dumps({
+                            "type": "log",
+                            "line": line,
+                            "timestamp": datetime.now().isoformat()
+                        })
+
+                # Отправляем статус
+                yield json.dumps({
+                    "type": "status",
+                    "status": asdict(self.training_status)
+                })
+
+                is_running = self.training_status.is_running
+
+            if not is_running:
+                yield json.dumps({"type": "done"})
+                break
+
+            await asyncio.sleep(interval)
+
+    # ============== Adapter Operations ==============
+
+    def list_adapters(self) -> List[AdapterInfo]:
+        """Возвращает список доступных LoRA адаптеров"""
+        adapters = []
+
+        if not self.adapters_base.exists():
+            return adapters
+
+        for adapter_dir in self.adapters_base.iterdir():
+            if not adapter_dir.is_dir() or adapter_dir.name.startswith('.'):
+                continue
+
+            # Проверяем наличие файлов адаптера
+            adapter_files = list(adapter_dir.glob("adapter_*.safetensors")) + list(adapter_dir.glob("adapter_*.bin"))
+            if not adapter_files:
+                # Проверяем подпапку final
+                final_dir = adapter_dir / "final"
+                if final_dir.exists():
+                    adapter_files = list(final_dir.glob("adapter_*.safetensors")) + list(final_dir.glob("adapter_*.bin"))
+
+            if not adapter_files:
+                continue
+
+            # Вычисляем размер
+            total_size = sum(f.stat().st_size for f in adapter_dir.rglob("*") if f.is_file())
+            size_mb = total_size / (1024 * 1024)
+
+            # Дата модификации
+            modified = datetime.fromtimestamp(adapter_dir.stat().st_mtime).isoformat()
+
+            # Конфиг если есть
+            config = None
+            config_file = adapter_dir / "adapter_config.json"
+            if not config_file.exists():
+                config_file = adapter_dir / "final" / "adapter_config.json"
+            if config_file.exists():
+                try:
+                    config = json.loads(config_file.read_text())
+                except Exception:
+                    pass
+
+            adapters.append(AdapterInfo(
+                name=adapter_dir.name,
+                path=str(adapter_dir),
+                size_mb=round(size_mb, 2),
+                modified=modified,
+                active=(adapter_dir.name == self.active_adapter),
+                config=config
+            ))
+
+        return sorted(adapters, key=lambda x: x.modified, reverse=True)
+
+    async def activate_adapter(self, adapter_name: str) -> dict:
+        """
+        Активирует LoRA адаптер (hot-swap в vLLM).
+        """
+        adapter_dir = self.adapters_base / adapter_name
+        if not adapter_dir.exists():
+            return {"status": "error", "message": f"Адаптер не найден: {adapter_name}"}
+
+        # Проверяем наличие файлов
+        final_dir = adapter_dir / "final"
+        if final_dir.exists():
+            adapter_path = final_dir
+        else:
+            adapter_path = adapter_dir
+
+        adapter_files = list(adapter_path.glob("adapter_*.safetensors")) + list(adapter_path.glob("adapter_*.bin"))
+        if not adapter_files:
+            return {"status": "error", "message": f"Файлы адаптера не найдены в {adapter_path}"}
+
+        # TODO: Реализовать hot-swap через vLLM API
+        # Пока просто сохраняем как активный
+        self._save_active_adapter(adapter_name)
+
+        logger.info(f"✅ Адаптер активирован: {adapter_name}")
+
+        return {
+            "status": "ok",
+            "message": f"Адаптер {adapter_name} активирован. Перезапустите vLLM для применения.",
+            "adapter": adapter_name,
+            "path": str(adapter_path),
+            "note": "Требуется перезапуск vLLM для применения нового адаптера"
+        }
+
+    async def delete_adapter(self, adapter_name: str) -> dict:
+        """Удаляет LoRA адаптер"""
+        adapter_dir = self.adapters_base / adapter_name
+        if not adapter_dir.exists():
+            return {"status": "error", "message": f"Адаптер не найден: {adapter_name}"}
+
+        if adapter_name == self.active_adapter:
+            return {"status": "error", "message": "Нельзя удалить активный адаптер"}
+
+        try:
+            shutil.rmtree(adapter_dir)
+            logger.info(f"🗑️ Адаптер удалён: {adapter_name}")
+            return {"status": "ok", "message": f"Адаптер {adapter_name} удалён"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
+# Глобальный экземпляр
+_finetune_manager: Optional[FinetuneManager] = None
+
+
+def get_finetune_manager() -> FinetuneManager:
+    """Получает или создает глобальный FinetuneManager"""
+    global _finetune_manager
+    if _finetune_manager is None:
+        _finetune_manager = FinetuneManager()
+    return _finetune_manager
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def test():
+        manager = FinetuneManager()
+
+        print("=== Dataset Stats ===")
+        stats = manager.get_dataset_stats()
+        print(f"  Sessions: {stats.total_sessions}")
+        print(f"  Messages: {stats.total_messages}")
+        print(f"  Tokens: {stats.total_tokens}")
+
+        print("\n=== Training Config ===")
+        config = manager.get_config()
+        print(f"  LoRA rank: {config.lora_rank}")
+        print(f"  Batch size: {config.batch_size}")
+        print(f"  Learning rate: {config.learning_rate}")
+
+        print("\n=== Adapters ===")
+        for adapter in manager.list_adapters():
+            active = " (ACTIVE)" if adapter.active else ""
+            print(f"  - {adapter.name}: {adapter.size_mb} MB{active}")
+
+    asyncio.run(test())

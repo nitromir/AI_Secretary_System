@@ -1,0 +1,528 @@
+<script setup lang="ts">
+import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { ttsApi, type Voice, type XttsParams } from '@/api'
+import {
+  Mic,
+  Play,
+  Volume2,
+  Settings2,
+  Plus,
+  Trash2,
+  Save,
+  CheckCircle2
+} from 'lucide-vue-next'
+import { ref, computed, watch } from 'vue'
+
+const queryClient = useQueryClient()
+
+// State
+const testText = ref('Здравствуйте! Это тестовое сообщение для проверки голоса.')
+const testAudioUrl = ref<string | null>(null)
+const testLoading = ref(false)
+const showCreatePreset = ref(false)
+const newPresetName = ref('')
+
+// Local params state
+const localParams = ref<Partial<XttsParams>>({})
+
+// Queries
+const { data: voicesData, isLoading: voicesLoading } = useQuery({
+  queryKey: ['tts-voices'],
+  queryFn: () => ttsApi.getVoices(),
+})
+
+const { data: xttsParams } = useQuery({
+  queryKey: ['tts-xtts-params'],
+  queryFn: () => ttsApi.getXttsParams(),
+})
+
+const { data: presetsData } = useQuery({
+  queryKey: ['tts-presets'],
+  queryFn: () => ttsApi.getBuiltinPresets(),
+})
+
+const { data: customPresetsData, refetch: refetchCustomPresets } = useQuery({
+  queryKey: ['tts-custom-presets'],
+  queryFn: () => ttsApi.getCustomPresets(),
+})
+
+const { data: cacheData, refetch: refetchCache } = useQuery({
+  queryKey: ['tts-cache'],
+  queryFn: () => ttsApi.getCacheStats(),
+})
+
+// Watch xtts params
+watch(xttsParams, (data) => {
+  if (data?.current_params) {
+    localParams.value = { ...data.current_params }
+  }
+}, { immediate: true })
+
+// Mutations
+const setVoiceMutation = useMutation({
+  mutationFn: (voice: string) => ttsApi.setVoice(voice),
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tts-voices'] }),
+})
+
+const setPresetMutation = useMutation({
+  mutationFn: (preset: string) => ttsApi.setPreset(preset),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['tts-presets'] })
+    queryClient.invalidateQueries({ queryKey: ['tts-xtts-params'] })
+  },
+})
+
+const saveParamsMutation = useMutation({
+  mutationFn: (params: Partial<XttsParams>) => ttsApi.setXttsParams(params),
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tts-xtts-params'] }),
+})
+
+const createPresetMutation = useMutation({
+  mutationFn: ({ name, params }: { name: string; params: Partial<XttsParams> }) =>
+    ttsApi.createCustomPreset(name, params),
+  onSuccess: () => {
+    refetchCustomPresets()
+    showCreatePreset.value = false
+    newPresetName.value = ''
+  },
+})
+
+const deletePresetMutation = useMutation({
+  mutationFn: (name: string) => ttsApi.deleteCustomPreset(name),
+  onSuccess: () => refetchCustomPresets(),
+})
+
+const clearCacheMutation = useMutation({
+  mutationFn: () => ttsApi.clearCache(),
+  onSuccess: () => refetchCache(),
+})
+
+// Computed
+const voices = computed(() => voicesData.value?.voices || [])
+const currentVoice = computed(() => voicesData.value?.current?.voice || '')
+const currentEngine = computed(() => voicesData.value?.current?.engine || '')
+
+const xttsVoices = computed(() => voices.value.filter(v => v.engine === 'xtts'))
+const piperVoices = computed(() => voices.value.filter(v => v.engine === 'piper'))
+const openvoiceVoices = computed(() => voices.value.filter(v => v.engine === 'openvoice'))
+
+const presets = computed(() => presetsData.value?.presets || {})
+const customPresets = computed(() => customPresetsData.value?.presets || {})
+const currentPreset = computed(() => presetsData.value?.current || 'natural')
+
+// Methods
+async function testVoice(voiceId: string) {
+  testLoading.value = true
+  try {
+    const blob = await ttsApi.testVoice(voiceId)
+    if (testAudioUrl.value) {
+      URL.revokeObjectURL(testAudioUrl.value)
+    }
+    testAudioUrl.value = URL.createObjectURL(blob)
+  } catch (e) {
+    console.error('Test failed:', e)
+  } finally {
+    testLoading.value = false
+  }
+}
+
+async function synthesizeTest() {
+  testLoading.value = true
+  try {
+    const result = await ttsApi.testSynthesize(testText.value, currentPreset.value)
+    console.log('Synthesis result:', result)
+  } catch (e) {
+    console.error('Synthesis failed:', e)
+  } finally {
+    testLoading.value = false
+  }
+}
+
+function saveParams() {
+  saveParamsMutation.mutate(localParams.value)
+}
+
+function createPreset() {
+  if (newPresetName.value) {
+    createPresetMutation.mutate({
+      name: newPresetName.value,
+      params: localParams.value,
+    })
+  }
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <!-- Voice Selection -->
+    <div class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <Mic class="w-5 h-5" />
+          Voice Selection
+        </h2>
+        <p class="text-sm text-muted-foreground">
+          Current: <strong>{{ currentVoice }}</strong> ({{ currentEngine }})
+        </p>
+      </div>
+
+      <div class="p-4 space-y-6">
+        <!-- XTTS Voices -->
+        <div v-if="xttsVoices.length">
+          <h3 class="text-sm font-medium text-muted-foreground mb-3">XTTS v2 (GPU CC >= 7.0)</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div
+              v-for="voice in xttsVoices"
+              :key="voice.id"
+              :class="[
+                'p-4 rounded-lg border cursor-pointer transition-all',
+                currentVoice === voice.id
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+              ]"
+              @click="setVoiceMutation.mutate(voice.id)"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-medium">{{ voice.name }}</span>
+                <CheckCircle2 v-if="currentVoice === voice.id" class="w-4 h-4 text-primary" />
+              </div>
+              <p class="text-xs text-muted-foreground mb-2">{{ voice.description }}</p>
+              <div class="flex items-center justify-between">
+                <span v-if="voice.samples_count" class="text-xs text-muted-foreground">
+                  {{ voice.samples_count }} samples
+                </span>
+                <button
+                  @click.stop="testVoice(voice.id)"
+                  :disabled="testLoading"
+                  class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                >
+                  <Play class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OpenVoice Voices -->
+        <div v-if="openvoiceVoices.length">
+          <h3 class="text-sm font-medium text-muted-foreground mb-3">OpenVoice v2 (GPU CC >= 6.1)</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div
+              v-for="voice in openvoiceVoices"
+              :key="voice.id"
+              :class="[
+                'p-4 rounded-lg border cursor-pointer transition-all',
+                currentVoice === voice.id
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+              ]"
+              @click="setVoiceMutation.mutate(voice.id)"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-medium">{{ voice.name }}</span>
+                <CheckCircle2 v-if="currentVoice === voice.id" class="w-4 h-4 text-primary" />
+              </div>
+              <p class="text-xs text-muted-foreground">{{ voice.description }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Piper Voices -->
+        <div v-if="piperVoices.length">
+          <h3 class="text-sm font-medium text-muted-foreground mb-3">Piper (CPU)</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div
+              v-for="voice in piperVoices"
+              :key="voice.id"
+              :class="[
+                'p-4 rounded-lg border cursor-pointer transition-all',
+                voice.available
+                  ? currentVoice === voice.id
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-primary/50'
+                  : 'border-border opacity-50 cursor-not-allowed'
+              ]"
+              @click="voice.available && setVoiceMutation.mutate(voice.id)"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-medium">{{ voice.name }}</span>
+                <CheckCircle2 v-if="currentVoice === voice.id" class="w-4 h-4 text-primary" />
+              </div>
+              <p class="text-xs text-muted-foreground">{{ voice.description }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio Test Player -->
+    <div v-if="testAudioUrl" class="bg-card rounded-lg border border-border p-4">
+      <div class="flex items-center gap-4">
+        <Volume2 class="w-5 h-5 text-muted-foreground" />
+        <audio controls :src="testAudioUrl" class="flex-1" />
+      </div>
+    </div>
+
+    <!-- XTTS Parameters -->
+    <div v-if="currentEngine === 'xtts'" class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border flex items-center justify-between">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <Settings2 class="w-5 h-5" />
+          XTTS Parameters
+        </h2>
+        <button
+          @click="saveParams"
+          :disabled="saveParamsMutation.isPending.value"
+          class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          <Save class="w-4 h-4" />
+          Apply
+        </button>
+      </div>
+
+      <div class="p-4">
+        <!-- Presets -->
+        <div class="mb-6">
+          <h3 class="text-sm font-medium mb-3">Presets</h3>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="(preset, name) in presets"
+              :key="name"
+              @click="setPresetMutation.mutate(name as string)"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm transition-colors',
+                currentPreset === name
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary hover:bg-secondary/80'
+              ]"
+            >
+              {{ preset.display_name }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Parameters Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Temperature -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>Temperature</span>
+              <span class="text-muted-foreground">{{ localParams.temperature?.toFixed(2) }}</span>
+            </label>
+            <input
+              v-model.number="localParams.temperature"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              class="w-full"
+            />
+          </div>
+
+          <!-- Speed -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>Speed</span>
+              <span class="text-muted-foreground">{{ localParams.speed?.toFixed(2) }}</span>
+            </label>
+            <input
+              v-model.number="localParams.speed"
+              type="range"
+              min="0.5"
+              max="2"
+              step="0.05"
+              class="w-full"
+            />
+          </div>
+
+          <!-- Top K -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>Top K</span>
+              <span class="text-muted-foreground">{{ localParams.top_k }}</span>
+            </label>
+            <input
+              v-model.number="localParams.top_k"
+              type="range"
+              min="1"
+              max="100"
+              step="1"
+              class="w-full"
+            />
+          </div>
+
+          <!-- Top P -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>Top P</span>
+              <span class="text-muted-foreground">{{ localParams.top_p?.toFixed(2) }}</span>
+            </label>
+            <input
+              v-model.number="localParams.top_p"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              class="w-full"
+            />
+          </div>
+
+          <!-- Repetition Penalty -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>Repetition Penalty</span>
+              <span class="text-muted-foreground">{{ localParams.repetition_penalty?.toFixed(1) }}</span>
+            </label>
+            <input
+              v-model.number="localParams.repetition_penalty"
+              type="range"
+              min="1"
+              max="10"
+              step="0.5"
+              class="w-full"
+            />
+          </div>
+
+          <!-- GPT Cond Length -->
+          <div>
+            <label class="flex items-center justify-between text-sm mb-2">
+              <span>GPT Cond Length</span>
+              <span class="text-muted-foreground">{{ localParams.gpt_cond_len }}s</span>
+            </label>
+            <input
+              v-model.number="localParams.gpt_cond_len"
+              type="range"
+              min="6"
+              max="30"
+              step="1"
+              class="w-full"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Presets -->
+    <div class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Custom Presets</h2>
+        <button
+          @click="showCreatePreset = true"
+          class="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+        >
+          <Plus class="w-4 h-4" />
+          Create
+        </button>
+      </div>
+
+      <div class="p-4">
+        <div v-if="!Object.keys(customPresets).length" class="text-center text-muted-foreground py-4">
+          No custom presets yet
+        </div>
+        <div v-else class="space-y-2">
+          <div
+            v-for="(params, name) in customPresets"
+            :key="name"
+            class="flex items-center justify-between p-3 bg-secondary rounded-lg"
+          >
+            <div>
+              <span class="font-medium">{{ name }}</span>
+              <span class="text-xs text-muted-foreground ml-2">
+                temp={{ (params as any).temperature }}, speed={{ (params as any).speed }}
+              </span>
+            </div>
+            <button
+              @click="deletePresetMutation.mutate(name as string)"
+              class="p-1.5 text-red-500 hover:bg-red-500/20 rounded transition-colors"
+            >
+              <Trash2 class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cache Stats -->
+    <div class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border flex items-center justify-between">
+        <h2 class="text-lg font-semibold">TTS Cache</h2>
+        <button
+          @click="clearCacheMutation.mutate()"
+          :disabled="clearCacheMutation.isPending.value"
+          class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+        >
+          <Trash2 class="w-4 h-4" />
+          Clear
+        </button>
+      </div>
+      <div class="p-4 grid grid-cols-2 gap-4">
+        <div>
+          <p class="text-sm text-muted-foreground">Cached Items</p>
+          <p class="text-2xl font-bold">{{ cacheData?.cache_size || 0 }}</p>
+        </div>
+        <div>
+          <p class="text-sm text-muted-foreground">Active Sessions</p>
+          <p class="text-2xl font-bold">{{ cacheData?.active_sessions || 0 }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Synthesis -->
+    <div class="bg-card rounded-lg border border-border p-4">
+      <h2 class="text-lg font-semibold mb-4">Test Synthesis</h2>
+      <div class="space-y-4">
+        <textarea
+          v-model="testText"
+          rows="3"
+          placeholder="Enter text to synthesize..."
+          class="w-full p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+        />
+        <button
+          @click="synthesizeTest"
+          :disabled="testLoading || !testText"
+          class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          <Play class="w-4 h-4" />
+          Synthesize
+        </button>
+      </div>
+    </div>
+
+    <!-- Create Preset Modal -->
+    <div
+      v-if="showCreatePreset"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      @click.self="showCreatePreset = false"
+    >
+      <div class="bg-card border border-border rounded-lg w-full max-w-md p-6">
+        <h3 class="text-lg font-semibold mb-4">Create Custom Preset</h3>
+        <p class="text-sm text-muted-foreground mb-4">
+          Save current parameters as a new preset
+        </p>
+
+        <input
+          v-model="newPresetName"
+          type="text"
+          placeholder="Preset name..."
+          class="w-full p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary mb-4"
+        />
+
+        <div class="flex justify-end gap-2">
+          <button
+            @click="showCreatePreset = false"
+            class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            @click="createPreset"
+            :disabled="!newPresetName || createPresetMutation.isPending.value"
+            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
