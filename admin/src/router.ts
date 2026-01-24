@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { useAuthStore } from './stores/auth'
 import DashboardView from './views/DashboardView.vue'
 import ServicesView from './views/ServicesView.vue'
 import LlmView from './views/LlmView.vue'
@@ -6,10 +7,17 @@ import TtsView from './views/TtsView.vue'
 import FaqView from './views/FaqView.vue'
 import FinetuneView from './views/FinetuneView.vue'
 import MonitoringView from './views/MonitoringView.vue'
+import LoginView from './views/LoginView.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: LoginView,
+      meta: { title: 'Login', public: true }
+    },
     {
       path: '/',
       name: 'dashboard',
@@ -53,6 +61,31 @@ const router = createRouter({
       meta: { title: 'Monitoring', icon: 'Activity' }
     }
   ]
+})
+
+// Navigation guard for authentication
+router.beforeEach((to, from, next) => {
+  const authStore = useAuthStore()
+
+  // Check if route requires auth
+  const isPublicRoute = to.meta.public === true
+
+  if (!isPublicRoute && !authStore.isAuthenticated) {
+    // Check if token is in localStorage but store not initialized
+    const token = localStorage.getItem('admin_token')
+    if (token && !authStore.isTokenExpired()) {
+      // Token exists and valid, allow navigation
+      next()
+    } else {
+      // Redirect to login
+      next({ name: 'login', query: { redirect: to.fullPath } })
+    }
+  } else if (to.name === 'login' && authStore.isAuthenticated) {
+    // Already logged in, redirect to dashboard
+    next({ name: 'dashboard' })
+  } else {
+    next()
+  }
 })
 
 export default router
