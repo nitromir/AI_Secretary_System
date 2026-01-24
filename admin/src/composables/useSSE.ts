@@ -1,8 +1,8 @@
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, type Ref, shallowRef } from 'vue'
 
 export function useSSE<T = unknown>(url: string) {
-  const data = ref<T[]>([])
-  const lastData = ref<T | null>(null)
+  const data: Ref<T[]> = shallowRef([])
+  const lastData: Ref<T | null> = shallowRef(null)
   const isConnected = ref(false)
   const error = ref<string | null>(null)
   let eventSource: EventSource | null = null
@@ -22,16 +22,14 @@ export function useSSE<T = unknown>(url: string) {
     eventSource.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as T
-        data.value.push(parsed)
-        lastData.value = parsed
-
+        const newData = [...data.value, parsed]
         // Keep last 1000 items
-        if (data.value.length > 1000) {
-          data.value = data.value.slice(-500)
-        }
+        data.value = newData.length > 1000 ? newData.slice(-500) : newData
+        lastData.value = parsed
       } catch {
         // If not JSON, store as string
-        data.value.push(event.data as T)
+        const newData = [...data.value, event.data as T]
+        data.value = newData.length > 1000 ? newData.slice(-500) : newData
         lastData.value = event.data as T
       }
     }

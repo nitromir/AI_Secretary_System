@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a full Vue 3 admin panel with 7 tabs and ~45 API endpoints.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a full Vue 3 PWA admin panel with 8 tabs, i18n, themes, and ~45 API endpoints.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │     Vue 3 Admin Panel (7 tabs)     │  │
+                              │  │   Vue 3 Admin Panel (8 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -60,6 +60,7 @@ curl http://localhost:8002/health
 # Admin Panel (dev mode)
 cd admin && npm install && npm run dev
 # Open http://localhost:5173
+# Login: admin / admin
 
 # Admin Panel (production)
 # http://localhost:8002/admin (served by FastAPI)
@@ -74,25 +75,54 @@ tail -f logs/vllm.log
 
 ## Admin Panel
 
-Vue 3 admin panel with 7 tabs:
+Vue 3 PWA admin panel with 8 tabs:
 
 | Tab | View File | Description |
 |-----|-----------|-------------|
-| Dashboard | `DashboardView.vue` | Service status, GPU metrics, health |
-| Services | `ServicesView.vue` | Start/stop vLLM, log viewer |
+| Dashboard | `DashboardView.vue` | Service status, GPU sparklines, health |
+| Services | `ServicesView.vue` | Start/stop vLLM, SSE log viewer |
 | LLM | `LlmView.vue` | Backend toggle, persona, params |
-| TTS | `TtsView.vue` | Voice selection, presets, params |
+| TTS | `TtsView.vue` | Voice selection, presets, test |
 | FAQ | `FaqView.vue` | FAQ CRUD editor |
 | Finetune | `FinetuneView.vue` | Training pipeline, adapters |
 | Monitoring | `MonitoringView.vue` | GPU/CPU charts, errors |
+| Settings | `SettingsView.vue` | Language, theme, export/import, audit |
 
-**Admin Tech Stack:**
+### Admin Panel Features
+
+| Feature | Files | Description |
+|---------|-------|-------------|
+| **JWT Auth** | `stores/auth.ts`, `auth_manager.py` | Login with dev fallback |
+| **Multi-user Roles** | `stores/auth.ts` | admin, operator, viewer |
+| **i18n (ru/en)** | `plugins/i18n.ts` | Full translations |
+| **Themes** | `stores/theme.ts`, `main.css` | Light, Dark, Night-Eyes |
+| **PWA** | `manifest.json`, `sw.js` | Installable, offline |
+| **Real-time** | `composables/useRealtimeMetrics.ts` | SSE + polling fallback |
+| **Charts** | `components/charts/*.vue` | Chart.js sparklines |
+| **Search** | `stores/search.ts`, `SearchPalette.vue` | ⌘K command palette |
+| **Audit Log** | `stores/audit.ts` | User action logging |
+| **Export/Import** | `composables/useExportImport.ts` | Config backup |
+| **Responsive** | `App.vue` | Mobile sidebar overlay |
+| **Toasts** | `stores/toast.ts` | Notifications |
+| **Confirm** | `stores/confirm.ts` | Danger dialogs |
+
+### Admin Tech Stack
+
 - Vue 3 + Composition API + TypeScript
 - Vite (build)
-- Tailwind CSS (dark theme)
-- Pinia (state)
-- TanStack Query (data fetching)
-- SSE for real-time updates
+- Tailwind CSS (4 themes)
+- Pinia + persistedstate
+- TanStack Query (caching)
+- Chart.js + vue-chartjs
+- vue-i18n (ru/en)
+- Lucide icons
+
+### Dev Mode Login
+
+```
+Username: admin
+Password: admin
+```
 
 ## Key Components
 
@@ -146,52 +176,41 @@ class FinetuneManager:
     async def delete_adapter(name) -> dict
 ```
 
+### Auth Manager (`auth_manager.py`)
+JWT authentication for admin panel.
+
+```python
+JWT_SECRET = os.getenv("ADMIN_JWT_SECRET", secrets.token_hex(32))
+
+def create_access_token(username: str, role: str = "admin") -> tuple[str, int]
+def authenticate_user(username: str, password: str) -> Optional[User]
+async def get_current_user(credentials) -> Optional[User]
+```
+
 ### Multi-Voice TTS System
-Five voices available, switchable via admin panel or API:
+Five voices available:
 
-| Voice | Engine | GPU | Speed | Quality | Default |
-|-------|--------|-----|-------|---------|---------|
-| gulya | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning | Yes |
-| lidia | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning | |
-| lidia_openvoice | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning | |
-| dmitri | Piper | CPU | ~0.5s | Pre-trained male | |
-| irina | Piper | CPU | ~0.5s | Pre-trained female | |
-
-**Voice samples:**
-- Гуля: `./Гуля/` (122 WAV files)
-- Лидия: `./Лидия/` (WAV files)
-
-**Voice switching:**
-- Admin: http://localhost:8002/admin → TTS tab
-- API: `POST /admin/voice {"voice": "gulya"}`
-- Code: `current_voice_config` dict in `orchestrator.py`
+| Voice | Engine | GPU | Speed | Quality |
+|-------|--------|-----|-------|---------|
+| gulya | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| lidia | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| lidia_openvoice | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning |
+| dmitri | Piper | CPU | ~0.5s | Pre-trained |
+| irina | Piper | CPU | ~0.5s | Pre-trained |
 
 ### Secretary Personas
-Two personas available:
 
 | Persona | Name | Description |
 |---------|------|-------------|
 | gulya | Гуля (Гульнара) | Default persona |
 | lidia | Лидия | Alternative persona |
 
-**Persona switching:**
-- Admin: http://localhost:8002/admin → LLM tab
-- API: `POST /admin/llm/persona {"persona": "lidia"}`
-- Env: `SECRETARY_PERSONA=gulya`
-- Code: `SECRETARY_PERSONAS` dict in `vllm_llm_service.py`
-
 ### LLM Backend Selection
 - `vllm` — Local LLM via vLLM (default)
 - `gemini` — Google Gemini API (fallback)
 
-**Switching:**
-- Admin: http://localhost:8002/admin → LLM tab
-- API: `POST /admin/llm/backend {"backend": "vllm"}`
-- Env: `LLM_BACKEND=vllm`
-
 ### FAQ System (`typical_responses.json`)
 Bypasses LLM for common questions. Hot-reloadable via admin panel.
-
 Templates: `{current_time}`, `{current_date}`, `{day_of_week}`
 
 ## API Quick Reference
@@ -204,11 +223,13 @@ Templates: `{current_time}`, `{current_date}`, `{day_of_week}`
 **Admin API (~45 endpoints):**
 
 ```python
+# Auth
+POST /admin/auth/login
+
 # Services
 GET  /admin/services/status
 POST /admin/services/{service}/start
 POST /admin/services/{service}/stop
-POST /admin/services/{service}/restart
 GET  /admin/logs/{logfile}
 GET  /admin/logs/stream/{logfile}  # SSE
 
@@ -224,7 +245,6 @@ POST /admin/voice
 POST /admin/voice/test
 GET/POST /admin/tts/xtts/params
 GET/POST /admin/tts/presets/custom
-PUT/DELETE /admin/tts/presets/custom/{name}
 
 # FAQ
 GET    /admin/faq
@@ -232,7 +252,6 @@ POST   /admin/faq
 PUT    /admin/faq/{trigger}
 DELETE /admin/faq/{trigger}
 POST   /admin/faq/reload
-POST   /admin/faq/test
 
 # Fine-tuning
 POST /admin/finetune/dataset/upload
@@ -245,22 +264,12 @@ GET  /admin/finetune/train/status
 GET  /admin/finetune/train/log  # SSE
 GET  /admin/finetune/adapters
 POST /admin/finetune/adapters/activate
-DELETE /admin/finetune/adapters/{name}
 
 # Monitoring
 GET  /admin/monitor/gpu
 GET  /admin/monitor/gpu/stream  # SSE
 GET  /admin/monitor/health
 GET  /admin/monitor/metrics
-```
-
-## OpenWebUI Integration
-
-```
-URL: http://172.17.0.1:8002/v1  (Docker bridge IP)
-API Key: sk-dummy (any value)
-TTS Voice: gulya (or lidia)
-Model: gulya-secretary-qwen
 ```
 
 ## Environment Variables
@@ -273,6 +282,7 @@ SECRETARY_PERSONA=gulya             # "gulya" or "lidia"
 GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
 CUDA_VISIBLE_DEVICES=1
+ADMIN_JWT_SECRET=...                # Auto-generated if empty
 ```
 
 ## Key Files
@@ -280,8 +290,9 @@ CUDA_VISIBLE_DEVICES=1
 | File | Purpose |
 |------|---------|
 | `orchestrator.py` | FastAPI server, ~45 admin endpoints |
-| `service_manager.py` | Service process control, log streaming |
-| `finetune_manager.py` | Training pipeline, adapter management |
+| `auth_manager.py` | JWT authentication |
+| `service_manager.py` | Service process control |
+| `finetune_manager.py` | Training pipeline |
 | `voice_clone_service.py` | XTTS v2, custom presets |
 | `openvoice_service.py` | OpenVoice v2 |
 | `piper_tts_service.py` | Piper ONNX (CPU) |
@@ -289,53 +300,83 @@ CUDA_VISIBLE_DEVICES=1
 | `llm_service.py` | Gemini API fallback |
 | `typical_responses.json` | FAQ data |
 | `custom_presets.json` | TTS custom presets |
-| `admin/` | Vue 3 admin panel |
-| `admin/src/views/` | 7 main view components |
-| `admin/src/api/` | API client modules |
-| `admin/src/stores/` | Pinia stores |
 
 ### Admin Panel Structure
 
 ```
 admin/
 ├── src/
-│   ├── main.ts              # App entry
-│   ├── App.vue              # Main layout, tab navigation
-│   ├── router.ts            # Vue Router
+│   ├── main.ts              # App entry + plugins (i18n, pinia persist)
+│   ├── App.vue              # Main layout, responsive sidebar
+│   ├── router.ts            # Vue Router + auth guard
+│   │
 │   ├── api/
-│   │   ├── client.ts        # Base fetch, SSE helper
-│   │   ├── services.ts      # Services API
-│   │   ├── llm.ts           # LLM API
-│   │   ├── tts.ts           # TTS API
-│   │   ├── faq.ts           # FAQ API
-│   │   ├── finetune.ts      # Finetune API
-│   │   └── monitor.ts       # Monitoring API
-│   ├── stores/
+│   │   ├── client.ts        # Base fetch, generic SSE
 │   │   ├── services.ts
 │   │   ├── llm.ts
 │   │   ├── tts.ts
-│   │   └── settings.ts
+│   │   ├── faq.ts
+│   │   ├── finetune.ts
+│   │   └── monitor.ts
+│   │
+│   ├── stores/
+│   │   ├── auth.ts          # JWT + roles (admin/operator/viewer)
+│   │   ├── theme.ts         # 4 themes (light/dark/night-eyes/system)
+│   │   ├── toast.ts         # Notifications
+│   │   ├── confirm.ts       # Confirmation dialogs
+│   │   ├── search.ts        # Command palette
+│   │   ├── audit.ts         # Action logging
+│   │   ├── services.ts
+│   │   └── llm.ts
+│   │
 │   ├── composables/
-│   │   ├── useSSE.ts        # SSE connection
-│   │   └── useGpuStats.ts   # GPU polling
-│   └── views/
-│       ├── DashboardView.vue
-│       ├── ServicesView.vue
-│       ├── LlmView.vue
-│       ├── TtsView.vue
-│       ├── FaqView.vue
-│       ├── FinetuneView.vue
-│       └── MonitoringView.vue
-├── vite.config.ts           # Proxy to :8002
-├── tailwind.config.js       # Dark theme
+│   │   ├── useSSE.ts        # Generic SSE connection
+│   │   ├── useRealtimeMetrics.ts  # GPU stats with fallback
+│   │   └── useExportImport.ts     # Config backup
+│   │
+│   ├── plugins/
+│   │   └── i18n.ts          # vue-i18n (ru/en)
+│   │
+│   ├── components/
+│   │   ├── charts/          # SparklineChart, GpuChart, MetricsChart
+│   │   ├── ToastContainer.vue
+│   │   ├── ConfirmDialog.vue
+│   │   ├── SearchPalette.vue
+│   │   ├── ThemeToggle.vue
+│   │   └── ErrorBoundary.vue
+│   │
+│   ├── views/
+│   │   ├── DashboardView.vue
+│   │   ├── ServicesView.vue
+│   │   ├── LlmView.vue
+│   │   ├── TtsView.vue
+│   │   ├── FaqView.vue
+│   │   ├── FinetuneView.vue
+│   │   ├── MonitoringView.vue
+│   │   ├── SettingsView.vue
+│   │   └── LoginView.vue
+│   │
+│   └── assets/
+│       └── main.css         # Tailwind + 4 themes
+│
+├── public/
+│   ├── manifest.json        # PWA manifest
+│   └── sw.js               # Service Worker
+│
+├── docs/
+│   └── ADMIN_PANEL_SESSION_LOG.md  # Implementation history
+│
+├── index.html               # PWA meta tags
+├── vite.config.ts
+├── tailwind.config.js
 └── package.json
 ```
 
 ## Known Issues
 
-1. **STT disabled** — faster-whisper hangs on load; use text chat only
-2. **XTTS requires CC >= 7.0** — Use RTX 3060 or newer GPU
-3. **GPU memory sharing** — vLLM uses 70% (~8.4GB), XTTS needs ~3.6GB
+1. **STT disabled** — faster-whisper hangs; use text chat only
+2. **XTTS requires CC >= 7.0** — RTX 3060 or newer
+3. **GPU memory sharing** — vLLM 70% (~8.4GB), XTTS ~3.6GB
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
 
 ## Code Patterns
@@ -350,28 +391,21 @@ admin/
 1. Add entry to `SECRETARY_PERSONAS` dict in `vllm_llm_service.py`
 2. Persona available via API and admin panel
 
-**Adding FAQ response:**
-1. Via admin panel: FAQ tab → Add
-2. Via API: `POST /admin/faq {"trigger": "...", "response": "..."}`
-3. Via file: Edit `typical_responses.json`, call `POST /admin/faq/reload`
+**Adding a new theme:**
+1. Add CSS variables in `admin/src/assets/main.css`
+2. Update `Theme` type in `admin/src/stores/theme.ts`
+3. Add translations in `admin/src/plugins/i18n.ts`
 
-**Modifying LLM params at runtime:**
-```python
-# vllm_llm_service.py
-llm_service.set_params(temperature=0.9, max_tokens=1024)
-```
+**Adding i18n translations:**
+1. Edit `admin/src/plugins/i18n.ts`
+2. Add keys to both `ru` and `en` message objects
+3. Use in templates: `{{ t('key.path') }}`
 
-**Adding custom TTS preset:**
-```python
-# voice_clone_service.py
-voice_service.save_custom_preset("my_preset", {
-    "temperature": 0.65,
-    "top_p": 0.85,
-    "speed": 1.0
-})
-```
+**Adding new role permission:**
+1. Add permission to `ROLE_PERMISSIONS` in `admin/src/stores/auth.ts`
+2. Check with `authStore.hasPermission('resource.action')`
 
 ## Session Log
 
 For detailed implementation history, see:
-- `docs/ADMIN_PANEL_SESSION_LOG.md` - Admin panel implementation details
+- `admin/docs/ADMIN_PANEL_SESSION_LOG.md` - Admin panel implementation details

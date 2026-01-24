@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import * as faqApi from '@/api/faq'
-import * as servicesApi from '@/api/services'
+import { faqApi } from '@/api/faq'
+import { servicesApi } from '@/api/services'
 
 export interface SearchResult {
   id: string
@@ -72,8 +72,8 @@ export const useSearchStore = defineStore('search', () => {
 
     // Search FAQ (async)
     try {
-      const faqData = await faqApi.getFaq()
-      for (const [trigger, response] of Object.entries(faqData)) {
+      const faqData = await faqApi.getAll()
+      for (const [trigger, response] of Object.entries(faqData.faq || {})) {
         if (
           trigger.toLowerCase().includes(lowerQuery) ||
           (response as string).toLowerCase().includes(lowerQuery)
@@ -88,7 +88,7 @@ export const useSearchStore = defineStore('search', () => {
           })
         }
       }
-    } catch (e) {
+    } catch {
       // Ignore errors, just don't include FAQ results
     }
 

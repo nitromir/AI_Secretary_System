@@ -70,5 +70,5 @@ export const logsApi = {
   },
 
   stream: (logfile: string, onMessage: (data: { line?: string; error?: string }) => void) =>
-    createSSE(`/admin/logs/stream/${logfile}`, onMessage),
+    createSSE<{ line?: string; error?: string }>(`/admin/logs/stream/${logfile}`, onMessage),
 }

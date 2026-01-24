@@ -1,9 +1,32 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-interface User {
+export type UserRole = 'admin' | 'operator' | 'viewer'
+
+export interface User {
   username: string
-  role: 'admin' | 'viewer'
+  role: UserRole
+}
+
+// Role permissions
+export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
+  admin: ['*'], // All permissions
+  operator: [
+    'services.view', 'services.start', 'services.stop', 'services.restart',
+    'llm.view', 'llm.edit',
+    'tts.view', 'tts.edit', 'tts.test',
+    'faq.view', 'faq.edit',
+    'monitoring.view',
+    'logs.view'
+  ],
+  viewer: [
+    'services.view',
+    'llm.view',
+    'tts.view',
+    'faq.view',
+    'monitoring.view',
+    'logs.view'
+  ]
 }
 
 // Check if we're in dev mode (Vite sets this)
@@ -17,6 +40,20 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
+  const isOperator = computed(() => user.value?.role === 'operator' || isAdmin.value)
+  const isViewer = computed(() => !!user.value)
+
+  // Check if user has specific permission
+  function hasPermission(permission: string): boolean {
+    if (!user.value) return false
+    const permissions = ROLE_PERMISSIONS[user.value.role]
+    return permissions.includes('*') || permissions.includes(permission)
+  }
+
+  // Check if user can perform action on resource
+  function can(action: string, resource: string): boolean {
+    return hasPermission(`${resource}.${action}`)
+  }
 
   // Initialize from localStorage
   if (token.value) {
@@ -119,6 +156,10 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isAdmin,
+    isOperator,
+    isViewer,
+    hasPermission,
+    can,
     login,
     logout,
     getAuthHeaders,

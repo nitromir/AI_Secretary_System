@@ -87,11 +87,15 @@ export const useConfirmStore = defineStore('confirm', () => {
     return inputValue.value === options.value.requireInput
   }
 
+  // Alias for show
+  const show = confirm
+
   return {
     isOpen,
     options,
     inputValue,
     confirm,
+    show, // Alias
     confirmDelete,
     confirmDangerousAction,
     accept,

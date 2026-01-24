@@ -39,6 +39,11 @@ export interface Metrics {
     history_length: number
     faq_count: number
   }
+  // Request statistics (optional, may be returned by backend)
+  avg_response_time?: number
+  total_requests?: number
+  successful_requests?: number
+  failed_requests?: number
 }
 
 // Monitor API
@@ -47,7 +52,7 @@ export const monitorApi = {
     api.get<{ available: boolean; gpus: GpuInfo[] }>('/admin/monitor/gpu'),
 
   streamGpuStats: (onMessage: (data: { gpus?: GpuInfo[]; available?: boolean; timestamp?: string }) => void) =>
-    createSSE('/admin/monitor/gpu/stream', onMessage),
+    createSSE<{ gpus?: GpuInfo[]; available?: boolean; timestamp?: string }>('/admin/monitor/gpu/stream', onMessage),
 
   getHealth: () =>
     api.get<{
