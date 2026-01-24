@@ -110,6 +110,14 @@ class VLLMLLMService:
         # HTTP клиент
         self.client = httpx.Client(timeout=timeout)
 
+        # Runtime параметры генерации (могут быть изменены через API)
+        self.runtime_params = {
+            "temperature": 0.7,
+            "max_tokens": 512,
+            "top_p": 0.9,
+            "repetition_penalty": 1.1
+        }
+
         # Персона секретаря
         self.persona_id = persona or DEFAULT_PERSONA
         if self.persona_id not in SECRETARY_PERSONAS:
@@ -257,6 +265,25 @@ class VLLMLLMService:
             for pid, p in SECRETARY_PERSONAS.items()
         }
 
+    def set_params(self, **kwargs):
+        """
+        Устанавливает runtime параметры генерации.
+
+        Args:
+            temperature: float (0.0-2.0)
+            max_tokens: int (1-4096)
+            top_p: float (0.0-1.0)
+            repetition_penalty: float (1.0-2.0)
+        """
+        for key, value in kwargs.items():
+            if key in self.runtime_params and value is not None:
+                self.runtime_params[key] = value
+        logger.info(f"⚙️ Параметры обновлены: {self.runtime_params}")
+
+    def get_params(self) -> Dict:
+        """Возвращает текущие параметры генерации"""
+        return self.runtime_params.copy()
+
     # Для обратной совместимости (старый промпт)
     @staticmethod
     def _legacy_system_prompt() -> str:
@@ -307,14 +334,16 @@ class VLLMLLMService:
 
             messages.append({"role": "user", "content": user_message})
 
-            # Запрос к vLLM
+            # Запрос к vLLM с runtime параметрами
             response = self.client.post(
                 f"{self.api_url}/v1/chat/completions",
                 json={
                     "model": self.model_name,
                     "messages": messages,
-                    "max_tokens": 256,
-                    "temperature": 0.7,
+                    "max_tokens": self.runtime_params.get("max_tokens", 256),
+                    "temperature": self.runtime_params.get("temperature", 0.7),
+                    "top_p": self.runtime_params.get("top_p", 0.9),
+                    "repetition_penalty": self.runtime_params.get("repetition_penalty", 1.1),
                     "stream": False
                 }
             )
@@ -364,15 +393,17 @@ class VLLMLLMService:
 
             messages.append({"role": "user", "content": user_message})
 
-            # Streaming запрос
+            # Streaming запрос с runtime параметрами
             with self.client.stream(
                 "POST",
                 f"{self.api_url}/v1/chat/completions",
                 json={
                     "model": self.model_name,
                     "messages": messages,
-                    "max_tokens": 256,
-                    "temperature": 0.7,
+                    "max_tokens": self.runtime_params.get("max_tokens", 256),
+                    "temperature": self.runtime_params.get("temperature", 0.7),
+                    "top_p": self.runtime_params.get("top_p", 0.9),
+                    "repetition_penalty": self.runtime_params.get("repetition_penalty", 1.1),
                     "stream": True
                 }
             ) as response:
@@ -456,8 +487,10 @@ class VLLMLLMService:
                 json={
                     "model": self.model_name,
                     "messages": final_messages,
-                    "max_tokens": 512,
-                    "temperature": 0.7,
+                    "max_tokens": self.runtime_params.get("max_tokens", 512),
+                    "temperature": self.runtime_params.get("temperature", 0.7),
+                    "top_p": self.runtime_params.get("top_p", 0.9),
+                    "repetition_penalty": self.runtime_params.get("repetition_penalty", 1.1),
                     "stream": False
                 }
             )
@@ -500,15 +533,17 @@ class VLLMLLMService:
                 return
 
         try:
-            # Streaming
+            # Streaming с runtime параметрами
             with self.client.stream(
                 "POST",
                 f"{self.api_url}/v1/chat/completions",
                 json={
                     "model": self.model_name,
                     "messages": final_messages,
-                    "max_tokens": 512,
-                    "temperature": 0.7,
+                    "max_tokens": self.runtime_params.get("max_tokens", 512),
+                    "temperature": self.runtime_params.get("temperature", 0.7),
+                    "top_p": self.runtime_params.get("top_p", 0.9),
+                    "repetition_penalty": self.runtime_params.get("repetition_penalty", 1.1),
                     "stream": True
                 }
             ) as response:

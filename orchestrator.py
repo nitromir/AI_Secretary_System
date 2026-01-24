@@ -25,10 +25,12 @@ from concurrent.futures import ThreadPoolExecutor
 import soundfile as sf
 
 # Импорты наших сервисов
-from voice_clone_service import VoiceCloneService
+from voice_clone_service import VoiceCloneService, INTONATION_PRESETS
 from stt_service import STTService
 from llm_service import LLMService
 from piper_tts_service import PiperTTSService
+from service_manager import get_service_manager, ServiceManager
+from finetune_manager import get_finetune_manager, FinetuneManager, TrainingConfig, DatasetStats
 
 # vLLM импорт (опциональный - локальная Llama через vLLM)
 try:
@@ -1405,6 +1407,907 @@ def get_current_tts_service():
     else:
         # Default to gulya if available
         return gulya_voice_service or voice_service, {"preset": "natural"}
+
+
+# ============== Extended Admin API Endpoints ==============
+
+# Pydantic models for new endpoints
+class AdminBackendRequest(BaseModel):
+    backend: str  # "vllm" or "gemini"
+
+
+class AdminPersonaRequest(BaseModel):
+    persona: str  # "gulya" or "lidia"
+
+
+class AdminLLMParamsRequest(BaseModel):
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    repetition_penalty: Optional[float] = None
+
+
+class AdminXTTSParamsRequest(BaseModel):
+    temperature: Optional[float] = None
+    repetition_penalty: Optional[float] = None
+    top_k: Optional[int] = None
+    top_p: Optional[float] = None
+    speed: Optional[float] = None
+    gpt_cond_len: Optional[int] = None
+    gpt_cond_chunk_len: Optional[int] = None
+
+
+class AdminPiperParamsRequest(BaseModel):
+    speed: float = 1.0
+
+
+class AdminCustomPresetRequest(BaseModel):
+    name: str
+    params: dict
+
+
+class AdminFAQRequest(BaseModel):
+    trigger: str
+    response: str
+
+
+class AdminFAQTestRequest(BaseModel):
+    text: str
+
+
+class AdminFinetuneConfigRequest(BaseModel):
+    lora_rank: Optional[int] = None
+    lora_alpha: Optional[int] = None
+    batch_size: Optional[int] = None
+    gradient_accumulation_steps: Optional[int] = None
+    learning_rate: Optional[float] = None
+    num_epochs: Optional[int] = None
+    max_seq_length: Optional[int] = None
+    output_dir: Optional[str] = None
+
+
+class AdminAdapterRequest(BaseModel):
+    adapter: str
+
+
+# ============== Services Endpoints ==============
+
+@app.get("/admin/services/status")
+async def admin_services_status():
+    """Получить статус всех сервисов"""
+    manager = get_service_manager()
+    status = manager.get_all_status()
+
+    # Добавляем статус внутренних сервисов из orchestrator
+    status["services"]["xtts_gulya"]["is_running"] = gulya_voice_service is not None
+    status["services"]["xtts_lidia"]["is_running"] = voice_service is not None
+    status["services"]["piper"]["is_running"] = piper_service is not None
+    status["services"]["openvoice"]["is_running"] = openvoice_service is not None
+    status["services"]["orchestrator"]["is_running"] = True
+
+    return status
+
+
+@app.post("/admin/services/{service}/start")
+async def admin_start_service(service: str):
+    """Запустить сервис"""
+    manager = get_service_manager()
+    return await manager.start_service(service)
+
+
+@app.post("/admin/services/{service}/stop")
+async def admin_stop_service(service: str):
+    """Остановить сервис"""
+    manager = get_service_manager()
+    return await manager.stop_service(service)
+
+
+@app.post("/admin/services/{service}/restart")
+async def admin_restart_service(service: str):
+    """Перезапустить сервис"""
+    manager = get_service_manager()
+    return await manager.restart_service(service)
+
+
+@app.post("/admin/services/start-all")
+async def admin_start_all_services():
+    """Запустить все внешние сервисы"""
+    manager = get_service_manager()
+    results = {}
+    for service in ["vllm"]:  # Только внешние сервисы
+        results[service] = await manager.start_service(service)
+    return {"status": "ok", "results": results}
+
+
+@app.post("/admin/services/stop-all")
+async def admin_stop_all_services():
+    """Остановить все внешние сервисы"""
+    manager = get_service_manager()
+    results = {}
+    for service in ["vllm"]:
+        results[service] = await manager.stop_service(service)
+    return {"status": "ok", "results": results}
+
+
+# ============== Logs Endpoints ==============
+
+@app.get("/admin/logs")
+async def admin_list_logs():
+    """Список доступных логов"""
+    manager = get_service_manager()
+    return {"logs": manager.get_available_logs()}
+
+
+@app.get("/admin/logs/{logfile}")
+async def admin_read_log(
+    logfile: str,
+    lines: int = 100,
+    offset: int = 0,
+    search: Optional[str] = None
+):
+    """Прочитать лог файл"""
+    manager = get_service_manager()
+    return manager.read_log(logfile, lines=lines, offset=offset, search=search)
+
+
+@app.get("/admin/logs/stream/{logfile}")
+async def admin_stream_log(logfile: str):
+    """SSE streaming логов"""
+    manager = get_service_manager()
+
+    async def generate():
+        async for data in manager.stream_log(logfile):
+            yield f"data: {data}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+# ============== LLM Enhanced Endpoints ==============
+
+@app.get("/admin/llm/backend")
+async def admin_get_llm_backend():
+    """Получить текущий LLM backend"""
+    if llm_service:
+        backend = "vllm" if hasattr(llm_service, 'api_url') else "gemini"
+        return {
+            "backend": backend,
+            "model": getattr(llm_service, 'model_name', 'unknown'),
+            "api_url": getattr(llm_service, 'api_url', None),
+        }
+    return {"backend": "none", "error": "LLM service not initialized"}
+
+
+@app.post("/admin/llm/backend")
+async def admin_set_llm_backend(request: AdminBackendRequest):
+    """Переключить LLM backend (требует перезапуск)"""
+    global LLM_BACKEND
+    if request.backend not in ["vllm", "gemini"]:
+        raise HTTPException(status_code=400, detail="Invalid backend. Use 'vllm' or 'gemini'")
+
+    # Сохраняем в env для следующего запуска
+    os.environ["LLM_BACKEND"] = request.backend
+    LLM_BACKEND = request.backend
+
+    return {
+        "status": "ok",
+        "backend": request.backend,
+        "message": "Перезапустите orchestrator для применения изменений"
+    }
+
+
+@app.get("/admin/llm/personas")
+async def admin_get_personas():
+    """Получить список доступных персон"""
+    if llm_service and hasattr(llm_service, 'get_available_personas'):
+        return {"personas": llm_service.get_available_personas()}
+
+    # Fallback для Gemini LLM Service
+    from vllm_llm_service import SECRETARY_PERSONAS
+    return {
+        "personas": {
+            pid: {"name": p["name"], "full_name": p.get("full_name", p["name"])}
+            for pid, p in SECRETARY_PERSONAS.items()
+        }
+    }
+
+
+@app.get("/admin/llm/persona")
+async def admin_get_current_persona():
+    """Получить текущую персону"""
+    if llm_service:
+        persona_id = getattr(llm_service, 'persona_id', 'gulya')
+        persona = getattr(llm_service, 'persona', {})
+        return {
+            "id": persona_id,
+            "name": persona.get("name", "Unknown"),
+        }
+    return {"id": "none", "error": "LLM service not initialized"}
+
+
+@app.post("/admin/llm/persona")
+async def admin_set_persona(request: AdminPersonaRequest):
+    """Установить персону"""
+    if llm_service and hasattr(llm_service, 'set_persona'):
+        success = llm_service.set_persona(request.persona)
+        if success:
+            return {"status": "ok", "persona": request.persona}
+        raise HTTPException(status_code=400, detail=f"Persona not found: {request.persona}")
+    raise HTTPException(status_code=503, detail="LLM service does not support personas")
+
+
+@app.get("/admin/llm/params")
+async def admin_get_llm_params():
+    """Получить параметры генерации LLM"""
+    if llm_service and hasattr(llm_service, 'runtime_params'):
+        return {"params": llm_service.runtime_params}
+
+    # Возвращаем значения по умолчанию
+    return {
+        "params": {
+            "temperature": 0.7,
+            "max_tokens": 512,
+            "top_p": 0.9,
+            "repetition_penalty": 1.1
+        }
+    }
+
+
+@app.post("/admin/llm/params")
+async def admin_set_llm_params(request: AdminLLMParamsRequest):
+    """Установить параметры генерации LLM"""
+    if llm_service and hasattr(llm_service, 'set_params'):
+        params = {k: v for k, v in request.dict().items() if v is not None}
+        llm_service.set_params(**params)
+        return {"status": "ok", "params": llm_service.runtime_params}
+
+    # Для vLLM сервиса без set_params - сохраняем в атрибуте
+    if llm_service:
+        if not hasattr(llm_service, 'runtime_params'):
+            llm_service.runtime_params = {}
+        params = {k: v for k, v in request.dict().items() if v is not None}
+        llm_service.runtime_params.update(params)
+        return {"status": "ok", "params": llm_service.runtime_params}
+
+    raise HTTPException(status_code=503, detail="LLM service not initialized")
+
+
+@app.get("/admin/llm/prompt/{persona}")
+async def admin_get_persona_prompt(persona: str):
+    """Получить системный промпт для персоны"""
+    try:
+        from vllm_llm_service import SECRETARY_PERSONAS
+        if persona in SECRETARY_PERSONAS:
+            return {
+                "persona": persona,
+                "prompt": SECRETARY_PERSONAS[persona]["prompt"]
+            }
+        raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
+    except ImportError:
+        raise HTTPException(status_code=503, detail="vLLM service not available")
+
+
+@app.post("/admin/llm/prompt/{persona}")
+async def admin_set_persona_prompt(persona: str, request: AdminLLMPromptRequest):
+    """Установить системный промпт для персоны"""
+    try:
+        from vllm_llm_service import SECRETARY_PERSONAS
+        if persona not in SECRETARY_PERSONAS:
+            raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
+
+        # Обновляем промпт
+        SECRETARY_PERSONAS[persona]["prompt"] = request.prompt
+
+        # Если это текущая персона - обновляем в сервисе
+        if llm_service and hasattr(llm_service, 'persona_id') and llm_service.persona_id == persona:
+            llm_service.system_prompt = request.prompt
+
+        return {"status": "ok", "persona": persona}
+    except ImportError:
+        raise HTTPException(status_code=503, detail="vLLM service not available")
+
+
+@app.post("/admin/llm/prompt/{persona}/reset")
+async def admin_reset_persona_prompt(persona: str):
+    """Сбросить системный промпт персоны на значение по умолчанию"""
+    # TODO: Реализовать хранение оригинальных промптов
+    raise HTTPException(status_code=501, detail="Not implemented yet")
+
+
+# ============== TTS Enhanced Endpoints ==============
+
+@app.get("/admin/tts/xtts/params")
+async def admin_get_xtts_params():
+    """Получить параметры XTTS"""
+    service = gulya_voice_service or voice_service
+    if not service:
+        raise HTTPException(status_code=503, detail="XTTS service not available")
+
+    preset = service.get_preset(service.default_preset)
+    return {
+        "default_preset": service.default_preset,
+        "current_params": {
+            "temperature": preset.temperature,
+            "repetition_penalty": preset.repetition_penalty,
+            "top_k": preset.top_k,
+            "top_p": preset.top_p,
+            "speed": preset.speed,
+            "gpt_cond_len": preset.gpt_cond_len,
+            "gpt_cond_chunk_len": preset.gpt_cond_chunk_len,
+        }
+    }
+
+
+@app.post("/admin/tts/xtts/params")
+async def admin_set_xtts_params(request: AdminXTTSParamsRequest):
+    """Установить параметры XTTS (для следующего синтеза)"""
+    # Сохраняем как глобальные переопределения
+    global xtts_param_overrides
+    if 'xtts_param_overrides' not in globals():
+        xtts_param_overrides = {}
+
+    params = {k: v for k, v in request.dict().items() if v is not None}
+    xtts_param_overrides.update(params)
+
+    return {"status": "ok", "params": xtts_param_overrides}
+
+
+@app.get("/admin/tts/piper/params")
+async def admin_get_piper_params():
+    """Получить параметры Piper TTS"""
+    if not piper_service:
+        raise HTTPException(status_code=503, detail="Piper service not available")
+
+    return {
+        "speed": getattr(piper_service, 'speed', 1.0),
+        "voices": piper_service.get_available_voices()
+    }
+
+
+@app.post("/admin/tts/piper/params")
+async def admin_set_piper_params(request: AdminPiperParamsRequest):
+    """Установить параметры Piper TTS"""
+    if not piper_service:
+        raise HTTPException(status_code=503, detail="Piper service not available")
+
+    piper_service.speed = request.speed
+    return {"status": "ok", "speed": request.speed}
+
+
+@app.get("/admin/tts/presets/custom")
+async def admin_get_custom_presets():
+    """Получить пользовательские пресеты TTS"""
+    custom_presets_file = Path("custom_presets.json")
+    if custom_presets_file.exists():
+        return {"presets": json.loads(custom_presets_file.read_text())}
+    return {"presets": {}}
+
+
+@app.post("/admin/tts/presets/custom")
+async def admin_create_custom_preset(request: AdminCustomPresetRequest):
+    """Создать пользовательский пресет TTS"""
+    custom_presets_file = Path("custom_presets.json")
+    presets = {}
+    if custom_presets_file.exists():
+        presets = json.loads(custom_presets_file.read_text())
+
+    presets[request.name] = request.params
+    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
+
+    return {"status": "ok", "preset": request.name}
+
+
+@app.put("/admin/tts/presets/custom/{name}")
+async def admin_update_custom_preset(name: str, request: AdminCustomPresetRequest):
+    """Обновить пользовательский пресет TTS"""
+    custom_presets_file = Path("custom_presets.json")
+    if not custom_presets_file.exists():
+        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+    presets = json.loads(custom_presets_file.read_text())
+    if name not in presets:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+    presets[name] = request.params
+    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
+
+    return {"status": "ok", "preset": name}
+
+
+@app.delete("/admin/tts/presets/custom/{name}")
+async def admin_delete_custom_preset(name: str):
+    """Удалить пользовательский пресет TTS"""
+    custom_presets_file = Path("custom_presets.json")
+    if not custom_presets_file.exists():
+        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+    presets = json.loads(custom_presets_file.read_text())
+    if name not in presets:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+    del presets[name]
+    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
+
+    return {"status": "ok", "deleted": name}
+
+
+# ============== FAQ Endpoints ==============
+
+@app.get("/admin/faq")
+async def admin_get_faq():
+    """Получить все FAQ записи"""
+    faq_path = Path("typical_responses.json")
+    if not faq_path.exists():
+        return {"faq": {}}
+
+    return {"faq": json.loads(faq_path.read_text(encoding='utf-8'))}
+
+
+@app.post("/admin/faq")
+async def admin_add_faq(request: AdminFAQRequest):
+    """Добавить FAQ запись"""
+    faq_path = Path("typical_responses.json")
+    faq = {}
+    if faq_path.exists():
+        faq = json.loads(faq_path.read_text(encoding='utf-8'))
+
+    faq[request.trigger] = request.response
+    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    # Перезагружаем FAQ в LLM сервисе
+    if llm_service and hasattr(llm_service, 'reload_faq'):
+        llm_service.reload_faq()
+
+    return {"status": "ok", "trigger": request.trigger}
+
+
+@app.put("/admin/faq/{trigger}")
+async def admin_update_faq(trigger: str, request: AdminFAQRequest):
+    """Обновить FAQ запись"""
+    faq_path = Path("typical_responses.json")
+    if not faq_path.exists():
+        raise HTTPException(status_code=404, detail="FAQ file not found")
+
+    faq = json.loads(faq_path.read_text(encoding='utf-8'))
+
+    # Удаляем старый trigger если изменился
+    if trigger in faq and trigger != request.trigger:
+        del faq[trigger]
+
+    faq[request.trigger] = request.response
+    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    if llm_service and hasattr(llm_service, 'reload_faq'):
+        llm_service.reload_faq()
+
+    return {"status": "ok", "trigger": request.trigger}
+
+
+@app.delete("/admin/faq/{trigger}")
+async def admin_delete_faq(trigger: str):
+    """Удалить FAQ запись"""
+    faq_path = Path("typical_responses.json")
+    if not faq_path.exists():
+        raise HTTPException(status_code=404, detail="FAQ file not found")
+
+    faq = json.loads(faq_path.read_text(encoding='utf-8'))
+    if trigger not in faq:
+        raise HTTPException(status_code=404, detail=f"Trigger not found: {trigger}")
+
+    del faq[trigger]
+    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    if llm_service and hasattr(llm_service, 'reload_faq'):
+        llm_service.reload_faq()
+
+    return {"status": "ok", "deleted": trigger}
+
+
+@app.post("/admin/faq/reload")
+async def admin_reload_faq():
+    """Перезагрузить FAQ из файла"""
+    if llm_service and hasattr(llm_service, 'reload_faq'):
+        llm_service.reload_faq()
+        return {"status": "ok", "count": len(llm_service.faq)}
+    raise HTTPException(status_code=503, detail="LLM service not initialized")
+
+
+@app.post("/admin/faq/save")
+async def admin_save_faq():
+    """Сохранить FAQ (уже автоматически сохраняется)"""
+    return {"status": "ok", "message": "FAQ is saved automatically on each change"}
+
+
+@app.post("/admin/faq/test")
+async def admin_test_faq(request: AdminFAQTestRequest):
+    """Тестировать FAQ поиск"""
+    if llm_service and hasattr(llm_service, '_check_faq'):
+        result = llm_service._check_faq(request.text)
+        if result:
+            return {"match": True, "response": result}
+        return {"match": False, "response": None}
+    raise HTTPException(status_code=503, detail="LLM service not initialized")
+
+
+# ============== Fine-tuning Endpoints ==============
+
+@app.post("/admin/finetune/dataset/upload")
+async def admin_upload_dataset(file: UploadFile = File(...)):
+    """Загрузить датасет (Telegram export JSON)"""
+    manager = get_finetune_manager()
+    content = await file.read()
+    return await manager.upload_dataset(content, file.filename)
+
+
+@app.post("/admin/finetune/dataset/process")
+async def admin_process_dataset():
+    """Обработать загруженный датасет"""
+    manager = get_finetune_manager()
+    return await manager.process_dataset()
+
+
+@app.get("/admin/finetune/dataset/stats")
+async def admin_get_dataset_stats():
+    """Получить статистику датасета"""
+    manager = get_finetune_manager()
+    stats = manager.get_dataset_stats()
+    return {
+        "stats": {
+            "total_sessions": stats.total_sessions,
+            "total_messages": stats.total_messages,
+            "total_tokens": stats.total_tokens,
+            "avg_tokens_per_message": stats.avg_tokens_per_message,
+            "file_path": stats.file_path,
+            "file_size_mb": stats.file_size_mb,
+            "modified": stats.modified,
+        }
+    }
+
+
+@app.post("/admin/finetune/dataset/augment")
+async def admin_augment_dataset():
+    """Аугментировать датасет"""
+    manager = get_finetune_manager()
+    return await manager.augment_dataset()
+
+
+@app.get("/admin/finetune/config")
+async def admin_get_finetune_config():
+    """Получить конфигурацию обучения"""
+    manager = get_finetune_manager()
+    config = manager.get_config()
+    return {
+        "config": {
+            "base_model": config.base_model,
+            "lora_rank": config.lora_rank,
+            "lora_alpha": config.lora_alpha,
+            "lora_dropout": config.lora_dropout,
+            "batch_size": config.batch_size,
+            "gradient_accumulation_steps": config.gradient_accumulation_steps,
+            "learning_rate": config.learning_rate,
+            "num_epochs": config.num_epochs,
+            "warmup_ratio": config.warmup_ratio,
+            "max_seq_length": config.max_seq_length,
+            "output_dir": config.output_dir,
+        },
+        "presets": {
+            name: {
+                "lora_rank": p.lora_rank,
+                "batch_size": p.batch_size,
+                "num_epochs": p.num_epochs,
+            }
+            for name, p in manager.get_config_presets().items()
+        }
+    }
+
+
+@app.post("/admin/finetune/config")
+async def admin_set_finetune_config(request: AdminFinetuneConfigRequest):
+    """Установить конфигурацию обучения"""
+    manager = get_finetune_manager()
+    config = manager.get_config()
+
+    # Обновляем только переданные параметры
+    if request.lora_rank is not None:
+        config.lora_rank = request.lora_rank
+    if request.lora_alpha is not None:
+        config.lora_alpha = request.lora_alpha
+    if request.batch_size is not None:
+        config.batch_size = request.batch_size
+    if request.gradient_accumulation_steps is not None:
+        config.gradient_accumulation_steps = request.gradient_accumulation_steps
+    if request.learning_rate is not None:
+        config.learning_rate = request.learning_rate
+    if request.num_epochs is not None:
+        config.num_epochs = request.num_epochs
+    if request.max_seq_length is not None:
+        config.max_seq_length = request.max_seq_length
+    if request.output_dir is not None:
+        config.output_dir = request.output_dir
+
+    return manager.set_config(config)
+
+
+@app.post("/admin/finetune/train/start")
+async def admin_start_training():
+    """Запустить обучение"""
+    manager = get_finetune_manager()
+    return await manager.start_training()
+
+
+@app.post("/admin/finetune/train/stop")
+async def admin_stop_training():
+    """Остановить обучение"""
+    manager = get_finetune_manager()
+    return await manager.stop_training()
+
+
+@app.get("/admin/finetune/train/status")
+async def admin_get_training_status():
+    """Получить статус обучения"""
+    manager = get_finetune_manager()
+    status = manager.get_training_status()
+    return {
+        "status": {
+            "is_running": status.is_running,
+            "current_step": status.current_step,
+            "total_steps": status.total_steps,
+            "current_epoch": status.current_epoch,
+            "total_epochs": status.total_epochs,
+            "loss": status.loss,
+            "learning_rate": status.learning_rate,
+            "elapsed_seconds": status.elapsed_seconds,
+            "eta_seconds": status.eta_seconds,
+            "error": status.error,
+        }
+    }
+
+
+@app.get("/admin/finetune/train/log")
+async def admin_stream_training_log():
+    """SSE streaming лога обучения"""
+    manager = get_finetune_manager()
+
+    async def generate():
+        async for data in manager.stream_training_log():
+            yield f"data: {data}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+@app.get("/admin/finetune/adapters")
+async def admin_list_adapters():
+    """Получить список LoRA адаптеров"""
+    manager = get_finetune_manager()
+    adapters = manager.list_adapters()
+    return {
+        "adapters": [
+            {
+                "name": a.name,
+                "path": a.path,
+                "size_mb": a.size_mb,
+                "modified": a.modified,
+                "active": a.active,
+                "config": a.config,
+            }
+            for a in adapters
+        ],
+        "active": manager.active_adapter
+    }
+
+
+@app.post("/admin/finetune/adapters/activate")
+async def admin_activate_adapter(request: AdminAdapterRequest):
+    """Активировать LoRA адаптер"""
+    manager = get_finetune_manager()
+    return await manager.activate_adapter(request.adapter)
+
+
+@app.delete("/admin/finetune/adapters/{name}")
+async def admin_delete_adapter(name: str):
+    """Удалить LoRA адаптер"""
+    manager = get_finetune_manager()
+    return await manager.delete_adapter(name)
+
+
+# ============== Monitoring Endpoints ==============
+
+@app.get("/admin/monitor/gpu")
+async def admin_get_gpu_stats():
+    """Получить статистику GPU"""
+    import torch
+
+    if not torch.cuda.is_available():
+        return {"available": False, "gpus": []}
+
+    gpus = []
+    for i in range(torch.cuda.device_count()):
+        try:
+            name = torch.cuda.get_device_name(i)
+            props = torch.cuda.get_device_properties(i)
+            total_memory = props.total_memory / (1024**3)
+            allocated = torch.cuda.memory_allocated(i) / (1024**3)
+            reserved = torch.cuda.memory_reserved(i) / (1024**3)
+
+            # Пытаемся получить утилизацию через nvidia-smi
+            utilization = None
+            temperature = None
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['nvidia-smi', f'--id={i}', '--query-gpu=utilization.gpu,temperature.gpu',
+                     '--format=csv,noheader,nounits'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    parts = result.stdout.strip().split(',')
+                    if len(parts) >= 2:
+                        utilization = int(parts[0].strip())
+                        temperature = int(parts[1].strip())
+            except Exception:
+                pass
+
+            gpus.append({
+                "id": i,
+                "name": name,
+                "total_memory_gb": round(total_memory, 2),
+                "allocated_gb": round(allocated, 2),
+                "reserved_gb": round(reserved, 2),
+                "free_gb": round(total_memory - reserved, 2),
+                "utilization_percent": utilization,
+                "temperature_c": temperature,
+                "compute_capability": f"{props.major}.{props.minor}",
+            })
+        except Exception as e:
+            logger.warning(f"Error getting GPU {i} stats: {e}")
+
+    return {"available": True, "gpus": gpus}
+
+
+@app.get("/admin/monitor/gpu/stream")
+async def admin_stream_gpu_stats():
+    """SSE streaming статистики GPU"""
+    import torch
+
+    async def generate():
+        while True:
+            if torch.cuda.is_available():
+                gpus = []
+                for i in range(torch.cuda.device_count()):
+                    try:
+                        allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                        reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                        gpus.append({
+                            "id": i,
+                            "allocated_gb": round(allocated, 2),
+                            "reserved_gb": round(reserved, 2),
+                        })
+                    except Exception:
+                        pass
+
+                yield f"data: {json.dumps({'gpus': gpus, 'timestamp': datetime.now().isoformat()})}\n\n"
+            else:
+                yield f"data: {json.dumps({'available': False})}\n\n"
+
+            await asyncio.sleep(5)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+@app.get("/admin/monitor/health")
+async def admin_get_health():
+    """Расширенная проверка здоровья всех компонентов"""
+    manager = get_service_manager()
+    health = {
+        "timestamp": datetime.now().isoformat(),
+        "overall": "healthy",
+        "components": {}
+    }
+
+    # Orchestrator
+    health["components"]["orchestrator"] = {"status": "healthy", "uptime": "running"}
+
+    # LLM
+    if llm_service:
+        try:
+            if hasattr(llm_service, 'is_available') and llm_service.is_available():
+                health["components"]["llm"] = {"status": "healthy", "backend": "vllm"}
+            else:
+                health["components"]["llm"] = {"status": "healthy", "backend": "gemini"}
+        except Exception as e:
+            health["components"]["llm"] = {"status": "unhealthy", "error": str(e)}
+            health["overall"] = "degraded"
+    else:
+        health["components"]["llm"] = {"status": "unavailable"}
+        health["overall"] = "degraded"
+
+    # TTS
+    if gulya_voice_service or voice_service:
+        health["components"]["tts_xtts"] = {"status": "healthy"}
+    else:
+        health["components"]["tts_xtts"] = {"status": "unavailable"}
+
+    if piper_service:
+        health["components"]["tts_piper"] = {"status": "healthy"}
+    else:
+        health["components"]["tts_piper"] = {"status": "unavailable"}
+
+    # vLLM external process
+    vllm_status = manager.get_service_status("vllm")
+    if vllm_status["is_running"]:
+        health["components"]["vllm_process"] = {"status": "healthy", "pid": vllm_status["pid"]}
+    else:
+        health["components"]["vllm_process"] = {"status": "stopped"}
+
+    return health
+
+
+@app.get("/admin/monitor/metrics")
+async def admin_get_metrics():
+    """Получить метрики системы"""
+    import psutil
+
+    metrics = {
+        "timestamp": datetime.now().isoformat(),
+        "system": {
+            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "memory_percent": psutil.virtual_memory().percent,
+            "memory_used_gb": round(psutil.virtual_memory().used / (1024**3), 2),
+            "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+        },
+        "streaming_tts": streaming_tts_manager.get_stats() if streaming_tts_manager else None,
+    }
+
+    # LLM метрики
+    if llm_service:
+        metrics["llm"] = {
+            "history_length": len(getattr(llm_service, 'conversation_history', [])),
+            "faq_count": len(getattr(llm_service, 'faq', {})),
+        }
+
+    return metrics
+
+
+@app.get("/admin/monitor/errors")
+async def admin_get_errors():
+    """Получить последние ошибки"""
+    manager = get_service_manager()
+    return {
+        "errors": manager.last_errors,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.post("/admin/monitor/metrics/reset")
+async def admin_reset_metrics():
+    """Сбросить метрики"""
+    # Очищаем кэш TTS
+    if streaming_tts_manager:
+        with streaming_tts_manager._cache_lock:
+            streaming_tts_manager._cache.clear()
+
+    return {"status": "ok", "message": "Metrics reset"}
+
+
+# ============== Static Files for Vue Admin ==============
+
+# Serve built Vue app (will be mounted after build)
+admin_dist_path = Path(__file__).parent / "admin" / "dist"
+if admin_dist_path.exists():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/admin-new", StaticFiles(directory=str(admin_dist_path), html=True), name="admin-new")
+    logger.info(f"📂 Vue admin mounted at /admin-new from {admin_dist_path}")
 
 
 if __name__ == "__main__":

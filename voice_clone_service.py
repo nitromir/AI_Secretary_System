@@ -322,6 +322,10 @@ class VoiceCloneService:
             logger.error(f"❌ Ошибка загрузки модели: {e}")
             raise
 
+        # Пользовательские пресеты
+        self.custom_presets_file = Path("custom_presets.json")
+        self.custom_presets = self._load_custom_presets()
+
         # Загружаем ВСЕ образцы голоса
         self.voice_samples = self._get_voice_samples()
         if not self.voice_samples:
@@ -337,6 +341,58 @@ class VoiceCloneService:
         self._cached_latents = None
         self._latents_cache_hash = None
         self._precompute_latents()
+
+    def _load_custom_presets(self) -> dict:
+        """Загружает пользовательские пресеты из файла"""
+        if self.custom_presets_file.exists():
+            try:
+                import json
+                return json.loads(self.custom_presets_file.read_text())
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка загрузки пользовательских пресетов: {e}")
+        return {}
+
+    def save_custom_preset(self, name: str, params: dict):
+        """
+        Сохраняет пользовательский пресет.
+
+        Args:
+            name: Имя пресета
+            params: Параметры пресета (temperature, speed, top_k, top_p, etc.)
+        """
+        import json
+        self.custom_presets[name] = params
+        self.custom_presets_file.write_text(json.dumps(self.custom_presets, indent=2, ensure_ascii=False))
+        logger.info(f"💾 Пресет '{name}' сохранён")
+
+    def delete_custom_preset(self, name: str):
+        """Удаляет пользовательский пресет"""
+        import json
+        if name in self.custom_presets:
+            del self.custom_presets[name]
+            self.custom_presets_file.write_text(json.dumps(self.custom_presets, indent=2, ensure_ascii=False))
+            logger.info(f"🗑️ Пресет '{name}' удалён")
+
+    def get_all_presets(self) -> dict:
+        """Возвращает все пресеты (встроенные + пользовательские)"""
+        all_presets = {}
+        # Встроенные
+        for name, preset in INTONATION_PRESETS.items():
+            all_presets[name] = {
+                "name": preset.name,
+                "temperature": preset.temperature,
+                "repetition_penalty": preset.repetition_penalty,
+                "top_k": preset.top_k,
+                "top_p": preset.top_p,
+                "speed": preset.speed,
+                "gpt_cond_len": preset.gpt_cond_len,
+                "gpt_cond_chunk_len": preset.gpt_cond_chunk_len,
+                "builtin": True
+            }
+        # Пользовательские
+        for name, params in self.custom_presets.items():
+            all_presets[name] = {**params, "builtin": False}
+        return all_presets
 
     def _get_voice_samples(self) -> list[Path]:
         """Получает ВСЕ образцы голоса из папки"""
