@@ -1,351 +1,459 @@
-# AI Secretary System (Лидия)
+# AI Secretary System
 
-Интеллектуальная система виртуального секретаря с клонированием голоса, способная принимать телефонные звонки и общаться с клиентами.
+Интеллектуальная система виртуального секретаря с клонированием голоса (XTTS v2, OpenVoice), предобученными голосами (Piper), локальным LLM (vLLM + Qwen/Llama) и облачным fallback (Gemini). Включает полнофункциональную Vue 3 админ-панель.
 
-## Архитектура
+## Features
+
+- **Multi-Voice TTS**: 5 голосов (2 клонированных XTTS, 1 OpenVoice, 2 Piper)
+- **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
+- **Local LLM**: vLLM с Qwen2.5-7B + LoRA fine-tuning
+- **FAQ System**: Мгновенные ответы на типичные вопросы
+- **Admin Panel**: Полнофункциональная Vue 3 админка с 7 вкладками
+- **OpenAI-compatible API**: Интеграция с OpenWebUI
+- **Fine-tuning Pipeline**: Загрузка датасета → Обучение → Hot-swap адаптеров
+
+## Architecture
 
 ```
-                         ┌─────────────────────────────────────┐
-                         │     Orchestrator (port 8002)        │
-                         │         orchestrator.py             │
-                         └──────────────┬──────────────────────┘
-                                        │
-        ┌───────────────┬───────────────┼───────────────┬───────────────┬──────────────────┐──────────────────┐
-        ↓               ↓               ↓               ↓               ↓                  ↓
-   STT Service     LLM Service    Voice Clone    OpenVoice v2     Piper TTS          Admin Panel          RAG (fine Tunning)
-  (disabled)       vLLM/Gemini   (XTTS v2)        openvoice_       piper_tts_       admin_web.html
-               vLLM/Llama-3.1-8B   voice_clone_   service.py       service.py
-                        │         service.py       (GPU CC 6.1+)     (CPU)
-                        │        (GPU CC 7.0+)
-                        ↓
-                  FAQ System
-              typical_responses.json
+                              ┌──────────────────────────────────────────┐
+                              │        Orchestrator (port 8002)          │
+                              │           orchestrator.py                │
+                              │                                          │
+                              │  ┌────────────────────────────────────┐  │
+                              │  │     Vue 3 Admin Panel (7 tabs)     │  │
+                              │  │         admin/dist/                │  │
+                              │  └────────────────────────────────────┘  │
+                              └──────────────────┬───────────────────────┘
+                                                 │
+      ┌──────────────┬──────────────┬────────────┼────────────┬─────────────┬──────────────┐
+      ↓              ↓              ↓            ↓            ↓             ↓              ↓
+ Service        Finetune        LLM         Voice Clone   OpenVoice    Piper TTS       FAQ
+ Manager        Manager       Service         XTTS v2       v2          (CPU)         System
+service_      finetune_      vLLM/Gemini   voice_clone_  openvoice_   piper_tts_   typical_
+manager.py    manager.py                   service.py    service.py   service.py   responses.json
 ```
 
-### Компоненты
+### GPU Configuration (RTX 3060 12GB)
 
-1. **Voice Clone Service** (`voice_clone_service.py`)
-   - Клонирование голоса на базе XTTS v2
-   - Использует образцы из папки `Лидия/`
-   - Синтез речи с клонированным голосом
+```
+vLLM Qwen2.5-7B + LoRA  →  ~8.4GB (70% GPU, port 11434)
+XTTS v2 voice cloning   →  ~3.6GB (remaining)
+────────────────────────────────────────────────────────
+Total                   →  12GB
+```
 
-2. **STT Service** (`stt_service.py`)
-   - Распознавание речи через Whisper/Faster-Whisper
-   - Поддержка русского языка
-   - Voice Activity Detection (VAD)
+## Quick Start
 
-3. **LLM Service** (`llm_service.py`)
-   - Интеграция с Gemini API
-   - Системный промпт секретаря
-   - История диалога
+```bash
+# First-time setup
+./setup.sh
+cp .env.example .env
+# Edit .env: GEMINI_API_KEY (optional if using vLLM)
 
-4. **Orchestrator** (`orchestrator.py`)
-   - FastAPI сервер
-   - Координация STT → LLM → TTS
-   - API endpoints для всех операций
+# GPU Mode (recommended): XTTS + Qwen2.5-7B + LoRA
+./start_gpu.sh
 
-5. **Phone Service** (`phone_service.py`)
-   - Интеграция с Twilio
-   - Обработка входящих звонков
-   - TwiML генерация
+# CPU Mode: Piper + Gemini API
+./start_cpu.sh
 
-## Требования
+# Health check
+curl http://localhost:8002/health
 
-### Железо
-- GPU: NVIDIA с 12GB+ VRAM (например, RTX 3060)
-- RAM: 16GB+ (64GB рекомендуется)
-- Диск: 10GB свободного места
+# Admin Panel
+open http://localhost:8002/admin
+```
 
-### ПО
+## Admin Panel
+
+Полнофункциональная Vue 3 админ-панель с 7 вкладками:
+
+| Tab | Description |
+|-----|-------------|
+| **Dashboard** | Статусы сервисов, GPU метрики, health |
+| **Services** | Запуск/остановка vLLM, просмотр логов |
+| **LLM** | Переключение backend, персоны, параметры генерации |
+| **TTS** | Выбор голоса, пресеты XTTS, кастомные настройки |
+| **FAQ** | Редактирование типичных ответов (CRUD) |
+| **Finetune** | Загрузка датасета, обучение, управление адаптерами |
+| **Monitoring** | GPU/CPU графики, логи ошибок |
+
+### Development Mode
+
+```bash
+cd admin
+npm install
+npm run dev
+# Open http://localhost:5173
+```
+
+### Technology Stack
+
+- **Frontend**: Vue 3 + Composition API + TypeScript
+- **Build**: Vite
+- **Styling**: Tailwind CSS (dark theme)
+- **State**: Pinia
+- **Data**: TanStack Query (for caching)
+- **Real-time**: SSE (Server-Sent Events)
+
+## Voices
+
+| Voice | Engine | GPU Required | Speed | Quality |
+|-------|--------|--------------|-------|---------|
+| `gulya` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| `lidia` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| `lidia_openvoice` | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning |
+| `dmitri` | Piper | CPU | ~0.5s | Pre-trained male |
+| `irina` | Piper | CPU | ~0.5s | Pre-trained female |
+
+**Voice Samples:**
+- `./Гуля/` - 122 WAV files
+- `./Лидия/` - WAV files
+
+**Switching Voice:**
+```bash
+# Via API
+curl -X POST http://localhost:8002/admin/voice \
+  -H "Content-Type: application/json" \
+  -d '{"voice": "gulya"}'
+
+# Via Admin Panel
+open http://localhost:8002/admin → TTS tab
+```
+
+## Personas
+
+| Persona | Name | Description |
+|---------|------|-------------|
+| `gulya` | Гуля (Гульнара) | Дружелюбный цифровой секретарь (default) |
+| `lidia` | Лидия | Альтернативная персона |
+
+**Switching Persona:**
+```bash
+# Environment variable
+export SECRETARY_PERSONA=lidia
+
+# Via API
+curl -X POST http://localhost:8002/admin/llm/persona \
+  -H "Content-Type: application/json" \
+  -d '{"persona": "lidia"}'
+
+# Via Admin Panel
+open http://localhost:8002/admin → LLM tab
+```
+
+## LLM Backends
+
+| Backend | Model | Speed | Requirements |
+|---------|-------|-------|--------------|
+| `vllm` | Qwen2.5-7B + LoRA | Fast | GPU 12GB+ |
+| `vllm` | Llama-3.1-8B GPTQ | Fast | GPU 12GB+ |
+| `gemini` | Gemini 2.5 Pro | Variable | API key |
+
+**Switching Backend:**
+```bash
+# Environment variable
+export LLM_BACKEND=vllm  # or "gemini"
+
+# Via API
+curl -X POST http://localhost:8002/admin/llm/backend \
+  -H "Content-Type: application/json" \
+  -d '{"backend": "vllm"}'
+```
+
+## API Reference
+
+### OpenAI-Compatible (for OpenWebUI)
+
+```bash
+# Chat completion
+curl -X POST http://localhost:8002/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gulya-secretary-qwen", "messages": [{"role": "user", "content": "Привет!"}]}'
+
+# Text-to-Speech
+curl -X POST http://localhost:8002/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Привет!", "voice": "gulya"}' \
+  -o output.wav
+
+# List models
+curl http://localhost:8002/v1/models
+```
+
+### Admin API (~45 endpoints)
+
+```bash
+# Services
+GET  /admin/services/status          # All services status
+POST /admin/services/{name}/start    # Start service
+POST /admin/services/{name}/stop     # Stop service
+POST /admin/services/{name}/restart  # Restart service
+GET  /admin/logs/{logfile}           # Read log file
+GET  /admin/logs/stream/{logfile}    # SSE log stream
+
+# LLM
+GET  /admin/llm/backend              # Current backend
+POST /admin/llm/backend              # Set backend
+GET  /admin/llm/persona              # Current persona
+POST /admin/llm/persona              # Set persona
+GET  /admin/llm/params               # Generation params
+POST /admin/llm/params               # Update params
+GET  /admin/llm/prompt/{persona}     # System prompt
+POST /admin/llm/prompt/{persona}     # Update prompt
+
+# TTS
+GET  /admin/voices                   # List voices
+POST /admin/voice                    # Set voice
+POST /admin/voice/test               # Test synthesis
+GET  /admin/tts/xtts/params          # XTTS params
+POST /admin/tts/xtts/params          # Update XTTS params
+GET  /admin/tts/presets/custom       # Custom presets
+POST /admin/tts/presets/custom       # Create preset
+
+# FAQ
+GET    /admin/faq                    # List all FAQ
+POST   /admin/faq                    # Add FAQ entry
+PUT    /admin/faq/{trigger}          # Update entry
+DELETE /admin/faq/{trigger}          # Delete entry
+POST   /admin/faq/reload             # Hot reload
+POST   /admin/faq/test               # Test matching
+
+# Fine-tuning
+POST /admin/finetune/dataset/upload  # Upload Telegram export
+POST /admin/finetune/dataset/process # Run prepare_telegram.py
+GET  /admin/finetune/dataset/stats   # Dataset statistics
+GET  /admin/finetune/config          # Training config
+POST /admin/finetune/config          # Update config
+POST /admin/finetune/train/start     # Start training
+POST /admin/finetune/train/stop      # Stop training
+GET  /admin/finetune/train/status    # Training progress
+GET  /admin/finetune/adapters        # List LoRA adapters
+POST /admin/finetune/adapters/activate # Hot-swap adapter
+
+# Monitoring
+GET  /admin/monitor/gpu              # GPU stats
+GET  /admin/monitor/gpu/stream       # SSE GPU stream
+GET  /admin/monitor/health           # Health check
+GET  /admin/monitor/metrics          # Request metrics
+```
+
+## Fine-tuning Pipeline
+
+Полный цикл обучения LoRA адаптера:
+
+```bash
+# 1. Export Telegram chat (JSON)
+# 2. Upload via Admin Panel → Finetune → Upload Dataset
+
+# Or via API:
+curl -X POST http://localhost:8002/admin/finetune/dataset/upload \
+  -F "file=@result.json"
+
+# 3. Process dataset
+curl -X POST http://localhost:8002/admin/finetune/dataset/process
+
+# 4. View statistics
+curl http://localhost:8002/admin/finetune/dataset/stats
+
+# 5. Configure training
+curl -X POST http://localhost:8002/admin/finetune/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lora_rank": 8,
+    "batch_size": 1,
+    "gradient_accumulation": 64,
+    "learning_rate": 2e-4,
+    "epochs": 1
+  }'
+
+# 6. Start training
+curl -X POST http://localhost:8002/admin/finetune/train/start
+
+# 7. Monitor progress
+curl http://localhost:8002/admin/finetune/train/status
+
+# 8. Activate new adapter (hot-swap)
+curl -X POST http://localhost:8002/admin/finetune/adapters/activate \
+  -H "Content-Type: application/json" \
+  -d '{"adapter": "qwen2.5-7b-lydia-lora-new"}'
+```
+
+## OpenWebUI Integration
+
+```yaml
+# Settings → Connections → OpenAI API
+API Base URL: http://172.17.0.1:8002/v1
+API Key: sk-dummy
+
+# Settings → Audio → TTS
+TTS Engine: OpenAI
+API Base URL: http://172.17.0.1:8002/v1
+TTS Voice: gulya
+```
+
+**Available Models:**
+- `gulya-secretary-qwen` - Гуля + Qwen2.5-7B + LoRA
+- `lidia-secretary-qwen` - Лидия + Qwen2.5-7B + LoRA
+- `gulya-secretary-llama` - Гуля + Llama-3.1-8B
+- `gulya-secretary-gemini` - Гуля + Gemini API
+
+## Environment Variables
+
+```bash
+# Required
+LLM_BACKEND=vllm                    # "vllm" or "gemini"
+
+# vLLM configuration
+VLLM_API_URL=http://localhost:11434
+VLLM_MODEL_NAME=lydia               # LoRA adapter name
+
+# Optional
+SECRETARY_PERSONA=gulya             # "gulya" or "lidia"
+GEMINI_API_KEY=...                  # Only for gemini backend
+ORCHESTRATOR_PORT=8002
+CUDA_VISIBLE_DEVICES=1              # GPU index
+```
+
+## File Structure
+
+```
+AI_Secretary_System/
+├── orchestrator.py          # FastAPI server + 45 admin endpoints
+├── service_manager.py       # Service process control
+├── finetune_manager.py      # Fine-tuning pipeline
+├── voice_clone_service.py   # XTTS v2 + custom presets
+├── openvoice_service.py     # OpenVoice v2
+├── piper_tts_service.py     # Piper TTS (CPU)
+├── vllm_llm_service.py      # vLLM + runtime params
+├── llm_service.py           # Gemini fallback
+├── typical_responses.json   # FAQ database
+├── custom_presets.json      # TTS custom presets
+├── admin/                   # Vue 3 admin panel
+│   ├── src/
+│   │   ├── views/          # 7 main views
+│   │   ├── api/            # API clients
+│   │   ├── stores/         # Pinia stores
+│   │   └── composables/    # SSE, GPU stats
+│   └── dist/               # Production build
+├── Гуля/                    # Voice samples (122 WAV)
+├── Лидия/                   # Voice samples
+├── models/                  # Piper ONNX models
+├── logs/                    # Service logs
+├── start_gpu.sh             # Launch GPU mode
+├── start_cpu.sh             # Launch CPU mode
+└── setup.sh                 # First-time setup
+```
+
+## Commands
+
+```bash
+# GPU Mode: XTTS + Qwen + LoRA (default)
+./start_gpu.sh
+
+# GPU Mode: XTTS + Llama
+./start_gpu.sh --llama
+
+# CPU Mode: Piper + Gemini
+./start_cpu.sh
+
+# OpenVoice Mode (older GPUs)
+./start_openvoice.sh
+
+# Start only vLLM
+./start_qwen.sh   # Qwen + LoRA
+./start_vllm.sh   # Llama
+
+# Admin Panel (dev mode)
+cd admin && npm run dev
+
+# View logs
+tail -f logs/orchestrator.log
+tail -f logs/vllm.log
+```
+
+## Requirements
+
+### Hardware
+- **GPU**: NVIDIA RTX 3060+ (12GB VRAM) for full mode
+- **GPU (OpenVoice)**: NVIDIA CC 6.1+ (P104-100, GTX 1080)
+- **CPU**: 8+ cores for Piper-only mode
+- **RAM**: 16GB+ (32GB recommended)
+- **Disk**: 20GB for models
+
+### Software
 - Ubuntu 20.04+ / Debian 11+
 - Python 3.11+
-- CUDA 11.8+ (для GPU)
-- Docker + Docker Compose (опционально)
+- Node.js 18+ (for admin panel dev)
+- CUDA 12.x
 - ffmpeg
-
-## Установка
-
-### Вариант 1: Локальная установка
-
-```bash
-# 1. Клонирование и переход в директорию
-cd /path/to/voice-tts
-
-# 2. Запуск установки
-./setup.sh
-
-# 3. Настройка .env
-cp .env.example .env
-nano .env  # Добавьте GEMINI_API_KEY
-
-# 4. Запуск
-./run.sh
-```
-
-### Вариант 2: Docker
-
-```bash
-# 1. Настройка .env
-cp .env.example .env
-nano .env  # Добавьте API ключи
-
-# 2. Сборка и запуск
-docker-compose up -d
-
-# 3. Проверка логов
-docker-compose logs -f
-```
-
-## Настройка
-
-### 1. Gemini API
-
-Получите API ключ на https://makersuite.google.com/app/apikey
-
-```env
-GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-pro-latest
-```
-
-### 2. Twilio (для телефонии)
-
-1. Зарегистрируйтесь на https://www.twilio.com
-2. Получите телефонный номер
-3. Настройте Webhook для входящих звонков:
-   - URL: `https://your-domain.com/incoming_call`
-   - Method: POST
-
-```env
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_PHONE_NUMBER=+1234567890
-```
-
-### 3. Образцы голоса
-
-Поместите WAV файлы в папку `Лидия/`:
-- Формат: WAV, 16kHz или 44.1kHz
-- Длительность: 3-30 секунд каждый
-- Количество: минимум 3, рекомендуется 10+
-- Качество: чистая речь без шума
-
-## Использование
-
-### API Endpoints
-
-#### Health Check
-```bash
-curl http://localhost:8000/health
-```
-
-#### Синтез речи (TTS)
-```bash
-curl -X POST http://localhost:8000/tts \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Привет, это тест", "language": "ru"}' \
-  -o output.wav
-```
-
-#### Распознавание речи (STT)
-```bash
-curl -X POST http://localhost:8000/stt \
-  -F "audio=@input.wav"
-```
-
-#### Чат с LLM
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Здравствуйте, какой график работы?"}'
-```
-
-#### Полный цикл обработки
-```bash
-curl -X POST http://localhost:8000/process_call \
-  -F "audio=@voice_message.wav" \
-  -o response.wav
-```
-
-### Тестирование
-
-```bash
-# Запуск тестов
-./test_system.sh
-
-# Ручной тест TTS
-python voice_clone_service.py
-
-# Ручной тест STT
-python stt_service.py
-
-# Ручной тест LLM
-python llm_service.py
-```
-
-## Интеграция с OpenWebUI
-
-Оркестратор предоставляет OpenAI-совместимый API, который позволяет использовать голос Лидии и LLM прямо в OpenWebUI.
-
-### Предварительные требования
-
-1. OpenWebUI запущен в Docker
-2. Оркестратор запущен: `COQUI_TOS_AGREED=1 ./venv/bin/python orchestrator.py`
-3. Проверьте доступность: `curl http://localhost:8002/health`
-
-### Шаг 1: Подключение модели (Chat)
-
-1. Откройте **OpenWebUI** в браузере
-2. Нажмите на **иконку профиля** (правый верхний угол) → **Admin Panel**
-3. Перейдите в **Settings** → **Connections**
-4. Найдите раздел **OpenAI API**
-5. Заполните поля:
-   - **API Base URL**: `http://172.17.0.1:8002/v1`
-   - **API Key**: `sk-dummy` (любое значение, не проверяется)
-6. Нажмите кнопку **Verify connection** (иконка галочки)
-7. Должно появиться сообщение об успешном подключении
-8. Нажмите **Save**
-
-> **Примечание**: `172.17.0.1` — это IP Docker bridge. Если OpenWebUI запущен не в Docker, используйте `localhost`.
-
-### Шаг 2: Настройка голоса (TTS)
-
-1. Нажмите на **иконку профиля** → **Settings** (не Admin Panel!)
-2. Перейдите в раздел **Audio**
-3. В секции **Text-to-Speech (TTS)** настройте:
-   - **TTS Engine**: выберите `OpenAI` (НЕ "Web API"!)
-   - **API Base URL**: `http://172.17.0.1:8002/v1`
-   - **API Key**: `sk-dummy`
-   - **TTS Voice**: `lidia`
-4. Включите **Auto-playback Response** для автоматического воспроизведения
-5. Нажмите **Save**
-
-> **Важно**: Если выбран "Web API" — будет использоваться встроенный браузерный синтезатор, а не голос Лидии!
-
-### Шаг 3: Использование
-
-1. Вернитесь на главную страницу чата
-2. В выпадающем списке моделей выберите **lidia-gemini**
-3. Напишите сообщение — ответ будет озвучен голосом Лидии
-
-### Доступные модели
-
-| Модель | Описание |
-|--------|----------|
-| `lidia-gemini` | Чат-модель (Gemini 2.5 Flash) |
-| `lidia-Llama` | Чат-модель (Llama-3.1-8B-Instruct) |
-| `lidia-voice` | TTS-модель (XTTS v2 с клонированным голосом) |
-
-### Решение проблем 
-
-**Модели не появляются в списке:**
-- Убедитесь, что оркестратор запущен (`curl http://localhost:8002/health`)
-- Проверьте URL: должен быть `http://172.17.0.1:8002/v1` (без trailing slash)
-- Нажмите Verify connection и обновите страницу (F5)
-
-**"Извините, возникла техническая проблема":**
-- Проверьте лимиты Gemini API (бесплатный тариф: 20 запросов/минуту)
-- Смотрите логи оркестратора для деталей ошибки
-
-**Голос браузерный, не Лидия:**
-- Проверьте Settings → Audio → TTS Engine = `OpenAI` (не "Web API")
-- Убедитесь, что API Base URL указан: `http://172.17.0.1:8002/v1`
-- TTS Voice должен быть `lidia`
-
-**Network error при подключении:**
-- Проверьте, что порт 8002 открыт: `curl http://172.17.0.1:8002/v1/models`
-- Если OpenWebUI в Docker — используйте `172.17.0.1`, не `localhost`
-
-## Системный промпт
-
-Промпт секретаря настраивается в `llm_service.py`:
-
-```python
-def _default_system_prompt(self) -> str:
-    return """Ты - профессиональный виртуальный секретарь по имени Лидия.
-
-    [Ваши инструкции здесь]
-    """
-```
-
-Вы можете изменить:
-- Имя секретаря
-- Стиль общения
-- Специфические инструкции для вашего бизнеса
-- Информацию о компании
-
-## Производительность
-
-### Типичные задержки
-
-- **STT (Whisper base)**: ~0.5-2 секунды на 10 сек аудио
-- **LLM (Gemini)**: ~1-3 секунды
-- **TTS (XTTS v2)**: ~2-5 секунд на предложение
-- **Общий цикл**: ~5-10 секунд
-
-### Оптимизация
-
-1. **GPU**: Используйте CUDA для ускорения
-2. **Модели**:
-   - STT: `base` для скорости, `medium` для качества
-   - LLM: `gemini-flash` для скорости, `gemini-pro` для качества
-3. **Batch processing**: Обрабатывайте несколько запросов параллельно
-
-## Логи и отладка
-
-```bash
-# Логи вызовов
-ls -lh calls_log/
-
-# Структура:
-# call_20240101_120000_input.wav - входящее аудио
-# call_20240101_120000_output.wav - ответ секретаря
-# call_20240101_120000_transcript.txt - текстовая расшифровка
-
-# Логи сервисов
-docker-compose logs -f orchestrator
-docker-compose logs -f phone-service
-```
-
-## Безопасность
-
-1. **API ключи**: Храните в `.env`, не коммитьте
-2. **HTTPS**: Используйте SSL для production
-3. **Аутентификация**: Добавьте API tokens для endpoints
-4. **Firewall**: Ограничьте доступ к портам
 
 ## Troubleshooting
 
 ### CUDA out of memory
 ```bash
-# Уменьшите размер моделей
-# В stt_service.py: model_size = "small"
-# В voice_clone_service.py: используйте CPU fallback
+# Reduce vLLM GPU allocation in start_qwen.sh:
+--gpu-memory-utilization 0.6  # Instead of 0.7
 ```
 
-### Плохое качество голоса
-- Добавьте больше образцов в папку `Лидия/`
-- Используйте чистые записи без шума
-- Проверьте качество исходных WAV файлов
+### Voice quality issues
+- Add more WAV samples to voice folder
+- Use clean recordings without background noise
+- Ensure 16kHz or 44.1kHz sample rate
 
-### Медленная работа
-- Используйте faster-whisper вместо обычного Whisper
-- Переключитесь на gemini-flash
-- Увеличьте количество GPU workers
+### Admin panel not loading
+```bash
+# Check if backend is running
+curl http://localhost:8002/health
 
-## Roadmap
+# Rebuild admin panel
+cd admin && npm run build
 
-- [ ] Поддержка нескольких голосов
-- [ ] WebRTC для браузерных звонков
-- [ ] Asterisk/FreeSWITCH интеграция
-- [ ] Real-time streaming TTS
-- [ ] Multi-language support
-- [ ] Календарная интеграция
-- [ ] CRM интеграция
+# Check nginx/proxy configuration
+```
 
-## Лицензия
+### vLLM connection refused
+```bash
+# Check vLLM is running
+curl http://localhost:11434/health
+
+# View vLLM logs
+tail -f logs/vllm.log
+```
+
+## Development
+
+### Running Tests
+```bash
+# Backend
+./venv/bin/pytest tests/
+
+# Frontend
+cd admin && npm test
+```
+
+### Building Admin Panel
+```bash
+cd admin
+npm install
+npm run build
+# Output in admin/dist/, served by FastAPI
+```
+
+### Adding New Voice
+1. Create folder with WAV samples: `./NewVoice/`
+2. Add service instance in `orchestrator.py`
+3. Add voice ID to admin endpoints
+4. Voice appears in admin panel
+
+### Adding New Persona
+1. Edit `SECRETARY_PERSONAS` in `vllm_llm_service.py`
+2. Restart orchestrator
+3. Available via API and admin panel
+
+## License
 
 MIT
 
-## Поддержка
+## Support
 
-Для вопросов и багов создавайте Issues в репозитории.
+Issues: https://github.com/ShaerWare/AI_Secretary_System/issues
