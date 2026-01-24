@@ -40,7 +40,7 @@ const { data: configData } = useQuery({
 const { data: statusData, refetch: refetchStatus } = useQuery({
   queryKey: ['finetune-status'],
   queryFn: () => finetuneApi.getTrainingStatus(),
-  refetchInterval: (data) => data?.status?.is_running ? 2000 : false,
+  refetchInterval: (query) => query.state.data?.status?.is_running ? 2000 : false,
 })
 
 const { data: adaptersData, refetch: refetchAdapters } = useQuery({
@@ -458,7 +458,7 @@ onUnmounted(() => {
       <div class="p-4 border-b border-border flex items-center justify-between">
         <h2 class="text-lg font-semibold">LoRA Adapters</h2>
         <button
-          @click="refetchAdapters"
+          @click="() => refetchAdapters()"
           class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
         >
           <RefreshCw class="w-4 h-4" />

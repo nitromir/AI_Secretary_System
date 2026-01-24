@@ -1,6 +1,6 @@
 # AI Secretary System
 
-Интеллектуальная система виртуального секретаря с клонированием голоса (XTTS v2, OpenVoice), предобученными голосами (Piper), локальным LLM (vLLM + Qwen/Llama) и облачным fallback (Gemini). Включает полнофункциональную Vue 3 админ-панель.
+Интеллектуальная система виртуального секретаря с клонированием голоса (XTTS v2, OpenVoice), предобученными голосами (Piper), локальным LLM (vLLM + Qwen/Llama) и облачным fallback (Gemini). Включает полнофункциональную Vue 3 админ-панель с PWA поддержкой.
 
 ## Features
 
@@ -8,7 +8,7 @@
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
 - **Local LLM**: vLLM с Qwen2.5-7B + LoRA fine-tuning
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Полнофункциональная Vue 3 админка с 7 вкладками
+- **Admin Panel**: Vue 3 PWA с 8 вкладками, i18n, темами, аудитом
 - **OpenAI-compatible API**: Интеграция с OpenWebUI
 - **Fine-tuning Pipeline**: Загрузка датасета → Обучение → Hot-swap адаптеров
 
@@ -20,7 +20,7 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │     Vue 3 Admin Panel (7 tabs)     │  │
+                              │  │   Vue 3 Admin Panel (8 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -61,21 +61,41 @@ curl http://localhost:8002/health
 
 # Admin Panel
 open http://localhost:8002/admin
+# Login: admin / admin (dev mode)
 ```
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 админ-панель с 7 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 8 вкладками:
 
 | Tab | Description |
 |-----|-------------|
-| **Dashboard** | Статусы сервисов, GPU метрики, health |
-| **Services** | Запуск/остановка vLLM, просмотр логов |
+| **Dashboard** | Статусы сервисов, GPU спарклайны, health индикаторы |
+| **Services** | Запуск/остановка vLLM, SSE логи в реальном времени |
 | **LLM** | Переключение backend, персоны, параметры генерации |
-| **TTS** | Выбор голоса, пресеты XTTS, кастомные настройки |
+| **TTS** | Выбор голоса, пресеты XTTS, тестирование синтеза |
 | **FAQ** | Редактирование типичных ответов (CRUD) |
 | **Finetune** | Загрузка датасета, обучение, управление адаптерами |
-| **Monitoring** | GPU/CPU графики, логи ошибок |
+| **Monitoring** | GPU/CPU графики Chart.js, логи ошибок |
+| **Settings** | Язык, тема, экспорт/импорт, аудит лог |
+
+### Admin Panel Features
+
+| Feature | Description |
+|---------|-------------|
+| **JWT Authentication** | Безопасный вход с dev-mode fallback |
+| **Multi-user Roles** | admin, operator, viewer с разными правами |
+| **i18n** | Полная поддержка русского и английского |
+| **Themes** | Light, Dark, Night-Eyes (тёплая для глаз) |
+| **PWA** | Установка как приложение, offline кэширование |
+| **Real-time** | SSE метрики GPU с fallback на polling |
+| **Charts** | Спарклайны и графики на Chart.js |
+| **Command Palette** | Быстрый поиск ⌘K / Ctrl+K |
+| **Audit Log** | Логирование всех действий пользователей |
+| **Export/Import** | Резервное копирование конфигураций |
+| **Responsive** | Mobile-first с collapsible sidebar |
+| **Confirmation** | Диалоги подтверждения для опасных действий |
+| **Toasts** | Уведомления о результатах операций |
 
 ### Development Mode
 
@@ -84,16 +104,19 @@ cd admin
 npm install
 npm run dev
 # Open http://localhost:5173
+# Login: admin / admin
 ```
 
 ### Technology Stack
 
 - **Frontend**: Vue 3 + Composition API + TypeScript
 - **Build**: Vite
-- **Styling**: Tailwind CSS (dark theme)
-- **State**: Pinia
-- **Data**: TanStack Query (for caching)
-- **Real-time**: SSE (Server-Sent Events)
+- **Styling**: Tailwind CSS (4 themes)
+- **State**: Pinia + persistedstate
+- **Data**: TanStack Query (caching + SSE)
+- **Charts**: Chart.js + vue-chartjs
+- **i18n**: vue-i18n (ru/en)
+- **Icons**: Lucide Vue
 
 ## Voices
 
@@ -183,6 +206,9 @@ curl http://localhost:8002/v1/models
 ### Admin API (~45 endpoints)
 
 ```bash
+# Authentication
+POST /admin/auth/login              # Login, get JWT token
+
 # Services
 GET  /admin/services/status          # All services status
 POST /admin/services/{name}/start    # Start service
@@ -312,6 +338,7 @@ SECRETARY_PERSONA=gulya             # "gulya" or "lidia"
 GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
 CUDA_VISIBLE_DEVICES=1              # GPU index
+ADMIN_JWT_SECRET=...                # JWT secret (auto-generated if empty)
 ```
 
 ## File Structure
@@ -319,6 +346,7 @@ CUDA_VISIBLE_DEVICES=1              # GPU index
 ```
 AI_Secretary_System/
 ├── orchestrator.py          # FastAPI server + 45 admin endpoints
+├── auth_manager.py          # JWT authentication
 ├── service_manager.py       # Service process control
 ├── finetune_manager.py      # Fine-tuning pipeline
 ├── voice_clone_service.py   # XTTS v2 + custom presets
@@ -328,13 +356,19 @@ AI_Secretary_System/
 ├── llm_service.py           # Gemini fallback
 ├── typical_responses.json   # FAQ database
 ├── custom_presets.json      # TTS custom presets
-├── admin/                   # Vue 3 admin panel
+│
+├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/          # 7 main views
-│   │   ├── api/            # API clients
-│   │   ├── stores/         # Pinia stores
-│   │   └── composables/    # SSE, GPU stats
-│   └── dist/               # Production build
+│   │   ├── views/           # 8 main views
+│   │   ├── api/             # API clients + SSE
+│   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
+│   │   ├── components/      # UI + charts
+│   │   ├── composables/     # useSSE, useRealtimeMetrics
+│   │   └── plugins/         # i18n
+│   ├── public/              # PWA manifest + service worker
+│   ├── docs/                # Implementation docs
+│   └── dist/                # Production build
+│
 ├── Гуля/                    # Voice samples (122 WAV)
 ├── Лидия/                   # Voice samples
 ├── models/                  # Piper ONNX models
@@ -365,6 +399,9 @@ AI_Secretary_System/
 
 # Admin Panel (dev mode)
 cd admin && npm run dev
+
+# Build Admin Panel
+cd admin && npm run build
 
 # View logs
 tail -f logs/orchestrator.log
@@ -405,10 +442,12 @@ tail -f logs/vllm.log
 # Check if backend is running
 curl http://localhost:8002/health
 
+# Dev mode login
+# Username: admin
+# Password: admin
+
 # Rebuild admin panel
 cd admin && npm run build
-
-# Check nginx/proxy configuration
 ```
 
 ### vLLM connection refused
@@ -419,6 +458,11 @@ curl http://localhost:11434/health
 # View vLLM logs
 tail -f logs/vllm.log
 ```
+
+### PWA not installing
+- Ensure HTTPS or localhost
+- Check manifest.json is served correctly
+- Clear browser cache
 
 ## Development
 
@@ -449,6 +493,18 @@ npm run build
 1. Edit `SECRETARY_PERSONAS` in `vllm_llm_service.py`
 2. Restart orchestrator
 3. Available via API and admin panel
+
+### Adding New Theme
+1. Add CSS variables in `admin/src/assets/main.css`
+2. Update `Theme` type in `admin/src/stores/theme.ts`
+3. Add translations in `admin/src/plugins/i18n.ts`
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘K` / `Ctrl+K` | Open command palette |
+| `Escape` | Close dialogs |
 
 ## License
 

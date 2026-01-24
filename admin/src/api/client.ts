@@ -65,16 +65,16 @@ export const api = {
   },
 }
 
-// SSE helper
-export function createSSE(endpoint: string, onMessage: (data: unknown) => void) {
+// SSE helper with generic type support
+export function createSSE<T = unknown>(endpoint: string, onMessage: (data: T) => void) {
   const eventSource = new EventSource(`${BASE_URL}${endpoint}`)
 
   eventSource.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data)
+      const data = JSON.parse(event.data) as T
       onMessage(data)
     } catch {
-      onMessage(event.data)
+      onMessage(event.data as T)
     }
   }
 

@@ -296,7 +296,7 @@ function saveParams() {
         </h2>
         <div class="flex items-center gap-2">
           <button
-            @click="refetchHistory"
+            @click="() => refetchHistory()"
             class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
           >
             <RotateCw class="w-4 h-4" />

@@ -91,7 +91,7 @@ export const finetuneApi = {
     api.get<{ status: TrainingStatus }>('/admin/finetune/train/status'),
 
   streamTrainingLog: (onMessage: (data: { type: string; line?: string; status?: TrainingStatus }) => void) =>
-    createSSE('/admin/finetune/train/log', onMessage),
+    createSSE<{ type: string; line?: string; status?: TrainingStatus }>('/admin/finetune/train/log', onMessage),
 
   // Adapters
   listAdapters: () =>

@@ -1,33 +1,42 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, computed } from 'vue'
 
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark' | 'system' | 'night-eyes'
 
 export const useThemeStore = defineStore('theme', () => {
   const theme = ref<Theme>((localStorage.getItem('admin_theme') as Theme) || 'system')
-  const resolvedTheme = ref<'light' | 'dark'>('dark')
+  const resolvedTheme = ref<'light' | 'dark' | 'night-eyes'>('dark')
 
   // System preference media query
   const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)')
 
-  function getResolvedTheme(): 'light' | 'dark' {
+  // Available themes for UI
+  const themes: { value: Theme; label: string; icon: string }[] = [
+    { value: 'light', label: 'Light', icon: 'sun' },
+    { value: 'dark', label: 'Dark', icon: 'moon' },
+    { value: 'night-eyes', label: 'Night Eyes', icon: 'eye' },
+    { value: 'system', label: 'System', icon: 'monitor' }
+  ]
+
+  function getResolvedTheme(): 'light' | 'dark' | 'night-eyes' {
     if (theme.value === 'system') {
       return systemPrefersDark.matches ? 'dark' : 'light'
     }
-    return theme.value
+    if (theme.value === 'night-eyes') {
+      return 'night-eyes'
+    }
+    return theme.value as 'light' | 'dark'
   }
 
   function applyTheme() {
     resolvedTheme.value = getResolvedTheme()
     const root = document.documentElement
 
-    if (resolvedTheme.value === 'dark') {
-      root.classList.add('dark')
-      root.classList.remove('light')
-    } else {
-      root.classList.add('light')
-      root.classList.remove('dark')
-    }
+    // Remove all theme classes
+    root.classList.remove('dark', 'light', 'night-eyes')
+
+    // Apply resolved theme
+    root.classList.add(resolvedTheme.value)
   }
 
   function setTheme(newTheme: Theme) {
@@ -37,11 +46,13 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   function toggleTheme() {
-    const themes: Theme[] = ['light', 'dark', 'system']
-    const currentIndex = themes.indexOf(theme.value)
-    const nextIndex = (currentIndex + 1) % themes.length
-    setTheme(themes[nextIndex])
+    const themeValues: Theme[] = ['light', 'dark', 'night-eyes', 'system']
+    const currentIndex = themeValues.indexOf(theme.value)
+    const nextIndex = (currentIndex + 1) % themeValues.length
+    setTheme(themeValues[nextIndex])
   }
+
+  const isNightEyes = computed(() => resolvedTheme.value === 'night-eyes')
 
   // Watch for system preference changes
   systemPrefersDark.addEventListener('change', () => {
@@ -56,6 +67,8 @@ export const useThemeStore = defineStore('theme', () => {
   return {
     theme,
     resolvedTheme,
+    themes,
+    isNightEyes,
     setTheme,
     toggleTheme
   }
