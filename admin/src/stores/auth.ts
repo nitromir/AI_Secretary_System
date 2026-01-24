@@ -1,17 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api } from '@/api/client'
 
 interface User {
   username: string
   role: 'admin' | 'viewer'
 }
 
-interface AuthState {
-  token: string | null
-  user: User | null
-  isAuthenticated: boolean
-}
+// Check if we're in dev mode (Vite sets this)
+const isDev = import.meta.env.DEV
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('admin_token'))
@@ -31,6 +27,20 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = null
       localStorage.removeItem('admin_token')
     }
+  }
+
+  // Create a mock JWT for dev mode when backend is unavailable
+  function createDevToken(username: string): string {
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+    const payload = btoa(JSON.stringify({
+      sub: username,
+      role: 'admin',
+      exp: Math.floor(Date.now() / 1000) + 86400, // 24 hours
+      iat: Math.floor(Date.now() / 1000),
+      dev: true
+    }))
+    const signature = btoa('dev-signature')
+    return `${header}.${payload}.${signature}`
   }
 
   async function login(username: string, password: string): Promise<boolean> {
@@ -60,7 +70,18 @@ export const useAuthStore = defineStore('auth', () => {
 
       return true
     } catch (e) {
-      error.value = 'Connection error'
+      // In dev mode, allow login without backend
+      if (isDev && username === 'admin' && password === 'admin') {
+        console.warn('⚠️ Dev mode: Backend unavailable, using mock authentication')
+        const devToken = createDevToken(username)
+        token.value = devToken
+        localStorage.setItem('admin_token', devToken)
+        user.value = { username, role: 'admin' }
+        error.value = null
+        return true
+      }
+
+      error.value = 'Connection error - Backend not running'
       return false
     } finally {
       isLoading.value = false

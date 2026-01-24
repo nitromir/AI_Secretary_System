@@ -186,9 +186,12 @@ async function handleSubmit() {
         </form>
 
         <!-- Hint -->
-        <div class="mt-6 text-center">
+        <div class="mt-6 text-center space-y-1">
           <p class="text-xs text-gray-500">
             Default credentials: admin / admin
+          </p>
+          <p class="text-xs text-yellow-500/70">
+            Dev mode: Works without backend running
           </p>
         </div>
       </div>
