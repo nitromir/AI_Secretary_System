@@ -31,6 +31,11 @@ from llm_service import LLMService
 from piper_tts_service import PiperTTSService
 from service_manager import get_service_manager, ServiceManager
 from finetune_manager import get_finetune_manager, FinetuneManager, TrainingConfig, DatasetStats
+from auth_manager import (
+    LoginRequest, LoginResponse, User,
+    authenticate_user, create_access_token, get_current_user,
+    get_optional_user, require_admin, get_auth_status, AUTH_ENABLED
+)
 
 # vLLM импорт (опциональный - локальная Llama через vLLM)
 try:
@@ -966,6 +971,48 @@ async def admin_web_interface():
 
 
 # ============== Admin API Endpoints ==============
+
+# ============== Auth Endpoints ==============
+
+@app.post("/admin/auth/login", response_model=LoginResponse)
+async def admin_login(request: LoginRequest):
+    """
+    Authenticate user and return JWT token.
+
+    Default credentials: admin / admin
+    Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH env vars for production.
+    """
+    user = authenticate_user(request.username, request.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    token, expires_in = create_access_token(user.username, user.role)
+    return LoginResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_in=expires_in
+    )
+
+
+@app.get("/admin/auth/me")
+async def admin_get_current_user(user: User = Depends(get_current_user)):
+    """Get current authenticated user info"""
+    return {
+        "username": user.username,
+        "role": user.role
+    }
+
+
+@app.get("/admin/auth/status")
+async def admin_auth_status():
+    """Get authentication configuration status"""
+    return get_auth_status()
+
+
+# ============== Admin Models ==============
 
 class AdminTTSPresetRequest(BaseModel):
     """Запрос на изменение пресета TTS"""
