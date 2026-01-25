@@ -11,7 +11,8 @@
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=1
 
-LORA_PATH="/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final"
+# LoRA adapter path (symlink to /home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora)
+LORA_PATH="$(dirname "$0")/finetune/adapters/qwen2.5-7b-lydia-lora/final"
 BASE_MODEL="Qwen/Qwen2.5-7B-Instruct-AWQ"
 
 echo "=========================================="

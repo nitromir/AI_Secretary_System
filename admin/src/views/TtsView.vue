@@ -126,11 +126,22 @@ async function testVoice(voiceId: string) {
   }
 }
 
+const audioRef = ref<HTMLAudioElement | null>(null)
+
 async function synthesizeTest() {
   testLoading.value = true
   try {
-    const result = await ttsApi.testSynthesize(testText.value, currentPreset.value)
-    console.log('Synthesis result:', result)
+    const blob = await ttsApi.testSynthesize(testText.value, currentPreset.value)
+    // Освобождаем предыдущий URL
+    if (testAudioUrl.value) {
+      URL.revokeObjectURL(testAudioUrl.value)
+    }
+    // Создаём URL для воспроизведения
+    testAudioUrl.value = URL.createObjectURL(blob)
+    // Автоматически воспроизводим
+    setTimeout(() => {
+      audioRef.value?.play()
+    }, 100)
   } catch (e) {
     console.error('Synthesis failed:', e)
   } finally {
@@ -252,14 +263,6 @@ function createPreset() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Audio Test Player -->
-    <div v-if="testAudioUrl" class="bg-card rounded-lg border border-border p-4">
-      <div class="flex items-center gap-4">
-        <Volume2 class="w-5 h-5 text-muted-foreground" />
-        <audio controls :src="testAudioUrl" class="flex-1" />
       </div>
     </div>
 
@@ -469,7 +472,10 @@ function createPreset() {
 
     <!-- Test Synthesis -->
     <div class="bg-card rounded-lg border border-border p-4">
-      <h2 class="text-lg font-semibold mb-4">Test Synthesis</h2>
+      <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <Volume2 class="w-5 h-5" />
+        Test Synthesis
+      </h2>
       <div class="space-y-4">
         <textarea
           v-model="testText"
@@ -477,14 +483,22 @@ function createPreset() {
           placeholder="Enter text to synthesize..."
           class="w-full p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
         />
-        <button
-          @click="synthesizeTest"
-          :disabled="testLoading || !testText"
-          class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          <Play class="w-4 h-4" />
-          Synthesize
-        </button>
+        <div class="flex items-center gap-4">
+          <button
+            @click="synthesizeTest"
+            :disabled="testLoading || !testText"
+            class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            <Play v-if="!testLoading" class="w-4 h-4" />
+            <span v-else class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            {{ testLoading ? 'Synthesizing...' : 'Synthesize' }}
+          </button>
+        </div>
+        <!-- Audio Player -->
+        <div v-if="testAudioUrl" class="flex items-center gap-4 p-3 bg-secondary rounded-lg">
+          <Volume2 class="w-5 h-5 text-muted-foreground flex-shrink-0" />
+          <audio ref="audioRef" controls :src="testAudioUrl" class="flex-1 h-10" />
+        </div>
       </div>
     </div>
 

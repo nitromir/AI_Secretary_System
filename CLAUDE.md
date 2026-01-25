@@ -31,8 +31,8 @@ manager.py    manager.py                   service.py    service.py   service.py
 - vLLM Qwen2.5-7B + Lydia LoRA: ~8.4GB (70% GPU, port 11434)
 - XTTS v2 voice cloning: ~3.6GB (remaining)
 
-**Fine-tuned model location:**
-- LoRA adapter: `/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final/`
+**Fine-tuned model:**
+- LoRA adapter: `finetune/adapters/qwen2.5-7b-lydia-lora/` (symlink to `/home/shaerware/qwen-finetune/`)
 - Base model: `Qwen/Qwen2.5-7B-Instruct-AWQ` (cached in ~/.cache/huggingface/)
 
 **Request flow:**
@@ -109,6 +109,17 @@ tail -f logs/vllm.log
 | `typical_responses.json` | FAQ database (hot-reloadable) |
 | `custom_presets.json` | TTS custom presets |
 | `./Гуля/`, `./Лидия/` | Voice sample WAV files |
+
+### Fine-tuning (`finetune/`)
+
+| File | Purpose |
+|------|---------|
+| `train.py` | LoRA fine-tuning script (Qwen2.5-7B) |
+| `prepare_dataset.py` | Convert Telegram export to training format |
+| `merge_lora.py` | Merge LoRA with base model |
+| `quantize_awq.py` | W4A16 quantization |
+| `datasets/` | Symlinks to training data (not in git) |
+| `adapters/` | Symlinks to trained models (not in git) |
 
 ## API Quick Reference
 

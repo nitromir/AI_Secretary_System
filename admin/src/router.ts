@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import DashboardView from './views/DashboardView.vue'
+import ChatView from './views/ChatView.vue'
 import ServicesView from './views/ServicesView.vue'
 import LlmView from './views/LlmView.vue'
 import TtsView from './views/TtsView.vue'
@@ -24,6 +25,12 @@ const router = createRouter({
       name: 'dashboard',
       component: DashboardView,
       meta: { title: 'Dashboard', icon: 'LayoutDashboard' }
+    },
+    {
+      path: '/chat',
+      name: 'chat',
+      component: ChatView,
+      meta: { title: 'Chat', icon: 'MessageCircle' }
     },
     {
       path: '/services',

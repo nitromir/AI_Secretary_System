@@ -96,7 +96,7 @@ export const ttsApi = {
   clearCache: () =>
     api.delete<{ status: string; cleared_items: number }>('/admin/tts/cache'),
 
-  // Test synthesis
+  // Test synthesis - returns audio blob for playback
   testSynthesize: (text: string, preset = 'natural') =>
     fetch(`/admin/tts/test`, {
       method: 'POST',
@@ -104,6 +104,6 @@ export const ttsApi = {
       body: JSON.stringify({ text, preset }),
     }).then(res => {
       if (!res.ok) throw new Error('Synthesis failed')
-      return res.json()
+      return res.blob()
     }),
 }

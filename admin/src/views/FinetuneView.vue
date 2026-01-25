@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { finetuneApi, type TrainingConfig, type TrainingStatus, type Adapter } from '@/api'
+import { finetuneApi, type TrainingConfig, type TrainingStatus, type Adapter, type DatasetFile } from '@/api'
 import {
   Sparkles,
   Upload,
@@ -13,7 +13,8 @@ import {
   Database,
   Settings2,
   Loader2,
-  FileJson
+  FileJson,
+  FolderOpen
 } from 'lucide-vue-next'
 import { ref, computed, watch, onUnmounted } from 'vue'
 
@@ -30,6 +31,11 @@ let logEventSource: { close: () => void } | null = null
 const { data: statsData, refetch: refetchStats } = useQuery({
   queryKey: ['finetune-dataset-stats'],
   queryFn: () => finetuneApi.getDatasetStats(),
+})
+
+const { data: datasetsData, refetch: refetchDatasets } = useQuery({
+  queryKey: ['finetune-datasets'],
+  queryFn: () => finetuneApi.listDatasets(),
 })
 
 const { data: configData } = useQuery({
@@ -60,6 +66,7 @@ const uploadMutation = useMutation({
   mutationFn: (file: File) => finetuneApi.uploadDataset(file),
   onSuccess: () => {
     refetchStats()
+    refetchDatasets()
     uploadingFile.value = null
     uploadProgress.value = 0
   },
@@ -67,7 +74,10 @@ const uploadMutation = useMutation({
 
 const processMutation = useMutation({
   mutationFn: () => finetuneApi.processDataset(),
-  onSuccess: () => refetchStats(),
+  onSuccess: () => {
+    refetchStats()
+    refetchDatasets()
+  },
 })
 
 const augmentMutation = useMutation({
@@ -108,11 +118,13 @@ const deleteAdapterMutation = useMutation({
 
 // Computed
 const stats = computed(() => statsData.value?.stats)
+const datasets = computed(() => datasetsData.value?.datasets || [])
 const config = computed(() => configData.value?.config)
 const presets = computed(() => configData.value?.presets || {})
 const status = computed(() => statusData.value?.status)
 const adapters = computed(() => adaptersData.value?.adapters || [])
 const activeAdapter = computed(() => adaptersData.value?.active)
+const selectedDataset = ref<string | null>(null)
 
 const progressPercent = computed(() => {
   if (!status.value?.total_steps) return 0
@@ -219,6 +231,50 @@ onUnmounted(() => {
               <Loader2 v-if="uploadMutation.isPending.value" class="w-4 h-4 animate-spin inline mr-2" />
               Upload
             </button>
+          </div>
+        </div>
+
+        <!-- Datasets List -->
+        <div v-if="datasets.length" class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-medium flex items-center gap-2">
+              <FolderOpen class="w-4 h-4" />
+              Available Datasets
+            </h3>
+            <button
+              @click="() => refetchDatasets()"
+              class="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="border border-border rounded-lg divide-y divide-border">
+            <div
+              v-for="dataset in datasets"
+              :key="dataset.path"
+              @click="selectedDataset = dataset.path"
+              :class="[
+                'flex items-center justify-between p-3 cursor-pointer transition-colors',
+                selectedDataset === dataset.path
+                  ? 'bg-primary/10 border-l-2 border-l-primary'
+                  : 'hover:bg-secondary/50'
+              ]"
+            >
+              <div class="flex items-center gap-3">
+                <FileJson class="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <p class="font-medium text-sm">{{ dataset.name }}</p>
+                  <p class="text-xs text-muted-foreground">
+                    {{ dataset.size_mb }} MB • {{ new Date(dataset.modified).toLocaleDateString() }}
+                  </p>
+                </div>
+              </div>
+              <CheckCircle2
+                v-if="selectedDataset === dataset.path"
+                class="w-5 h-5 text-primary"
+              />
+            </div>
           </div>
         </div>
 

@@ -5,6 +5,7 @@ const messages = {
     // Navigation
     nav: {
       dashboard: 'Панель управления',
+      chat: 'Чат',
       services: 'Сервисы',
       llm: 'LLM',
       tts: 'Голос',
@@ -161,6 +162,7 @@ const messages = {
     // Navigation
     nav: {
       dashboard: 'Dashboard',
+      chat: 'Chat',
       services: 'Services',
       llm: 'LLM',
       tts: 'TTS',

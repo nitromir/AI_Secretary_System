@@ -10,6 +10,14 @@ export interface DatasetStats {
   modified: string | null
 }
 
+export interface DatasetFile {
+  name: string
+  path: string
+  size_mb: number
+  modified: string
+  type?: string
+}
+
 export interface TrainingConfig {
   base_model: string
   lora_rank: number
@@ -62,6 +70,9 @@ export const finetuneApi = {
 
   getDatasetStats: () =>
     api.get<{ stats: DatasetStats }>('/admin/finetune/dataset/stats'),
+
+  listDatasets: () =>
+    api.get<{ datasets: DatasetFile[] }>('/admin/finetune/dataset/list'),
 
   augmentDataset: () =>
     api.post<{ status: string; message: string; stats?: DatasetStats }>(
