@@ -3,7 +3,7 @@
 Главный оркестратор - координирует все сервисы
 STT (Whisper) -> LLM (Gemini) -> TTS (XTTS v2)
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -950,24 +950,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
 
 # ============== Admin Web Interface ==============
-
-@app.get("/admin")
-@app.get("/admin/")
-async def admin_web_interface():
-    """Веб-интерфейс админки"""
-    from fastapi.responses import HTMLResponse
-
-    admin_html_path = Path(__file__).parent / "admin_web.html"
-    if admin_html_path.exists():
-        return HTMLResponse(content=admin_html_path.read_text(encoding='utf-8'))
-    else:
-        return HTMLResponse(content="""
-            <html><body style="background:#1a1a2e;color:#eee;font-family:sans-serif;padding:50px;text-align:center">
-            <h1>Admin Web Interface</h1>
-            <p>File admin_web.html not found</p>
-            <p><a href="/admin/status" style="color:#e94560">API Status</a></p>
-            </body></html>
-        """)
+# Vue 3 admin panel served from /admin (see Static Files section below)
 
 
 # ============== Admin API Endpoints ==============
@@ -2353,8 +2336,8 @@ async def admin_reset_metrics():
 admin_dist_path = Path(__file__).parent / "admin" / "dist"
 if admin_dist_path.exists():
     from fastapi.staticfiles import StaticFiles
-    app.mount("/admin-new", StaticFiles(directory=str(admin_dist_path), html=True), name="admin-new")
-    logger.info(f"📂 Vue admin mounted at /admin-new from {admin_dist_path}")
+    app.mount("/admin", StaticFiles(directory=str(admin_dist_path), html=True), name="admin")
+    logger.info(f"📂 Vue admin mounted at /admin from {admin_dist_path}")
 
 
 if __name__ == "__main__":
