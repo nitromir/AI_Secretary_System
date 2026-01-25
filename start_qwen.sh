@@ -45,7 +45,7 @@ echo "Starting vLLM..."
 # Запуск vLLM с AWQ квантизацией
 # AWQ не требует --quantization флага (автоопределение)
 vllm serve "$BASE_MODEL" \
-    --gpu-memory-utilization 0.70 \
+    --gpu-memory-utilization 0.50 \
     --max-model-len 4096 \
     --dtype float16 \
     --max-num-seqs 32 \

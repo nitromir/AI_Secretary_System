@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 8 tabs, i18n, themes, and ~45 API endpoints.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a **Vue 3 PWA admin panel with 9 tabs** (including built-in Chat), i18n, themes, and ~55 API endpoints.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │   Vue 3 Admin Panel (8 tabs, PWA)  │  │
+                              │  │   Vue 3 Admin Panel (9 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -28,8 +28,8 @@ manager.py    manager.py                   service.py    service.py   service.py
 ```
 
 **GPU Mode (Single GPU - RTX 3060 12GB):**
-- vLLM Qwen2.5-7B + Lydia LoRA: ~8.4GB (70% GPU, port 11434)
-- XTTS v2 voice cloning: ~3.6GB (remaining)
+- vLLM Qwen2.5-7B + Lydia LoRA: ~6GB (50% GPU, port 11434)
+- XTTS v2 voice cloning: ~5GB (remaining)
 
 **Fine-tuned model:**
 - LoRA adapter: `finetune/adapters/qwen2.5-7b-lydia-lora/` (symlink to `/home/shaerware/qwen-finetune/`)
@@ -79,7 +79,7 @@ tail -f logs/vllm.log
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, ~45 admin endpoints, serves admin panel |
+| `orchestrator.py` | FastAPI server, ~55 admin endpoints, serves admin panel |
 | `auth_manager.py` | JWT authentication for admin panel |
 | `service_manager.py` | External service process control (vLLM) |
 | `finetune_manager.py` | LoRA training pipeline |
@@ -91,12 +91,12 @@ tail -f logs/vllm.log
 
 ### Admin Panel (Vue 3)
 
-8 tabs: Dashboard, Services, LLM, TTS, FAQ, Finetune, Monitoring, Settings
+**9 tabs:** Dashboard, **Chat**, Services, LLM, TTS, FAQ, Finetune, Monitoring, Settings
 
 | Directory | Purpose |
 |-----------|---------|
-| `admin/src/views/` | 8 main views (one per tab) |
-| `admin/src/api/` | API clients + SSE helpers |
+| `admin/src/views/` | 9 main views (one per tab) + LoginView |
+| `admin/src/api/` | API clients (chat.ts, tts.ts, llm.ts, etc.) + SSE helpers |
 | `admin/src/stores/` | Pinia stores (auth, theme, toast, audit, services, llm) |
 | `admin/src/composables/` | useSSE, useRealtimeMetrics, useExportImport |
 | `admin/src/plugins/i18n.ts` | vue-i18n (ru/en translations) |
@@ -108,6 +108,7 @@ tail -f logs/vllm.log
 |------|---------|
 | `typical_responses.json` | FAQ database (hot-reloadable) |
 | `custom_presets.json` | TTS custom presets |
+| `chat_sessions.json` | Chat history storage |
 | `./Гуля/`, `./Лидия/` | Voice sample WAV files |
 
 ### Fine-tuning (`finetune/`)
@@ -128,12 +129,26 @@ tail -f logs/vllm.log
 - `POST /v1/audio/speech` — TTS with current voice
 - `GET /v1/models` — Available models
 
+**Admin Chat API (~10 endpoints):**
+- `GET /admin/chat/sessions` — List chat sessions
+- `POST /admin/chat/sessions` — Create new session
+- `GET /admin/chat/sessions/{id}` — Get session with messages
+- `PUT /admin/chat/sessions/{id}` — Update title/system prompt
+- `DELETE /admin/chat/sessions/{id}` — Delete session
+- `POST /admin/chat/sessions/{id}/messages` — Send message (non-streaming)
+- `POST /admin/chat/sessions/{id}/stream` — Send message (SSE streaming)
+- `PUT /admin/chat/sessions/{id}/messages/{msg_id}` — Edit message & regenerate
+- `DELETE /admin/chat/sessions/{id}/messages/{msg_id}` — Delete message
+- `POST /admin/chat/sessions/{id}/messages/{msg_id}/regenerate` — Regenerate response
+
 **Admin API (JWT required):**
 - `POST /admin/auth/login` — Get JWT token
 - `GET/POST /admin/services/*` — Service control
 - `GET/POST /admin/llm/*` — Backend, persona, params
 - `GET/POST /admin/voices`, `/admin/voice`, `/admin/tts/*` — TTS config
+- `POST /admin/tts/test` — TTS test (returns audio file for browser playback)
 - `GET/POST/PUT/DELETE /admin/faq/*` — FAQ CRUD
+- `GET /admin/finetune/dataset/list` — List available datasets
 - `POST /admin/finetune/*` — Training pipeline
 - `GET /admin/monitor/*` — GPU stats, health, metrics (SSE available)
 
@@ -176,9 +191,25 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 1. Add permission to `ROLE_PERMISSIONS` in `admin/src/stores/auth.ts`
 2. Check with `authStore.hasPermission('resource.action')`
 
+## Recent Changes (Session 2026-01-25)
+
+1. **Chat Tab Added** - Full-featured chat interface in admin panel:
+   - Multiple chat sessions with history
+   - Custom system prompt per chat
+   - Edit user messages & regenerate responses
+   - Streaming responses (SSE)
+   - Sessions saved to `chat_sessions.json`
+
+2. **TTS Test Playback** - Audio now plays in browser instead of saving to file
+
+3. **Finetune Datasets List** - New endpoint and UI to list available datasets
+
+4. **GPU Memory Optimization** - vLLM now uses 50% GPU (was 70%) to coexist with XTTS
+
 ## Known Issues
 
 1. **STT disabled** — faster-whisper hangs; use text chat only
 2. **XTTS requires CC >= 7.0** — RTX 3060 or newer
-3. **GPU memory sharing** — vLLM 70% (~8.4GB), XTTS ~3.6GB
+3. **GPU memory sharing** — vLLM 50% (~6GB), XTTS ~5GB on 12GB GPU
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
+5. **Model quality** — Lydia LoRA may produce repetitive responses; adjust repetition_penalty
