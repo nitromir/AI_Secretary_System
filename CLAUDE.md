@@ -31,6 +31,10 @@ manager.py    manager.py                   service.py    service.py   service.py
 - vLLM Qwen2.5-7B + Lydia LoRA: ~8.4GB (70% GPU, port 11434)
 - XTTS v2 voice cloning: ~3.6GB (remaining)
 
+**Fine-tuned model location:**
+- LoRA adapter: `/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final/`
+- Base model: `Qwen/Qwen2.5-7B-Instruct-AWQ` (cached in ~/.cache/huggingface/)
+
 **Request flow:**
 1. User message → FAQ check (instant) OR vLLM/Gemini LLM
 2. Response text → TTS (XTTS/Piper based on `current_voice_config`)
