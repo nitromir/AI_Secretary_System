@@ -1,0 +1,48 @@
+{
+  "chat_1769356813470": {
+    "id": "chat_1769356813470",
+    "title": "кто ты?",
+    "messages": [
+      {
+        "id": "msg_1769356840139_126daa",
+        "role": "user",
+        "content": "кто ты?",
+        "timestamp": "2026-01-25T21:00:40.139127",
+        "edited": false
+      },
+      {
+        "id": "msg_1769356885356_5b4c3d",
+        "role": "assistant",
+        "content": "",
+        "timestamp": "2026-01-25T21:01:25.356788",
+        "edited": false
+      }
+    ],
+    "system_prompt": null,
+    "created": "2026-01-25T21:00:13.470331",
+    "updated": "2026-01-25T21:01:25.356815"
+  },
+  "chat_1769357180680": {
+    "id": "chat_1769357180680",
+    "title": "Hello",
+    "messages": [
+      {
+        "id": "msg_1769357205877_cdfcd0",
+        "role": "user",
+        "content": "Hello",
+        "timestamp": "2026-01-25T21:06:45.878032",
+        "edited": false
+      },
+      {
+        "id": "msg_1769357207141_a6c30c",
+        "role": "assistant",
+        "content": "",
+        "timestamp": "2026-01-25T21:06:47.141841",
+        "edited": false
+      }
+    ],
+    "system_prompt": null,
+    "created": "2026-01-25T21:06:20.680716",
+    "updated": "2026-01-25T21:06:47.141887"
+  }
+}

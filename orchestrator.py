@@ -1137,7 +1137,7 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
 
 @app.post("/admin/tts/test")
 async def admin_tts_test(request: AdminTTSTestRequest):
-    """Тестовый синтез речи"""
+    """Тестовый синтез речи - возвращает аудио-файл для воспроизведения в браузере"""
     if not voice_service:
         raise HTTPException(status_code=503, detail="Voice service not initialized")
 
@@ -1162,13 +1162,20 @@ async def admin_tts_test(request: AdminTTSTestRequest):
             rate = wf.getframerate()
             duration = frames / float(rate)
 
-        return {
-            "status": "ok",
-            "file": str(output_file),
-            "duration_sec": round(duration, 2),
-            "synthesis_time_sec": round(elapsed, 2),
-            "rtf": round(elapsed / duration, 2) if duration > 0 else 0,
-        }
+        logger.info(f"🔊 TTS test: {duration:.2f}s audio in {elapsed:.2f}s (RTF: {elapsed/duration:.2f})")
+
+        # Возвращаем аудио-файл для воспроизведения в браузере
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=str(output_file),
+            media_type="audio/wav",
+            filename="test_synthesis.wav",
+            headers={
+                "X-Duration-Sec": str(round(duration, 2)),
+                "X-Synthesis-Time-Sec": str(round(elapsed, 2)),
+                "X-RTF": str(round(elapsed / duration, 2) if duration > 0 else 0),
+            }
+        )
 
     except Exception as e:
         logger.error(f"❌ Admin TTS test error: {e}")
@@ -1198,9 +1205,11 @@ async def admin_clear_tts_cache():
 async def admin_get_llm_prompt():
     """Получить текущий системный промпт LLM"""
     if llm_service:
+        persona = getattr(llm_service, 'current_persona', None) or os.getenv("SECRETARY_PERSONA", "gulya")
         return {
             "prompt": llm_service.system_prompt,
             "model": llm_service.model_name,
+            "persona": persona,
         }
     raise HTTPException(status_code=503, detail="LLM service not initialized")
 
@@ -1498,6 +1507,217 @@ class AdminFinetuneConfigRequest(BaseModel):
 
 class AdminAdapterRequest(BaseModel):
     adapter: str
+
+
+# ============== Chat Models & Manager ==============
+
+class ChatMessageModel(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+    edited: bool = False
+
+
+class ChatSessionModel(BaseModel):
+    id: str
+    title: str
+    messages: List[ChatMessageModel]
+    system_prompt: Optional[str] = None
+    created: str
+    updated: str
+
+
+class CreateSessionRequest(BaseModel):
+    title: Optional[str] = None
+    system_prompt: Optional[str] = None
+
+
+class UpdateSessionRequest(BaseModel):
+    title: Optional[str] = None
+    system_prompt: Optional[str] = None
+
+
+class SendMessageRequest(BaseModel):
+    content: str
+
+
+class EditMessageRequest(BaseModel):
+    content: str
+
+
+class ChatManager:
+    """Менеджер чат-сессий с сохранением в файл"""
+
+    def __init__(self, storage_path: Path = None):
+        self.storage_path = storage_path or Path(__file__).parent / "chat_sessions.json"
+        self.sessions: Dict[str, dict] = {}
+        self._load()
+
+    def _load(self):
+        """Загрузить сессии из файла"""
+        if self.storage_path.exists():
+            try:
+                with open(self.storage_path, 'r', encoding='utf-8') as f:
+                    self.sessions = json.load(f)
+                logger.info(f"💬 Загружено {len(self.sessions)} чат-сессий")
+            except Exception as e:
+                logger.error(f"❌ Ошибка загрузки чатов: {e}")
+                self.sessions = {}
+        else:
+            self.sessions = {}
+
+    def _save(self):
+        """Сохранить сессии в файл"""
+        try:
+            with open(self.storage_path, 'w', encoding='utf-8') as f:
+                json.dump(self.sessions, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения чатов: {e}")
+
+    def _generate_id(self) -> str:
+        return f"chat_{int(time.time() * 1000)}"
+
+    def _generate_message_id(self) -> str:
+        return f"msg_{int(time.time() * 1000)}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
+
+    def list_sessions(self) -> List[dict]:
+        """Список всех сессий (краткая информация)"""
+        summaries = []
+        for sid, session in sorted(
+            self.sessions.items(),
+            key=lambda x: x[1].get('updated', ''),
+            reverse=True
+        ):
+            messages = session.get('messages', [])
+            last_msg = messages[-1]['content'][:100] if messages else None
+            summaries.append({
+                'id': sid,
+                'title': session.get('title', 'Новый чат'),
+                'message_count': len(messages),
+                'last_message': last_msg,
+                'created': session.get('created'),
+                'updated': session.get('updated'),
+            })
+        return summaries
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        """Получить полную сессию"""
+        return self.sessions.get(session_id)
+
+    def create_session(self, title: str = None, system_prompt: str = None) -> dict:
+        """Создать новую сессию"""
+        session_id = self._generate_id()
+        now = datetime.now().isoformat()
+        session = {
+            'id': session_id,
+            'title': title or 'Новый чат',
+            'messages': [],
+            'system_prompt': system_prompt,
+            'created': now,
+            'updated': now,
+        }
+        self.sessions[session_id] = session
+        self._save()
+        return session
+
+    def update_session(self, session_id: str, title: str = None, system_prompt: str = None) -> Optional[dict]:
+        """Обновить сессию"""
+        if session_id not in self.sessions:
+            return None
+        session = self.sessions[session_id]
+        if title is not None:
+            session['title'] = title
+        if system_prompt is not None:
+            session['system_prompt'] = system_prompt
+        session['updated'] = datetime.now().isoformat()
+        self._save()
+        return session
+
+    def delete_session(self, session_id: str) -> bool:
+        """Удалить сессию"""
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+            self._save()
+            return True
+        return False
+
+    def add_message(self, session_id: str, role: str, content: str) -> Optional[dict]:
+        """Добавить сообщение в сессию"""
+        if session_id not in self.sessions:
+            return None
+        msg = {
+            'id': self._generate_message_id(),
+            'role': role,
+            'content': content,
+            'timestamp': datetime.now().isoformat(),
+            'edited': False,
+        }
+        self.sessions[session_id]['messages'].append(msg)
+        self.sessions[session_id]['updated'] = datetime.now().isoformat()
+
+        # Авто-генерация заголовка из первого сообщения
+        if len(self.sessions[session_id]['messages']) == 1 and self.sessions[session_id]['title'] == 'Новый чат':
+            self.sessions[session_id]['title'] = content[:50] + ('...' if len(content) > 50 else '')
+
+        self._save()
+        return msg
+
+    def edit_message(self, session_id: str, message_id: str, content: str) -> Optional[dict]:
+        """Редактировать сообщение"""
+        if session_id not in self.sessions:
+            return None
+        for msg in self.sessions[session_id]['messages']:
+            if msg['id'] == message_id:
+                msg['content'] = content
+                msg['edited'] = True
+                msg['timestamp'] = datetime.now().isoformat()
+                self.sessions[session_id]['updated'] = datetime.now().isoformat()
+                self._save()
+                return msg
+        return None
+
+    def delete_message(self, session_id: str, message_id: str) -> bool:
+        """Удалить сообщение и все последующие"""
+        if session_id not in self.sessions:
+            return False
+        messages = self.sessions[session_id]['messages']
+        for i, msg in enumerate(messages):
+            if msg['id'] == message_id:
+                self.sessions[session_id]['messages'] = messages[:i]
+                self.sessions[session_id]['updated'] = datetime.now().isoformat()
+                self._save()
+                return True
+        return False
+
+    def get_messages_for_llm(self, session_id: str, system_prompt: str = None) -> List[dict]:
+        """Получить сообщения в формате для LLM"""
+        if session_id not in self.sessions:
+            return []
+        session = self.sessions[session_id]
+        messages = []
+
+        # Добавляем системный промпт
+        prompt = session.get('system_prompt') or system_prompt
+        if prompt:
+            messages.append({'role': 'system', 'content': prompt})
+
+        # Добавляем историю
+        for msg in session['messages']:
+            messages.append({'role': msg['role'], 'content': msg['content']})
+
+        return messages
+
+
+# Глобальный менеджер чатов
+chat_manager: Optional[ChatManager] = None
+
+
+def get_chat_manager() -> ChatManager:
+    global chat_manager
+    if chat_manager is None:
+        chat_manager = ChatManager()
+    return chat_manager
 
 
 # ============== Services Endpoints ==============
@@ -1997,6 +2217,13 @@ async def admin_get_dataset_stats():
     }
 
 
+@app.get("/admin/finetune/dataset/list")
+async def admin_list_datasets():
+    """Список доступных датасетов"""
+    manager = get_finetune_manager()
+    return {"datasets": manager.list_datasets()}
+
+
 @app.post("/admin/finetune/dataset/augment")
 async def admin_augment_dataset():
     """Аугментировать датасет"""
@@ -2328,6 +2555,241 @@ async def admin_reset_metrics():
             streaming_tts_manager._cache.clear()
 
     return {"status": "ok", "message": "Metrics reset"}
+
+
+# ============== Chat Endpoints ==============
+
+@app.get("/admin/chat/sessions")
+async def admin_list_chat_sessions():
+    """Список всех чат-сессий"""
+    manager = get_chat_manager()
+    return {"sessions": manager.list_sessions()}
+
+
+@app.post("/admin/chat/sessions")
+async def admin_create_chat_session(request: CreateSessionRequest):
+    """Создать новую чат-сессию"""
+    manager = get_chat_manager()
+    session = manager.create_session(request.title, request.system_prompt)
+    return {"session": session}
+
+
+@app.get("/admin/chat/sessions/{session_id}")
+async def admin_get_chat_session(session_id: str):
+    """Получить чат-сессию"""
+    manager = get_chat_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session}
+
+
+@app.put("/admin/chat/sessions/{session_id}")
+async def admin_update_chat_session(session_id: str, request: UpdateSessionRequest):
+    """Обновить чат-сессию"""
+    manager = get_chat_manager()
+    session = manager.update_session(session_id, request.title, request.system_prompt)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session}
+
+
+@app.delete("/admin/chat/sessions/{session_id}")
+async def admin_delete_chat_session(session_id: str):
+    """Удалить чат-сессию"""
+    manager = get_chat_manager()
+    if not manager.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "ok"}
+
+
+@app.post("/admin/chat/sessions/{session_id}/messages")
+async def admin_send_chat_message(session_id: str, request: SendMessageRequest):
+    """Отправить сообщение и получить ответ (non-streaming)"""
+    manager = get_chat_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not llm_service:
+        raise HTTPException(status_code=503, detail="LLM service not available")
+
+    # Добавляем сообщение пользователя
+    user_msg = manager.add_message(session_id, 'user', request.content)
+
+    # Получаем историю для LLM
+    default_prompt = None
+    if hasattr(llm_service, 'get_system_prompt'):
+        default_prompt = llm_service.get_system_prompt()
+    messages = manager.get_messages_for_llm(session_id, default_prompt)
+
+    # Генерируем ответ
+    try:
+        response_text = llm_service.generate_response_from_messages(messages, stream=False)
+        if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
+            response_text = ''.join(response_text)
+
+        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        return {"message": user_msg, "response": assistant_msg}
+
+    except Exception as e:
+        logger.error(f"❌ Chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/chat/sessions/{session_id}/stream")
+async def admin_stream_chat_message(session_id: str, request: SendMessageRequest):
+    """Отправить сообщение и получить streaming ответ"""
+    manager = get_chat_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not llm_service:
+        raise HTTPException(status_code=503, detail="LLM service not available")
+
+    # Добавляем сообщение пользователя
+    user_msg = manager.add_message(session_id, 'user', request.content)
+
+    # Получаем историю для LLM
+    default_prompt = None
+    if hasattr(llm_service, 'get_system_prompt'):
+        default_prompt = llm_service.get_system_prompt()
+    messages = manager.get_messages_for_llm(session_id, default_prompt)
+
+    async def generate_stream():
+        full_response = []
+        try:
+            # Отправляем сообщение пользователя
+            yield f"data: {json.dumps({'type': 'user_message', 'message': user_msg}, ensure_ascii=False)}\n\n"
+
+            # Streaming ответ
+            for chunk in llm_service.generate_response_from_messages(messages, stream=True):
+                full_response.append(chunk)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+
+            # Сохраняем полный ответ
+            response_text = ''.join(full_response)
+            assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+
+            # Отправляем финальное сообщение
+            yield f"data: {json.dumps({'type': 'assistant_message', 'message': assistant_msg}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.error(f"❌ Chat stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+@app.put("/admin/chat/sessions/{session_id}/messages/{message_id}")
+async def admin_edit_chat_message(session_id: str, message_id: str, request: EditMessageRequest):
+    """Редактировать сообщение пользователя и перегенерировать ответ"""
+    manager = get_chat_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Находим сообщение
+    message = None
+    message_index = -1
+    for i, msg in enumerate(session['messages']):
+        if msg['id'] == message_id:
+            message = msg
+            message_index = i
+            break
+
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if message['role'] != 'user':
+        raise HTTPException(status_code=400, detail="Can only edit user messages")
+
+    # Удаляем это сообщение и все последующие
+    manager.delete_message(session_id, message_id)
+
+    # Добавляем отредактированное сообщение
+    user_msg = manager.add_message(session_id, 'user', request.content)
+
+    # Если был ответ после этого сообщения - генерируем новый
+    if not llm_service:
+        return {"message": user_msg}
+
+    default_prompt = None
+    if hasattr(llm_service, 'get_system_prompt'):
+        default_prompt = llm_service.get_system_prompt()
+    messages = manager.get_messages_for_llm(session_id, default_prompt)
+
+    try:
+        response_text = llm_service.generate_response_from_messages(messages, stream=False)
+        if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
+            response_text = ''.join(response_text)
+
+        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        return {"message": user_msg, "response": assistant_msg}
+
+    except Exception as e:
+        logger.error(f"❌ Chat regenerate error: {e}")
+        return {"message": user_msg, "error": str(e)}
+
+
+@app.delete("/admin/chat/sessions/{session_id}/messages/{message_id}")
+async def admin_delete_chat_message(session_id: str, message_id: str):
+    """Удалить сообщение и все последующие"""
+    manager = get_chat_manager()
+    if not manager.delete_message(session_id, message_id):
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"status": "ok"}
+
+
+@app.post("/admin/chat/sessions/{session_id}/messages/{message_id}/regenerate")
+async def admin_regenerate_chat_response(session_id: str, message_id: str):
+    """Перегенерировать ответ на сообщение"""
+    manager = get_chat_manager()
+    session = manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not llm_service:
+        raise HTTPException(status_code=503, detail="LLM service not available")
+
+    # Находим сообщение пользователя
+    message_index = -1
+    for i, msg in enumerate(session['messages']):
+        if msg['id'] == message_id:
+            message_index = i
+            break
+
+    if message_index == -1:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Удаляем все сообщения после этого (включая старый ответ)
+    messages_to_keep = session['messages'][:message_index + 1]
+    manager.sessions[session_id]['messages'] = messages_to_keep
+    manager._save()
+
+    # Генерируем новый ответ
+    default_prompt = None
+    if hasattr(llm_service, 'get_system_prompt'):
+        default_prompt = llm_service.get_system_prompt()
+    llm_messages = manager.get_messages_for_llm(session_id, default_prompt)
+
+    try:
+        response_text = llm_service.generate_response_from_messages(llm_messages, stream=False)
+        if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
+            response_text = ''.join(response_text)
+
+        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        return {"response": assistant_msg}
+
+    except Exception as e:
+        logger.error(f"❌ Chat regenerate error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============== Static Files for Vue Admin ==============

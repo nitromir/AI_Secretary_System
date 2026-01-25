@@ -100,22 +100,26 @@ class FinetuneManager:
     - Управление адаптерами (активация, удаление)
     """
 
-    # Пути по умолчанию
-    FINETUNE_DIR = Path(os.path.expanduser("~/qwen-finetune"))
-    ADAPTERS_BASE = FINETUNE_DIR / "qwen2.5-7b-lydia-lora"
-    VENV_PATH = FINETUNE_DIR / "venv"
-    DATASET_DIR = FINETUNE_DIR / "data"
+    # Пути по умолчанию (локальная структура в репозитории)
+    EXTERNAL_DATA_DIR = Path(os.path.expanduser("~/qwen-finetune"))  # Внешние данные
+    VENV_PATH = EXTERNAL_DATA_DIR / "train_venv"  # venv для обучения
 
-    # Скрипты
-    PREPARE_SCRIPT = "prepare_telegram.py"
-    ANALYZE_SCRIPT = "analyze_dataset.py"
-    AUGMENT_SCRIPT = "augment_dataset.py"
-    TRAIN_SCRIPT = "train_qlora.py"
+    # Скрипты (в finetune/)
+    PREPARE_SCRIPT = "prepare_dataset.py"
+    TRAIN_SCRIPT = "train.py"
+    MERGE_SCRIPT = "merge_lora.py"
+    QUANTIZE_SCRIPT = "quantize_awq.py"
 
     def __init__(self, base_dir: Optional[Path] = None):
         self.base_dir = base_dir or Path(__file__).parent
-        self.finetune_dir = self.FINETUNE_DIR
-        self.adapters_base = self.ADAPTERS_BASE
+
+        # Локальные пути (в репозитории)
+        self.finetune_dir = self.base_dir / "finetune"
+        self.datasets_dir = self.finetune_dir / "datasets"
+        self.adapters_dir = self.finetune_dir / "adapters"
+
+        # Внешние данные (для совместимости)
+        self.external_data_dir = self.EXTERNAL_DATA_DIR
 
         # Состояние обучения
         self.training_process: Optional[subprocess.Popen] = None
@@ -125,9 +129,9 @@ class FinetuneManager:
         self.training_start_time: Optional[datetime] = None
         self._training_lock = threading.Lock()
 
-        # Создаем директории
-        self.DATASET_DIR.mkdir(parents=True, exist_ok=True)
-        self.adapters_base.mkdir(parents=True, exist_ok=True)
+        # Создаем директории если не существуют
+        self.datasets_dir.mkdir(parents=True, exist_ok=True)
+        self.adapters_dir.mkdir(parents=True, exist_ok=True)
 
         # Текущий активный адаптер
         self.active_adapter: Optional[str] = None
@@ -135,17 +139,18 @@ class FinetuneManager:
 
         logger.info(f"🎓 FinetuneManager инициализирован")
         logger.info(f"   📁 Finetune dir: {self.finetune_dir}")
-        logger.info(f"   🔧 Adapters: {self.adapters_base}")
+        logger.info(f"   📊 Datasets: {self.datasets_dir}")
+        logger.info(f"   🔧 Adapters: {self.adapters_dir}")
 
     def _load_active_adapter(self):
         """Загружает информацию об активном адаптере"""
-        active_file = self.adapters_base / ".active"
+        active_file = self.adapters_dir / ".active"
         if active_file.exists():
             self.active_adapter = active_file.read_text().strip()
 
     def _save_active_adapter(self, adapter_name: str):
         """Сохраняет активный адаптер"""
-        active_file = self.adapters_base / ".active"
+        active_file = self.adapters_dir / ".active"
         active_file.write_text(adapter_name)
         self.active_adapter = adapter_name
 
@@ -153,15 +158,13 @@ class FinetuneManager:
         """Запускает Python скрипт в venv finetune"""
         script_path = self.finetune_dir / script_name
         if not script_path.exists():
-            # Пробуем в base_dir
-            script_path = self.base_dir / script_name
-            if not script_path.exists():
-                return {"status": "error", "message": f"Скрипт не найден: {script_name}"}
+            return {"status": "error", "message": f"Скрипт не найден: {script_name}"}
 
         python_path = self.VENV_PATH / "bin" / "python"
         if not python_path.exists():
             # Fallback на системный python
             python_path = "python3"
+            logger.warning(f"⚠️ venv не найден: {self.VENV_PATH}, используем системный python")
 
         cmd = [str(python_path), str(script_path)]
         if args:
@@ -173,7 +176,7 @@ class FinetuneManager:
                 cwd=str(self.finetune_dir),
                 capture_output=capture_output,
                 text=True,
-                timeout=300  # 5 минут таймаут
+                timeout=600  # 10 минут таймаут
             )
 
             if result.returncode == 0:
@@ -202,9 +205,9 @@ class FinetuneManager:
         try:
             # Определяем путь для сохранения
             if filename.endswith('.json'):
-                dest_path = self.DATASET_DIR / "result.json"
+                dest_path = self.datasets_dir / "result.json"
             else:
-                dest_path = self.DATASET_DIR / filename
+                dest_path = self.datasets_dir / filename
 
             dest_path.write_bytes(content)
             file_size = len(content) / (1024 * 1024)
@@ -224,14 +227,15 @@ class FinetuneManager:
     async def process_dataset(self) -> dict:
         """
         Обрабатывает Telegram export и создает JSONL для обучения.
-        Запускает prepare_telegram.py
+        Запускает prepare_dataset.py
         """
         result = self._run_script(self.PREPARE_SCRIPT)
 
         if result["status"] == "ok":
-            # Проверяем результат
-            output_file = self.DATASET_DIR / "train.jsonl"
-            if output_file.exists():
+            # Проверяем результат - ищем созданный jsonl файл
+            output_files = list(self.datasets_dir.glob("*_dataset_*.jsonl"))
+            if output_files:
+                output_file = max(output_files, key=lambda f: f.stat().st_mtime)
                 lines = len(output_file.read_text().strip().split('\n'))
                 return {
                     "status": "ok",
@@ -242,14 +246,23 @@ class FinetuneManager:
 
         return result
 
-    def get_dataset_stats(self) -> DatasetStats:
+    def get_dataset_stats(self, dataset_file: Optional[str] = None) -> DatasetStats:
         """
         Возвращает статистику датасета.
+        Если dataset_file не указан, использует последний измененный .jsonl
         """
         stats = DatasetStats()
 
-        # Проверяем наличие обработанного датасета
-        train_file = self.DATASET_DIR / "train.jsonl"
+        # Находим файл датасета
+        if dataset_file:
+            train_file = Path(dataset_file)
+        else:
+            # Ищем последний измененный .jsonl файл
+            jsonl_files = list(self.datasets_dir.glob("*.jsonl"))
+            if not jsonl_files:
+                return stats
+            train_file = max(jsonl_files, key=lambda f: f.stat().st_mtime)
+
         if not train_file.exists():
             return stats
 
@@ -276,7 +289,7 @@ class FinetuneManager:
                     total_chars += len(content)
 
             stats.total_messages = total_messages
-            # Приблизительная оценка токенов (1 токен ~ 4 символа для русского)
+            # Приблизительная оценка токенов (1 токен ~ 3 символа для русского)
             stats.total_tokens = total_chars // 3
             stats.avg_tokens_per_message = round(stats.total_tokens / max(1, total_messages), 1)
 
@@ -285,22 +298,44 @@ class FinetuneManager:
 
         return stats
 
+    def list_datasets(self) -> List[dict]:
+        """
+        Возвращает список доступных датасетов.
+        """
+        datasets = []
+
+        for f in self.datasets_dir.iterdir():
+            if f.suffix == '.jsonl' and f.is_file():
+                stat = f.stat()
+                datasets.append({
+                    "name": f.name,
+                    "path": str(f),
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+            elif f.suffix == '.json' and f.name == 'result.json':
+                stat = f.stat()
+                datasets.append({
+                    "name": f.name,
+                    "path": str(f),
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "type": "telegram_export"
+                })
+
+        return sorted(datasets, key=lambda x: x["modified"], reverse=True)
+
     async def augment_dataset(self) -> dict:
         """
         Аугментирует датасет (увеличивает разнообразие).
-        Запускает augment_dataset.py
+        Пока не реализовано - возвращает сообщение.
         """
-        result = self._run_script(self.AUGMENT_SCRIPT)
-
-        if result["status"] == "ok":
-            stats = self.get_dataset_stats()
-            return {
-                "status": "ok",
-                "message": f"Датасет аугментирован. Теперь: {stats.total_sessions} сессий",
-                "stats": asdict(stats)
-            }
-
-        return result
+        # TODO: Реализовать аугментацию
+        return {
+            "status": "ok",
+            "message": "Аугментация пока не реализована. Используйте существующие датасеты.",
+            "stats": asdict(self.get_dataset_stats())
+        }
 
     # ============== Training Configuration ==============
 
@@ -372,6 +407,7 @@ class FinetuneManager:
     async def start_training(self, config: Optional[TrainingConfig] = None) -> dict:
         """
         Запускает обучение в фоновом режиме.
+        Использует train.py из finetune/
         """
         if self.training_process and self.training_process.poll() is None:
             return {"status": "error", "message": "Обучение уже запущено"}
@@ -385,46 +421,34 @@ class FinetuneManager:
         config = self.training_config
 
         # Проверяем датасет
-        train_file = self.DATASET_DIR / "train.jsonl"
-        if not train_file.exists():
+        jsonl_files = list(self.datasets_dir.glob("*.jsonl"))
+        if not jsonl_files:
             return {"status": "error", "message": "Датасет не найден. Сначала загрузите и обработайте данные."}
 
+        # Используем последний датасет
+        train_file = max(jsonl_files, key=lambda f: f.stat().st_mtime)
+
         # Создаем директорию для адаптера
-        output_dir = self.adapters_base / config.output_dir
+        output_dir = self.adapters_dir / config.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Формируем команду обучения
         python_path = self.VENV_PATH / "bin" / "python"
         if not python_path.exists():
-            return {"status": "error", "message": "venv для обучения не найден. Запустите setup."}
+            return {"status": "error", "message": f"venv для обучения не найден: {self.VENV_PATH}"}
 
         train_script = self.finetune_dir / self.TRAIN_SCRIPT
         if not train_script.exists():
             return {"status": "error", "message": f"Скрипт обучения не найден: {train_script}"}
 
-        cmd = [
-            str(python_path),
-            str(train_script),
-            "--model_name", config.base_model,
-            "--dataset_path", str(train_file),
-            "--output_dir", str(output_dir),
-            "--lora_r", str(config.lora_rank),
-            "--lora_alpha", str(config.lora_alpha),
-            "--lora_dropout", str(config.lora_dropout),
-            "--per_device_train_batch_size", str(config.batch_size),
-            "--gradient_accumulation_steps", str(config.gradient_accumulation_steps),
-            "--learning_rate", str(config.learning_rate),
-            "--num_train_epochs", str(config.num_epochs),
-            "--warmup_ratio", str(config.warmup_ratio),
-            "--max_seq_length", str(config.max_seq_length),
-            "--logging_steps", str(config.logging_steps),
-            "--save_steps", str(config.save_steps),
-        ]
+        # train.py использует хардкодированные параметры, запускаем напрямую
+        # В будущем можно добавить поддержку аргументов командной строки
+        cmd = [str(python_path), str(train_script)]
 
-        if config.gradient_checkpointing:
-            cmd.append("--gradient_checkpointing")
-        if config.fp16:
-            cmd.append("--fp16")
+        # Устанавливаем переменные окружения для GPU
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = "1"
+        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
         try:
             # Очищаем предыдущий лог
@@ -434,12 +458,12 @@ class FinetuneManager:
                 self.training_start_time = datetime.now()
 
             # Запускаем процесс
-            log_file = self.finetune_dir / "training.log"
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(self.finetune_dir),
+                env=env,
                 text=True,
                 bufsize=1,
             )
@@ -619,10 +643,10 @@ class FinetuneManager:
         """Возвращает список доступных LoRA адаптеров"""
         adapters = []
 
-        if not self.adapters_base.exists():
+        if not self.adapters_dir.exists():
             return adapters
 
-        for adapter_dir in self.adapters_base.iterdir():
+        for adapter_dir in self.adapters_dir.iterdir():
             if not adapter_dir.is_dir() or adapter_dir.name.startswith('.'):
                 continue
 
@@ -670,7 +694,7 @@ class FinetuneManager:
         """
         Активирует LoRA адаптер (hot-swap в vLLM).
         """
-        adapter_dir = self.adapters_base / adapter_name
+        adapter_dir = self.adapters_dir / adapter_name
         if not adapter_dir.exists():
             return {"status": "error", "message": f"Адаптер не найден: {adapter_name}"}
 
@@ -701,7 +725,7 @@ class FinetuneManager:
 
     async def delete_adapter(self, adapter_name: str) -> dict:
         """Удаляет LoRA адаптер"""
-        adapter_dir = self.adapters_base / adapter_name
+        adapter_dir = self.adapters_dir / adapter_name
         if not adapter_dir.exists():
             return {"status": "error", "message": f"Адаптер не найден: {adapter_name}"}
 

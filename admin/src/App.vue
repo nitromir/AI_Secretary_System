@@ -2,6 +2,7 @@
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard,
+  MessageCircle,
   Server,
   Brain,
   Mic,
@@ -63,6 +64,7 @@ watch(() => route.path, () => {
 
 const navItems = [
   { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard },
+  { path: '/chat', nameKey: 'nav.chat', icon: MessageCircle },
   { path: '/services', nameKey: 'nav.services', icon: Server },
   { path: '/llm', nameKey: 'nav.llm', icon: Brain },
   { path: '/tts', nameKey: 'nav.tts', icon: Mic },
