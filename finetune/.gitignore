@@ -1,0 +1,31 @@
+# Datasets (too large for git)
+datasets/*.jsonl
+datasets/*.json
+datasets/result.json
+
+# Trained adapters and models
+adapters/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Merged models (15GB+)
+*-merged/
+
+# Virtual environments
+*_venv/
+venv/
+
+# Cache
+__pycache__/
+*.pyc
+unsloth_compiled_cache/
+.cache/
+
+# Checkpoints (during training)
+checkpoint-*/
+
+# Logs
+*.log
+wandb/

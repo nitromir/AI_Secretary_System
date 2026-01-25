@@ -17,7 +17,8 @@ cd "$(dirname "$0")"
 
 # Определяем модель (по умолчанию Qwen)
 MODEL="qwen"
-LORA_PATH="/home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora/final"
+# LoRA adapter path (symlink to /home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora)
+LORA_PATH="$(dirname "$0")/finetune/adapters/qwen2.5-7b-lydia-lora/final"
 
 if [[ "$1" == "--llama" ]]; then
     MODEL="llama"
