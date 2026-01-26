@@ -106,6 +106,11 @@ const xttsVoices = computed(() => voices.value.filter(v => v.engine === 'xtts'))
 const piperVoices = computed(() => voices.value.filter(v => v.engine === 'piper'))
 const openvoiceVoices = computed(() => voices.value.filter(v => v.engine === 'openvoice'))
 
+// Check if engine section is active (has the currently selected voice)
+const isXttsActive = computed(() => currentEngine.value === 'xtts')
+const isPiperActive = computed(() => currentEngine.value === 'piper')
+const isOpenvoiceActive = computed(() => currentEngine.value === 'openvoice')
+
 const presets = computed(() => presetsData.value?.presets || {})
 const customPresets = computed(() => customPresetsData.value?.presets || {})
 const currentPreset = computed(() => presetsData.value?.current || 'natural')
@@ -179,8 +184,13 @@ function createPreset() {
 
       <div class="p-4 space-y-6">
         <!-- XTTS Voices -->
-        <div v-if="xttsVoices.length">
-          <h3 class="text-sm font-medium text-muted-foreground mb-3">XTTS v2 (GPU CC >= 7.0)</h3>
+        <div v-if="xttsVoices.length" :class="['transition-opacity duration-200', !isXttsActive && 'opacity-60']">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-sm font-medium text-muted-foreground">XTTS v2 (GPU CC >= 7.0)</h3>
+            <span v-if="isXttsActive" class="px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
+              Active
+            </span>
+          </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div
               v-for="voice in xttsVoices"
@@ -188,7 +198,7 @@ function createPreset() {
               :class="[
                 'p-4 rounded-lg border cursor-pointer transition-all',
                 currentVoice === voice.id
-                  ? 'border-primary bg-primary/10'
+                  ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
                   : 'border-border hover:border-primary/50'
               ]"
               @click="setVoiceMutation.mutate(voice.id)"
@@ -215,8 +225,13 @@ function createPreset() {
         </div>
 
         <!-- OpenVoice Voices -->
-        <div v-if="openvoiceVoices.length">
-          <h3 class="text-sm font-medium text-muted-foreground mb-3">OpenVoice v2 (GPU CC >= 6.1)</h3>
+        <div v-if="openvoiceVoices.length" :class="['transition-opacity duration-200', !isOpenvoiceActive && 'opacity-60']">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-sm font-medium text-muted-foreground">OpenVoice v2 (GPU CC >= 6.1)</h3>
+            <span v-if="isOpenvoiceActive" class="px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
+              Active
+            </span>
+          </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div
               v-for="voice in openvoiceVoices"
@@ -224,7 +239,7 @@ function createPreset() {
               :class="[
                 'p-4 rounded-lg border cursor-pointer transition-all',
                 currentVoice === voice.id
-                  ? 'border-primary bg-primary/10'
+                  ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
                   : 'border-border hover:border-primary/50'
               ]"
               @click="setVoiceMutation.mutate(voice.id)"
@@ -233,14 +248,28 @@ function createPreset() {
                 <span class="font-medium">{{ voice.name }}</span>
                 <CheckCircle2 v-if="currentVoice === voice.id" class="w-4 h-4 text-primary" />
               </div>
-              <p class="text-xs text-muted-foreground">{{ voice.description }}</p>
+              <p class="text-xs text-muted-foreground mb-2">{{ voice.description }}</p>
+              <div class="flex justify-end">
+                <button
+                  @click.stop="testVoice(voice.id)"
+                  :disabled="testLoading"
+                  class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                >
+                  <Play class="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Piper Voices -->
-        <div v-if="piperVoices.length">
-          <h3 class="text-sm font-medium text-muted-foreground mb-3">Piper (CPU)</h3>
+        <div v-if="piperVoices.length" :class="['transition-opacity duration-200', !isPiperActive && 'opacity-60']">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-sm font-medium text-muted-foreground">Piper (CPU)</h3>
+            <span v-if="isPiperActive" class="px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
+              Active
+            </span>
+          </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div
               v-for="voice in piperVoices"
@@ -249,7 +278,7 @@ function createPreset() {
                 'p-4 rounded-lg border cursor-pointer transition-all',
                 voice.available
                   ? currentVoice === voice.id
-                    ? 'border-primary bg-primary/10'
+                    ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
                     : 'border-border hover:border-primary/50'
                   : 'border-border opacity-50 cursor-not-allowed'
               ]"
@@ -259,7 +288,16 @@ function createPreset() {
                 <span class="font-medium">{{ voice.name }}</span>
                 <CheckCircle2 v-if="currentVoice === voice.id" class="w-4 h-4 text-primary" />
               </div>
-              <p class="text-xs text-muted-foreground">{{ voice.description }}</p>
+              <p class="text-xs text-muted-foreground mb-2">{{ voice.description }}</p>
+              <div v-if="voice.available" class="flex justify-end">
+                <button
+                  @click.stop="testVoice(voice.id)"
+                  :disabled="testLoading"
+                  class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                >
+                  <Play class="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
         </div>

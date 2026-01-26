@@ -61,6 +61,9 @@ tail -f logs/vllm.log
 **Single entry point:** http://localhost:8002/admin/ (login: admin / admin)
 
 ```bash
+# First-time setup
+cd admin && npm install     # Install dependencies once
+
 # Production mode (default) - serve built Vue app
 cd admin && npm run build   # Build once
 ./start_gpu.sh              # Start orchestrator
@@ -201,11 +204,15 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 
 ## Known Issues
 
-1. **Vosk model required** — Download `vosk-model-ru-0.42` (~1.5GB) to `models/vosk/` for STT
-2. **XTTS requires CC >= 7.0** — RTX 3060 or newer
+1. **Vosk model required** — Download `vosk-model-ru-0.42` (~1.5GB) to `models/vosk/` for STT:
+   ```bash
+   mkdir -p models/vosk && cd models/vosk
+   wget https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip && unzip vosk-model-ru-0.42.zip
+   ```
+2. **XTTS requires CC >= 7.0** — RTX 3060 or newer; use OpenVoice for older GPUs (CC >= 6.1)
 3. **GPU memory sharing** — vLLM 50% (~6GB) + XTTS ~5GB on 12GB GPU
-4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
-5. **Model quality** — Lydia LoRA may produce repetitive responses; adjust repetition_penalty
+4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost` for API URL
+5. **Model quality** — Lydia LoRA may produce repetitive responses; adjust `repetition_penalty` in LLM tab
 
 ## Roadmap & Backlog
 
