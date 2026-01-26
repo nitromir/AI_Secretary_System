@@ -9,16 +9,20 @@ import {
   Save,
   RotateCw,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Loader2
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
+import { useToastStore } from '@/stores/toast'
 
 const queryClient = useQueryClient()
+const toast = useToastStore()
 
 // State
 const editingPrompt = ref(false)
 const promptText = ref('')
 const selectedPersonaForPrompt = ref('gulya')
+const stopUnusedVllm = ref(false)
 
 // Queries
 const { data: backendData, isLoading: backendLoading } = useQuery({
@@ -57,8 +61,14 @@ watch(paramsData, (data) => {
 
 // Mutations
 const setBackendMutation = useMutation({
-  mutationFn: (backend: 'vllm' | 'gemini') => llmApi.setBackend(backend),
-  onSuccess: () => queryClient.invalidateQueries({ queryKey: ['llm-backend'] }),
+  mutationFn: (backend: 'vllm' | 'gemini') => llmApi.setBackend(backend, backend === 'gemini' && stopUnusedVllm.value),
+  onSuccess: (data) => {
+    queryClient.invalidateQueries({ queryKey: ['llm-backend'] })
+    toast.success(data.message || `Переключено на ${data.backend}`)
+  },
+  onError: (error: Error) => {
+    toast.error(`Ошибка переключения: ${error.message}`)
+  },
 })
 
 const setPersonaMutation = useMutation({
@@ -123,40 +133,68 @@ function saveParams() {
       <div class="p-4">
         <div v-if="backendLoading" class="text-muted-foreground">Loading...</div>
         <div v-else class="space-y-4">
+          <!-- Backend Toggle -->
           <div class="flex items-center gap-4">
             <div class="grid grid-cols-2 gap-2 p-1 bg-secondary rounded-lg">
               <button
                 @click="setBackendMutation.mutate('vllm')"
+                :disabled="setBackendMutation.isPending.value"
                 :class="[
-                  'px-4 py-2 rounded-lg transition-colors',
-                  isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80'
+                  'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
+                  isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80',
+                  setBackendMutation.isPending.value && 'opacity-50 cursor-not-allowed'
                 ]"
               >
+                <Loader2 v-if="setBackendMutation.isPending.value && !isVllm" class="w-4 h-4 animate-spin" />
                 vLLM (Local)
               </button>
               <button
                 @click="setBackendMutation.mutate('gemini')"
+                :disabled="setBackendMutation.isPending.value"
                 :class="[
-                  'px-4 py-2 rounded-lg transition-colors',
-                  !isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80'
+                  'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
+                  !isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80',
+                  setBackendMutation.isPending.value && 'opacity-50 cursor-not-allowed'
                 ]"
               >
+                <Loader2 v-if="setBackendMutation.isPending.value && isVllm" class="w-4 h-4 animate-spin" />
                 Gemini (Cloud)
               </button>
             </div>
           </div>
 
+          <!-- Status -->
           <div class="flex items-center gap-2 text-sm">
-            <CheckCircle2 class="w-4 h-4 text-green-500" />
-            <span>Current: <strong>{{ backendData?.backend }}</strong></span>
-            <span v-if="backendData?.model" class="text-muted-foreground">
-              ({{ backendData.model }})
+            <Loader2 v-if="setBackendMutation.isPending.value" class="w-4 h-4 animate-spin text-primary" />
+            <CheckCircle2 v-else class="w-4 h-4 text-green-500" />
+            <span v-if="setBackendMutation.isPending.value" class="text-muted-foreground">
+              Переключение... (vLLM может запускаться до 2 минут)
+            </span>
+            <span v-else>
+              Current: <strong>{{ backendData?.backend }}</strong>
+              <span v-if="backendData?.model" class="text-muted-foreground">
+                ({{ backendData.model }})
+              </span>
             </span>
           </div>
 
-          <div v-if="setBackendMutation.data?.value?.message" class="flex items-center gap-2 text-sm text-yellow-500">
+          <!-- Stop vLLM checkbox (show when using vLLM) -->
+          <div v-if="isVllm" class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="stopVllm"
+              v-model="stopUnusedVllm"
+              class="w-4 h-4 rounded border-border"
+            />
+            <label for="stopVllm" class="text-sm text-muted-foreground">
+              Остановить vLLM при переключении на Gemini (освободит ~6GB GPU)
+            </label>
+          </div>
+
+          <!-- Warning/Info messages -->
+          <div v-if="setBackendMutation.isError.value" class="flex items-center gap-2 text-sm text-red-500">
             <AlertCircle class="w-4 h-4" />
-            {{ setBackendMutation.data?.value?.message }}
+            {{ setBackendMutation.error.value?.message || 'Ошибка переключения' }}
           </div>
         </div>
       </div>
