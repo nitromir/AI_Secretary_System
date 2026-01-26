@@ -1809,6 +1809,15 @@ class AdminFinetuneConfigRequest(BaseModel):
 class AdminAdapterRequest(BaseModel):
     adapter: str
 
+class AdminAuditQueryRequest(BaseModel):
+    action: Optional[str] = None
+    resource: Optional[str] = None
+    user_id: Optional[str] = None
+    from_date: Optional[str] = None  # ISO format
+    to_date: Optional[str] = None    # ISO format
+    limit: int = 100
+    offset: int = 0
+
 
 # ============== Chat Models & Manager ==============
 
@@ -3626,18 +3635,25 @@ async def admin_start_telegram_bot():
     # Start bot process
     import subprocess
     bot_script = Path(__file__).parent / "telegram_bot_service.py"
+    bot_log = Path(__file__).parent / "logs" / "telegram_bot.log"
+
+    # Ensure logs directory exists
+    bot_log.parent.mkdir(exist_ok=True)
 
     if not bot_script.exists():
         raise HTTPException(status_code=500, detail="Bot script not found")
 
     try:
+        # Open log file for bot output
+        log_file = open(bot_log, "a", encoding="utf-8")
         _telegram_bot_process = subprocess.Popen(
-            ["python3", str(bot_script)],
+            ["python3", "-u", str(bot_script)],  # -u for unbuffered output
             cwd=str(Path(__file__).parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stdout=log_file,
+            stderr=subprocess.STDOUT,  # Redirect stderr to stdout (both to log file)
+            start_new_session=True  # Detach from parent process group
         )
-        logger.info(f"Started Telegram bot with PID {_telegram_bot_process.pid}")
+        logger.info(f"Started Telegram bot with PID {_telegram_bot_process.pid}, logs: {bot_log}")
         return {"status": "started", "pid": _telegram_bot_process.pid}
     except Exception as e:
         logger.error(f"Failed to start Telegram bot: {e}")
@@ -3688,6 +3704,127 @@ async def admin_get_telegram_sessions():
     """Получить список сессий Telegram"""
     sessions = await async_telegram_manager.get_sessions_dict()
     return {"sessions": sessions}
+
+
+# ============== Audit Log API ==============
+
+@app.get("/admin/audit/logs")
+async def admin_get_audit_logs(
+    action: Optional[str] = None,
+    resource: Optional[str] = None,
+    user_id: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Get audit logs with optional filters."""
+    from datetime import datetime
+    from db.database import AsyncSessionLocal
+    from db.repositories import AuditRepository
+
+    # Parse dates if provided
+    from_dt = None
+    to_dt = None
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+        except ValueError:
+            pass
+
+    async with AsyncSessionLocal() as session:
+        repo = AuditRepository(session)
+        logs = await repo.get_logs(
+            action=action,
+            resource=resource,
+            user_id=user_id,
+            from_date=from_dt,
+            to_date=to_dt,
+            limit=limit,
+            offset=offset,
+        )
+        return {"logs": logs, "count": len(logs)}
+
+
+@app.get("/admin/audit/stats")
+async def admin_get_audit_stats():
+    """Get audit log statistics."""
+    from db.database import AsyncSessionLocal
+    from db.repositories import AuditRepository
+
+    async with AsyncSessionLocal() as session:
+        repo = AuditRepository(session)
+        stats = await repo.get_stats()
+        return {"stats": stats}
+
+
+@app.get("/admin/audit/export")
+async def admin_export_audit_logs(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    format: str = "json",  # json or csv
+):
+    """Export audit logs as JSON or CSV."""
+    from datetime import datetime
+    from db.database import AsyncSessionLocal
+    from db.repositories import AuditRepository
+    import csv
+    import io
+
+    # Parse dates
+    from_dt = None
+    to_dt = None
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+        except ValueError:
+            pass
+
+    async with AsyncSessionLocal() as session:
+        repo = AuditRepository(session)
+        logs = await repo.export_logs(from_date=from_dt, to_date=to_dt)
+
+    if format == "csv":
+        # Convert to CSV
+        output = io.StringIO()
+        if logs:
+            writer = csv.DictWriter(output, fieldnames=logs[0].keys())
+            writer.writeheader()
+            writer.writerows(logs)
+        csv_content = output.getvalue()
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit_logs.csv"}
+        )
+    else:
+        # Return as JSON
+        return {"logs": logs, "count": len(logs)}
+
+
+@app.post("/admin/audit/cleanup")
+async def admin_cleanup_audit_logs(days: int = 90):
+    """Delete audit logs older than specified days."""
+    from db.database import AsyncSessionLocal
+    from db.repositories import AuditRepository
+
+    if days < 7:
+        raise HTTPException(status_code=400, detail="Minimum retention period is 7 days")
+
+    async with AsyncSessionLocal() as session:
+        repo = AuditRepository(session)
+        deleted = await repo.cleanup_old_logs(days=days)
+        return {"status": "ok", "deleted": deleted, "retention_days": days}
 
 
 # ============== Static Files for Vue Admin ==============

@@ -15,6 +15,7 @@ const messages = {
       models: 'Модели',
       widget: 'Виджет',
       telegram: 'Telegram',
+      audit: 'Аудит',
       settings: 'Настройки',
       search: 'Поиск...',
       logout: 'Выход'
@@ -277,6 +278,34 @@ const messages = {
       howToGetUserId: 'Как узнать Telegram ID?',
       getUserIdDesc: 'Отправьте любое сообщение боту:'
     },
+    // Audit
+    audit: {
+      title: 'Журнал аудита',
+      totalLogs: 'Всего записей',
+      last24h: 'За 24 часа',
+      resources: 'Ресурсов',
+      actions: 'Действий',
+      filters: 'Фильтры',
+      action: 'Действие',
+      resource: 'Ресурс',
+      user: 'Пользователь',
+      ip: 'IP адрес',
+      timestamp: 'Время',
+      details: 'Детали',
+      allActions: 'Все действия',
+      allResources: 'Все ресурсы',
+      fromDate: 'С даты',
+      toDate: 'По дату',
+      apply: 'Применить',
+      cleanup: 'Очистка',
+      cleanupTitle: 'Удалить записи старше 90 дней',
+      export: 'Экспорт',
+      noLogs: 'Записей не найдено',
+      showing: 'Показано',
+      records: 'записей',
+      page: 'Страница',
+      logDetails: 'Детали записи'
+    },
     // Themes
     themes: {
       light: 'Светлая',
@@ -299,6 +328,7 @@ const messages = {
       models: 'Models',
       widget: 'Widget',
       telegram: 'Telegram',
+      audit: 'Audit',
       settings: 'Settings',
       search: 'Search...',
       logout: 'Logout'
@@ -560,6 +590,34 @@ const messages = {
       step4Desc: 'Enable bot, save settings and click "Start" button',
       howToGetUserId: 'How to get Telegram ID?',
       getUserIdDesc: 'Send any message to this bot:'
+    },
+    // Audit
+    audit: {
+      title: 'Audit Log',
+      totalLogs: 'Total Records',
+      last24h: 'Last 24h',
+      resources: 'Resources',
+      actions: 'Actions',
+      filters: 'Filters',
+      action: 'Action',
+      resource: 'Resource',
+      user: 'User',
+      ip: 'IP Address',
+      timestamp: 'Timestamp',
+      details: 'Details',
+      allActions: 'All Actions',
+      allResources: 'All Resources',
+      fromDate: 'From Date',
+      toDate: 'To Date',
+      apply: 'Apply',
+      cleanup: 'Cleanup',
+      cleanupTitle: 'Delete records older than 90 days',
+      export: 'Export',
+      noLogs: 'No records found',
+      showing: 'Showing',
+      records: 'records',
+      page: 'Page',
+      logDetails: 'Log Details'
     },
     // Themes
     themes: {

@@ -136,7 +136,10 @@ class TelegramBotService:
         session = await self.get_http_session()
 
         try:
-            async with session.post(f"{api_url}/admin/chat/sessions") as resp:
+            async with session.post(
+                f"{api_url}/admin/chat/sessions",
+                json={"title": f"Telegram user {user_id}"}
+            ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     session_id = data["session"]["id"]
@@ -145,8 +148,9 @@ class TelegramBotService:
                     logger.info(f"Created new session {session_id} for user {user_id}")
                     return session_id
                 else:
-                    logger.error(f"Failed to create session: {resp.status}")
-                    raise Exception("Failed to create session")
+                    error_text = await resp.text()
+                    logger.error(f"Failed to create session: {resp.status} - {error_text}")
+                    raise Exception(f"Failed to create session: {resp.status}")
         except Exception as e:
             logger.error(f"Error creating session: {e}")
             raise

@@ -97,22 +97,53 @@
         "edited": false
       },
       {
-        "id": "msg_1769447491669_cb0bb0",
+        "id": "msg_1769448549748_839cd0",
         "role": "user",
         "content": "тут?",
-        "timestamp": "2026-01-26T22:11:31.669861",
+        "timestamp": "2026-01-26T22:29:09.748362",
         "edited": false
       },
       {
-        "id": "msg_1769447492920_c3a4fa",
+        "id": "msg_1769448555533_2fe940",
         "role": "assistant",
-        "content": "Извините, возникла техническая проблема.",
-        "timestamp": "2026-01-26T22:11:32.920989",
+        "content": "нет, такого телеграма нет. мой телеграм @sharewar_gulya.",
+        "timestamp": "2026-01-26T22:29:15.533051",
         "edited": false
       }
     ],
     "system_prompt": null,
     "created": "2026-01-25T21:06:20.680716",
-    "updated": "2026-01-26T22:11:32.921023"
+    "updated": "2026-01-26T22:29:15.533082"
+  },
+  "chat_1769451345238": {
+    "id": "chat_1769451345238",
+    "title": "Test DB Session",
+    "messages": [],
+    "system_prompt": null,
+    "created": "2026-01-26T23:15:45.238541",
+    "updated": "2026-01-26T23:15:45.238541"
+  },
+  "chat_1769451372283": {
+    "id": "chat_1769451372283",
+    "title": "Test DB Session",
+    "messages": [
+      {
+        "id": "msg_1769451546072_910dbc",
+        "role": "user",
+        "content": "Hello",
+        "timestamp": "2026-01-26T23:19:06.072988",
+        "edited": false
+      },
+      {
+        "id": "msg_1769451548615_5b78db",
+        "role": "assistant",
+        "content": "Здравствуйте! Это компания Шэарвэар Диджитал, ваш персональный помощник Артём Юрович, Гуля. Чем могу вам помочь?",
+        "timestamp": "2026-01-26T23:19:08.615123",
+        "edited": false
+      }
+    ],
+    "system_prompt": null,
+    "created": "2026-01-26T23:16:12.283263",
+    "updated": "2026-01-26T23:19:08.615223"
   }
 }

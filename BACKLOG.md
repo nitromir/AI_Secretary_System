@@ -431,6 +431,112 @@ class CallMetrics:
 
 ---
 
+### 3.4 Multi-Instance Bots & Widgets
+**Статус:** `planned`
+**Приоритет:** P1
+**Сложность:** 7/10
+**Оценка:** 2-3 недели
+**Влияние:** ★★★★★
+
+**Описание:**
+Возможность создавать неограниченное количество Telegram ботов и чат-виджетов. Каждый инстанс имеет собственные настройки: выбор LLM модели, системный промпт, персона, голос TTS.
+
+**Задачи:**
+- [ ] Новые таблицы: `bot_instances`, `widget_instances`
+- [ ] CRUD API для ботов: `/admin/telegram/bots`, `/admin/telegram/bots/{id}`
+- [ ] CRUD API для виджетов: `/admin/widget/instances`, `/admin/widget/instances/{id}`
+- [ ] Настройки каждого инстанса:
+  - Выбор LLM backend (vLLM/Gemini)
+  - Выбор модели (Qwen, Llama, Lydia LoRA, etc.)
+  - Системный промпт (кастомный или персона)
+  - Выбор голоса TTS
+  - Персона секретаря
+  - FAQ set (опционально — разные FAQ для разных ботов)
+- [ ] Параллельный запуск нескольких Telegram ботов
+- [ ] Динамическая генерация `/widget.js?instance=xxx`
+- [ ] UI для управления инстансами
+- [ ] Статистика по каждому боту/виджету
+
+**Структура данных:**
+```python
+class BotInstance(Base):
+    __tablename__ = "bot_instances"
+
+    id: str                    # UUID
+    name: str                  # "Sales Bot", "Support Bot"
+    platform: str              # "telegram", "widget"
+    enabled: bool
+
+    # Telegram-specific
+    bot_token: str
+    allowed_users: List[int]
+    admin_users: List[int]
+
+    # LLM Settings
+    llm_backend: str           # "vllm", "gemini"
+    llm_model: str             # "lydia", "Qwen/Qwen2.5-7B-Instruct-AWQ"
+    system_prompt: str         # Custom system prompt
+    persona: str               # "gulya", "lidia", "custom"
+    temperature: float
+    max_tokens: int
+
+    # TTS Settings
+    tts_voice: str             # "gulya", "lidia", "dmitri", "irina"
+    tts_preset: str            # "neutral", "expressive", etc.
+
+    # Messages
+    welcome_message: str
+    error_message: str
+
+    created_at: datetime
+    updated_at: datetime
+```
+
+**UI компоненты:**
+```
+admin/src/views/
+├── TelegramBotsView.vue      # Список ботов + создание
+├── TelegramBotEditView.vue   # Редактирование бота
+├── WidgetInstancesView.vue   # Список виджетов + создание
+└── WidgetInstanceEditView.vue # Редактирование виджета
+```
+
+**API endpoints:**
+```bash
+# Telegram Bots
+GET    /admin/telegram/bots              # Список ботов
+POST   /admin/telegram/bots              # Создать бота
+GET    /admin/telegram/bots/{id}         # Получить бота
+PUT    /admin/telegram/bots/{id}         # Обновить бота
+DELETE /admin/telegram/bots/{id}         # Удалить бота
+POST   /admin/telegram/bots/{id}/start   # Запустить бота
+POST   /admin/telegram/bots/{id}/stop    # Остановить бота
+GET    /admin/telegram/bots/{id}/stats   # Статистика бота
+
+# Widget Instances
+GET    /admin/widget/instances           # Список виджетов
+POST   /admin/widget/instances           # Создать виджет
+GET    /admin/widget/instances/{id}      # Получить виджет
+PUT    /admin/widget/instances/{id}      # Обновить виджет
+DELETE /admin/widget/instances/{id}      # Удалить виджет
+GET    /widget.js?instance={id}          # Скрипт виджета
+```
+
+**Пример использования:**
+```javascript
+// Разные виджеты для разных отделов
+<script src="https://api.example.com/widget.js?instance=sales"></script>
+<script src="https://api.example.com/widget.js?instance=support"></script>
+```
+
+**Примечание:** Эта фича позволит:
+- Один сервер — много ботов с разными токенами
+- Разные промпты/персоны для sales, support, reception
+- A/B тестирование разных моделей
+- Мультитенантность (разные клиенты, разные боты)
+
+---
+
 ## Фаза 4: Scale & Reliability (опционально)
 
 ### 4.1 High Availability
@@ -528,6 +634,14 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-01-26 (update 5) — Multi-Instance Bots & Widgets
+- Добавлена задача **3.4 Multi-Instance Bots & Widgets** в Фазу 3
+  - Масштабирование: создание неограниченного количества ботов и виджетов
+  - Индивидуальные настройки: LLM модель, системный промпт, персона, голос
+  - Новые таблицы: `bot_instances`, `widget_instances`
+  - Динамическая генерация виджетов: `/widget.js?instance=xxx`
+  - Мультитенантность и A/B тестирование моделей
 
 ### 2026-01-26 (update 4) — Database Integration
 - **Полная миграция на SQLite + Redis**
