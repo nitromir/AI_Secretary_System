@@ -150,8 +150,10 @@ const clearSessionsMutation = useMutation({
 
 // User management
 function addAllowedUser() {
-  const userId = parseInt(newAllowedUser.value.trim())
-  if (userId && !config.value.allowed_users.includes(userId)) {
+  const userId = typeof newAllowedUser.value === 'string'
+    ? parseInt(newAllowedUser.value.trim())
+    : newAllowedUser.value
+  if (userId && !isNaN(userId) && !config.value.allowed_users.includes(userId)) {
     config.value.allowed_users.push(userId)
     newAllowedUser.value = ''
   }
@@ -162,8 +164,10 @@ function removeAllowedUser(userId: number) {
 }
 
 function addAdminUser() {
-  const userId = parseInt(newAdminUser.value.trim())
-  if (userId && !config.value.admin_users.includes(userId)) {
+  const userId = typeof newAdminUser.value === 'string'
+    ? parseInt(newAdminUser.value.trim())
+    : newAdminUser.value
+  if (userId && !isNaN(userId) && !config.value.admin_users.includes(userId)) {
     config.value.admin_users.push(userId)
     newAdminUser.value = ''
   }
@@ -215,9 +219,9 @@ const botFatherUrl = 'https://t.me/BotFather'
           <button
             v-if="!isRunning"
             @click="startMutation.mutate()"
-            :disabled="startMutation.isPending.value || !status?.has_token || !config.enabled"
+            :disabled="startMutation.isPending.value || !hasToken || !config.enabled"
             class="flex items-center gap-2 px-3 py-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 disabled:opacity-50 transition-colors"
-            :title="!status?.has_token ? t('telegram.noToken') : !config.enabled ? t('telegram.notEnabled') : ''"
+            :title="!hasToken ? t('telegram.noToken') : !config.enabled ? t('telegram.notEnabled') : ''"
           >
             <Loader2 v-if="startMutation.isPending.value" class="w-4 h-4 animate-spin" />
             <Play v-else class="w-4 h-4" />
@@ -464,7 +468,7 @@ const botFatherUrl = 'https://t.me/BotFather'
             />
             <button
               @click="addAllowedUser"
-              :disabled="!newAllowedUser.trim()"
+              :disabled="!newAllowedUser"
               class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
               <Plus class="w-4 h-4" />
@@ -513,7 +517,7 @@ const botFatherUrl = 'https://t.me/BotFather'
             />
             <button
               @click="addAdminUser"
-              :disabled="!newAdminUser.trim()"
+              :disabled="!newAdminUser"
               class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
               <Plus class="w-4 h-4" />

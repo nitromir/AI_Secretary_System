@@ -16,6 +16,7 @@
 - **OpenAI-compatible API**: Интеграция с OpenWebUI
 - **Fine-tuning Pipeline**: Загрузка датасета → Обучение → Hot-swap адаптеров
 - **Offline-first**: Все компоненты работают без интернета
+- **Database**: SQLite + Redis для надёжного хранения с транзакциями
 
 ## Architecture
 
@@ -55,13 +56,17 @@ Total                   →  ~11GB
 cp .env.example .env
 # Edit .env: GEMINI_API_KEY (optional if using vLLM)
 
+# Database setup (first time only)
+pip install aiosqlite "sqlalchemy[asyncio]" alembic redis
+python scripts/migrate_json_to_db.py
+
 # GPU Mode (recommended): XTTS + Qwen2.5-7B + LoRA
 ./start_gpu.sh
 
 # CPU Mode: Piper + Gemini API
 ./start_cpu.sh
 
-# Health check
+# Health check (includes database status)
 curl http://localhost:8002/health
 
 # Admin Panel
@@ -181,6 +186,92 @@ curl http://localhost:8002/admin/stt/status
 curl -X POST http://localhost:8002/admin/stt/transcribe \
   -F "audio=@recording.wav"
 ```
+
+## Database
+
+Система использует SQLite для надёжного хранения данных с опциональным Redis кэшированием.
+
+### Архитектура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Orchestrator                           │
+│                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐  │
+│  │   API       │───▶│ Repositories│───▶│ SQLite + Redis  │  │
+│  │  Endpoints  │    │  (db/)      │    │ (data/)         │  │
+│  └─────────────┘    └─────────────┘    └─────────────────┘  │
+│                            │                                │
+│                            ▼                                │
+│                    ┌─────────────────┐                      │
+│                    │ JSON Sync       │                      │
+│                    │ (backward compat)│                      │
+│                    └─────────────────┘                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Таблицы SQLite
+
+| Таблица | Назначение |
+|---------|------------|
+| `chat_sessions` | Сессии чата (id, title, system_prompt) |
+| `chat_messages` | Сообщения (role, content, timestamp) |
+| `faq_entries` | FAQ вопрос-ответ |
+| `tts_presets` | Пользовательские пресеты TTS |
+| `system_config` | Конфиги (telegram, widget, etc.) |
+| `telegram_sessions` | Telegram user → chat session |
+| `audit_log` | Аудит действий пользователей |
+
+### Redis кэширование (опционально)
+
+| Ключ | Назначение | TTL |
+|------|------------|-----|
+| `chat:session:{id}` | Кэш сессий чата | 5 мин |
+| `faq:cache` | FAQ словарь | 10 мин |
+| `config:{key}` | Системные конфиги | 5 мин |
+
+### Миграция данных
+
+```bash
+# Первый запуск — миграция JSON в SQLite
+python scripts/migrate_json_to_db.py
+
+# Или через setup скрипт
+./scripts/setup_db.sh
+
+# Тестирование базы данных
+python scripts/test_db.py
+```
+
+### Расположение файлов
+
+```
+data/
+└── secretary.db          # SQLite база данных (~72KB)
+
+db/
+├── __init__.py
+├── database.py           # Подключение SQLite
+├── models.py             # SQLAlchemy ORM модели
+├── redis_client.py       # Redis клиент
+├── integration.py        # Backward-compatible managers
+└── repositories/
+    ├── base.py           # Базовый репозиторий
+    ├── chat.py           # ChatRepository
+    ├── faq.py            # FAQRepository
+    ├── preset.py         # PresetRepository
+    ├── config.py         # ConfigRepository
+    ├── telegram.py       # TelegramRepository
+    └── audit.py          # AuditRepository
+```
+
+### Обратная совместимость
+
+При сохранении данных они автоматически синхронизируются в JSON файлы:
+- `typical_responses.json` ← FAQ
+- `custom_presets.json` ← TTS пресеты
+- `telegram_config.json` ← Telegram настройки
+- `widget_config.json` ← Widget настройки
 
 ## External Access (ngrok)
 
@@ -513,13 +604,14 @@ GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
 CUDA_VISIBLE_DEVICES=1              # GPU index
 ADMIN_JWT_SECRET=...                # JWT secret (auto-generated if empty)
+REDIS_URL=redis://localhost:6379/0  # Optional caching (graceful fallback if unavailable)
 ```
 
 ## File Structure
 
 ```
 AI_Secretary_System/
-├── orchestrator.py          # FastAPI server + ~55 admin endpoints
+├── orchestrator.py          # FastAPI server + ~60 admin endpoints
 ├── auth_manager.py          # JWT authentication
 ├── service_manager.py       # Service process control
 ├── finetune_manager.py      # Fine-tuning pipeline
@@ -529,11 +621,29 @@ AI_Secretary_System/
 ├── stt_service.py           # Vosk (realtime) + Whisper (batch) STT
 ├── vllm_llm_service.py      # vLLM + runtime params
 ├── llm_service.py           # Gemini fallback
-├── typical_responses.json   # FAQ database
-├── custom_presets.json      # TTS custom presets
-├── widget_config.json       # Website widget settings
-├── telegram_config.json     # Telegram bot settings
 ├── telegram_bot_service.py  # Telegram bot service
+│
+├── db/                      # Database layer (SQLite + Redis)
+│   ├── __init__.py
+│   ├── database.py          # SQLite connection
+│   ├── models.py            # SQLAlchemy ORM models
+│   ├── redis_client.py      # Redis caching
+│   ├── integration.py       # Backward-compatible managers
+│   └── repositories/        # Data access layer
+│       ├── chat.py          # Chat sessions & messages
+│       ├── faq.py           # FAQ entries
+│       ├── preset.py        # TTS presets
+│       ├── config.py        # System configs
+│       ├── telegram.py      # Telegram sessions
+│       └── audit.py         # Audit log
+│
+├── data/                    # Persistent data
+│   └── secretary.db         # SQLite database
+│
+├── scripts/                 # Utility scripts
+│   ├── migrate_json_to_db.py  # JSON → SQLite migration
+│   ├── test_db.py           # Database tests
+│   └── setup_db.sh          # Database setup
 │
 ├── web-widget/              # Embeddable chat widget
 │   ├── ai-chat-widget.js    # Widget source code
@@ -541,7 +651,7 @@ AI_Secretary_System/
 │
 ├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/           # 11 main views + LoginView
+│   │   ├── views/           # 12 main views + LoginView
 │   │   ├── api/             # API clients + SSE
 │   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
 │   │   ├── components/      # UI + charts
@@ -557,6 +667,13 @@ AI_Secretary_System/
 │   ├── piper/               # Piper ONNX models (CPU TTS)
 │   └── vosk/                # Vosk models (STT)
 ├── logs/                    # Service logs
+│
+├── # Legacy JSON (synced from DB)
+├── typical_responses.json   # FAQ (synced)
+├── custom_presets.json      # TTS presets (synced)
+├── widget_config.json       # Widget settings (synced)
+├── telegram_config.json     # Telegram settings (synced)
+│
 ├── start_gpu.sh             # Launch GPU mode
 ├── start_cpu.sh             # Launch CPU mode
 └── setup.sh                 # First-time setup
@@ -698,17 +815,18 @@ npm run build
 
 **Выполнено:**
 - [x] Базовая архитектура (orchestrator, TTS, LLM)
-- [x] Vue 3 админ-панель (11 табов, PWA)
+- [x] Vue 3 админ-панель (12 табов, PWA)
 - [x] XTTS v2 + Piper TTS
-- [x] vLLM + Gemini fallback
+- [x] vLLM + Gemini fallback + hot-switching
 - [x] Vosk STT (realtime streaming)
 - [x] Chat TTS playback
 - [x] Website Widget (чат для сайтов)
 - [x] Telegram Bot интеграция
+- [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)
-- [ ] Audit Log + Export
+- [ ] Audit Log UI + Export (база готова)
 - [ ] Backup & Restore
 
 ## License
