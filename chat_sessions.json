@@ -95,10 +95,24 @@
         "content": "прости, мой телеграм @sharewar_gulya. можно переслать?",
         "timestamp": "2026-01-26T17:43:29.743092",
         "edited": false
+      },
+      {
+        "id": "msg_1769447491669_cb0bb0",
+        "role": "user",
+        "content": "тут?",
+        "timestamp": "2026-01-26T22:11:31.669861",
+        "edited": false
+      },
+      {
+        "id": "msg_1769447492920_c3a4fa",
+        "role": "assistant",
+        "content": "Извините, возникла техническая проблема.",
+        "timestamp": "2026-01-26T22:11:32.920989",
+        "edited": false
       }
     ],
     "system_prompt": null,
     "created": "2026-01-25T21:06:20.680716",
-    "updated": "2026-01-26T17:43:29.743122"
+    "updated": "2026-01-26T22:11:32.921023"
   }
 }

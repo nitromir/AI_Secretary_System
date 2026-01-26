@@ -10,6 +10,8 @@ import {
   Sparkles,
   Activity,
   HardDrive,
+  Code2,
+  Send,
   Settings,
   Menu,
   X,
@@ -73,6 +75,8 @@ const navItems = [
   { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
   { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity },
   { path: '/models', nameKey: 'nav.models', icon: HardDrive },
+  { path: '/widget', nameKey: 'nav.widget', icon: Code2 },
+  { path: '/telegram', nameKey: 'nav.telegram', icon: Send },
   { path: '/settings', nameKey: 'common.settings', icon: Settings },
 ]
 

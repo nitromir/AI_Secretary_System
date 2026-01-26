@@ -327,7 +327,7 @@ watch(sessions, (newSessions) => {
   <!-- Hidden audio element for TTS playback -->
   <audio ref="audioRef" :src="audioUrl || undefined" @ended="onAudioEnded" class="hidden" />
 
-  <div class="flex h-[calc(100vh-8rem)] -m-6">
+  <div class="flex h-[calc(100vh-6rem)] md:h-[calc(100vh-7rem)] -m-4 md:-m-6">
     <!-- Sidebar: Chat List -->
     <div
       :class="[

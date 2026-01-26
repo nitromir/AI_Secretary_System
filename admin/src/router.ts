@@ -9,6 +9,8 @@ import FaqView from './views/FaqView.vue'
 import FinetuneView from './views/FinetuneView.vue'
 import MonitoringView from './views/MonitoringView.vue'
 import ModelsView from './views/ModelsView.vue'
+import WidgetView from './views/WidgetView.vue'
+import TelegramView from './views/TelegramView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LoginView from './views/LoginView.vue'
 
@@ -74,6 +76,18 @@ const router = createRouter({
       name: 'models',
       component: ModelsView,
       meta: { title: 'Models', icon: 'HardDrive' }
+    },
+    {
+      path: '/widget',
+      name: 'widget',
+      component: WidgetView,
+      meta: { title: 'Widget', icon: 'Code2' }
+    },
+    {
+      path: '/telegram',
+      name: 'telegram',
+      component: TelegramView,
+      meta: { title: 'Telegram', icon: 'Send' }
     },
     {
       path: '/settings',

@@ -9,7 +9,9 @@
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
 - **Local LLM**: vLLM с Qwen2.5-7B + LoRA fine-tuning
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Vue 3 PWA с 9 вкладками, i18n, темами, аудитом
+- **Admin Panel**: Vue 3 PWA с 11 вкладками, i18n, темами, аудитом
+- **Website Widget**: Встраиваемый чат-виджет для любого сайта
+- **Telegram Bot**: Общение с ассистентом через Telegram
 - **Chat with TTS**: Озвучивание ответов ассистента в чате
 - **OpenAI-compatible API**: Интеграция с OpenWebUI
 - **Fine-tuning Pipeline**: Загрузка датасета → Обучение → Hot-swap адаптеров
@@ -23,7 +25,7 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │   Vue 3 Admin Panel (9 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (11 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -69,7 +71,7 @@ open http://localhost:8002/admin
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 PWA админ-панель с 9 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 11 вкладками:
 
 | Tab | Description |
 |-----|-------------|
@@ -81,6 +83,9 @@ open http://localhost:8002/admin
 | **FAQ** | Редактирование типичных ответов (CRUD) |
 | **Finetune** | Загрузка датасета, обучение, управление адаптерами |
 | **Monitoring** | GPU/CPU графики Chart.js, логи ошибок |
+| **Models** | Управление скачанными моделями |
+| **Widget** | Настройка чат-виджета для сайтов |
+| **Telegram** | Настройка Telegram бота |
 | **Settings** | Язык, тема, экспорт/импорт, аудит лог |
 
 ### Admin Panel Features
@@ -177,6 +182,120 @@ curl -X POST http://localhost:8002/admin/stt/transcribe \
   -F "audio=@recording.wav"
 ```
 
+## External Access (ngrok)
+
+Для работы виджета на внешних сайтах и Telegram бота требуется внешний доступ к серверу:
+
+### Установка ngrok
+
+**Linux:**
+```bash
+# Через snap
+sudo snap install ngrok
+
+# Или скачать бинарник
+wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+tar xvzf ngrok-v3-stable-linux-amd64.tgz
+sudo mv ngrok /usr/local/bin/
+
+# Авторизация (получить токен на https://dashboard.ngrok.com)
+ngrok config add-authtoken YOUR_AUTH_TOKEN
+```
+
+**macOS:**
+```bash
+brew install ngrok
+ngrok config add-authtoken YOUR_AUTH_TOKEN
+```
+
+**Windows:**
+```powershell
+choco install ngrok
+ngrok config add-authtoken YOUR_AUTH_TOKEN
+```
+
+### Запуск туннеля
+
+```bash
+# Запуск ngrok
+ngrok http 8002
+
+# Вы получите URL вида: https://abc123.ngrok.io
+# Используйте его в настройках Widget и Telegram
+```
+
+**Альтернатива: Cloudflare Tunnel**
+```bash
+# Установка
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+chmod +x /usr/local/bin/cloudflared
+
+# Запуск
+cloudflared tunnel --url http://localhost:8002
+```
+
+## Website Widget
+
+Встраиваемый чат-виджет для любого сайта:
+
+**Настройка:**
+1. Откройте Admin → Widget
+2. Включите виджет
+3. Укажите API URL (ngrok URL для внешних сайтов)
+4. Настройте цвета и тексты
+5. Скопируйте код виджета
+
+**Интеграция:**
+```html
+<!-- Добавьте перед </body> -->
+<script src="https://your-ngrok-url.ngrok.io/widget.js"></script>
+```
+
+**Функции:**
+- Плавающая кнопка чата
+- Streaming ответы (SSE)
+- Сохранение сессии в localStorage
+- Настраиваемые цвета и тексты
+- Whitelist разрешённых доменов
+
+## Telegram Bot
+
+Общение с ассистентом через Telegram:
+
+**Настройка:**
+1. Создайте бота через [@BotFather](https://t.me/BotFather)
+2. Скопируйте токен бота
+3. Откройте Admin → Telegram
+4. Вставьте токен
+5. Настройте whitelist пользователей (опционально)
+6. Нажмите "Start Bot"
+
+**Запуск через командную строку:**
+```bash
+./start_telegram_bot.sh
+```
+
+**Команды бота:**
+| Команда | Описание |
+|---------|----------|
+| `/start` | Начать разговор |
+| `/new` | Новая сессия |
+| `/help` | Показать помощь |
+| `/status` | Статус системы (только админы) |
+
+**API управления:**
+```bash
+# Статус бота
+curl http://localhost:8002/admin/telegram/status
+
+# Запустить бота
+curl -X POST http://localhost:8002/admin/telegram/start
+
+# Остановить бота
+curl -X POST http://localhost:8002/admin/telegram/stop
+```
+
 ## Personas
 
 | Persona | Name | Description |
@@ -237,7 +356,7 @@ curl -X POST http://localhost:8002/v1/audio/speech \
 curl http://localhost:8002/v1/models
 ```
 
-### Admin API (~45 endpoints)
+### Admin API (~60 endpoints)
 
 ```bash
 # Authentication
@@ -301,6 +420,21 @@ GET  /admin/monitor/gpu              # GPU stats
 GET  /admin/monitor/gpu/stream       # SSE GPU stream
 GET  /admin/monitor/health           # Health check
 GET  /admin/monitor/metrics          # Request metrics
+
+# Widget
+GET  /admin/widget/config            # Widget settings
+POST /admin/widget/config            # Update settings
+GET  /widget.js                      # Dynamic widget script (public)
+
+# Telegram
+GET  /admin/telegram/config          # Bot settings
+POST /admin/telegram/config          # Update settings
+GET  /admin/telegram/status          # Bot status
+POST /admin/telegram/start           # Start bot
+POST /admin/telegram/stop            # Stop bot
+POST /admin/telegram/restart         # Restart bot
+GET  /admin/telegram/sessions        # List chat sessions
+DELETE /admin/telegram/sessions/{id} # Delete session
 ```
 
 ## Fine-tuning Pipeline
@@ -397,10 +531,17 @@ AI_Secretary_System/
 ├── llm_service.py           # Gemini fallback
 ├── typical_responses.json   # FAQ database
 ├── custom_presets.json      # TTS custom presets
+├── widget_config.json       # Website widget settings
+├── telegram_config.json     # Telegram bot settings
+├── telegram_bot_service.py  # Telegram bot service
+│
+├── web-widget/              # Embeddable chat widget
+│   ├── ai-chat-widget.js    # Widget source code
+│   └── README.md            # Widget documentation
 │
 ├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/           # 9 main views + LoginView
+│   │   ├── views/           # 11 main views + LoginView
 │   │   ├── api/             # API clients + SSE
 │   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
 │   │   ├── components/      # UI + charts
@@ -557,11 +698,13 @@ npm run build
 
 **Выполнено:**
 - [x] Базовая архитектура (orchestrator, TTS, LLM)
-- [x] Vue 3 админ-панель (9 табов, PWA)
+- [x] Vue 3 админ-панель (11 табов, PWA)
 - [x] XTTS v2 + Piper TTS
 - [x] vLLM + Gemini fallback
 - [x] Vosk STT (realtime streaming)
 - [x] Chat TTS playback
+- [x] Website Widget (чат для сайтов)
+- [x] Telegram Bot интеграция
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 9 tabs, i18n (ru/en), themes, and ~55 API endpoints.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 11 tabs, i18n (ru/en), themes, ~60 API endpoints, website chat widget, and Telegram bot integration.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │   Vue 3 Admin Panel (9 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (11 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -79,6 +79,42 @@ DEV_MODE=1 ./start_gpu.sh   # Orchestrator proxies /admin to Vite
 cd admin && npm run lint
 ```
 
+### External Access (ngrok/Cloudflare Tunnel)
+
+For website widget and Telegram bot to work with external services, you need to expose the local server:
+
+```bash
+# Option 1: ngrok (recommended for development)
+# Install: https://ngrok.com/download
+ngrok http 8002
+
+# Option 2: Cloudflare Tunnel (recommended for production)
+# Install: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
+cloudflared tunnel --url http://localhost:8002
+
+# Option 3: Helper script (auto-detects available tool)
+./start_with_tunnel.sh
+```
+
+After starting tunnel, use the generated HTTPS URL in:
+- Widget settings (Admin → Widget → API URL)
+- Telegram webhook will be set automatically when bot starts
+
+### Telegram Bot
+
+```bash
+# Start Telegram bot (requires orchestrator running)
+./start_telegram_bot.sh
+
+# Or via admin panel: Admin → Telegram → Start Bot
+```
+
+**Setup:**
+1. Create bot via [@BotFather](https://t.me/BotFather), get token
+2. Add token in Admin → Telegram → Bot Token
+3. Configure allowed users (optional whitelist)
+4. Start bot
+
 ### Fine-tuning (separate venv)
 
 ```bash
@@ -110,10 +146,11 @@ python quantize_awq.py      # W4A16 quantization
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
 | `llm_service.py` | Gemini API fallback |
+| `telegram_bot_service.py` | Async Telegram bot (python-telegram-bot) |
 
 ### Admin Panel (Vue 3)
 
-**Tabs:** Dashboard, Chat, Services, LLM, TTS, FAQ, Finetune, Monitoring, Settings
+**Tabs:** Dashboard, Chat, Services, LLM, TTS, FAQ, Finetune, Monitoring, Models, Widget, Telegram, Settings
 
 | Directory | Purpose |
 |-----------|---------|
@@ -136,7 +173,10 @@ python quantize_awq.py      # W4A16 quantization
 | `typical_responses.json` | FAQ database (hot-reloadable) |
 | `custom_presets.json` | TTS custom presets |
 | `chat_sessions.json` | Chat history storage |
+| `widget_config.json` | Website widget settings |
+| `telegram_config.json` | Telegram bot settings |
 | `./Гуля/`, `./Лидия/` | Voice sample WAV files |
+| `web-widget/` | Embeddable chat widget source |
 | `finetune/datasets/` | Training data symlinks (not in git) |
 | `finetune/adapters/` | LoRA model symlinks (not in git) |
 
@@ -201,6 +241,9 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 - `GET/POST/PUT/DELETE /admin/faq/*` — FAQ CRUD
 - `POST /admin/finetune/*` — Training pipeline
 - `GET /admin/monitor/*` — GPU stats, SSE metrics
+- `GET/POST /admin/widget/*` — Widget config, generate code
+- `GET/POST /admin/telegram/*` — Telegram bot config, start/stop
+- `GET /widget.js` — Dynamic widget script (public)
 
 ## Known Issues
 
@@ -223,6 +266,8 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 **Выполнено:**
 - ✅ Local STT (Vosk) — VoskSTTService + UnifiedSTTService для realtime распознавания
 - ✅ Chat TTS playback — озвучивание ответов ассистента
+- ✅ Website Widget — встраиваемый чат-виджет для сайтов (web-widget/)
+- ✅ Telegram Bot — интеграция с Telegram (telegram_bot_service.py)
 
 **Ближайшие задачи (Фаза 1):**
 1. Audit Log + Export — compliance для enterprise

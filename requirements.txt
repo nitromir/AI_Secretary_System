@@ -19,6 +19,9 @@ websockets==12.0
 twilio==8.11.1
 pydub==0.25.1
 
+# Telegram Bot
+python-telegram-bot==21.0.1
+
 # AI Integration
 google-generativeai==0.3.2
 requests==2.31.0
