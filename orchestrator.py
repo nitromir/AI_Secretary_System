@@ -1144,34 +1144,72 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
 @app.post("/admin/tts/test")
 async def admin_tts_test(request: AdminTTSTestRequest):
     """Тестовый синтез речи - возвращает аудио-файл для воспроизведения в браузере"""
-    # Используем текущий голос или любой доступный XTTS/Piper
-    tts_service = None
+    # Используем текущий голос
     engine = current_voice_config.get("engine", "xtts")
     voice = current_voice_config.get("voice", "gulya")
-
-    if engine == "xtts" and voice == "gulya" and gulya_voice_service:
-        tts_service = gulya_voice_service
-    elif engine == "xtts" and voice == "lidia" and voice_service:
-        tts_service = voice_service
-    elif gulya_voice_service:
-        tts_service = gulya_voice_service
-    elif voice_service:
-        tts_service = voice_service
-
-    if not tts_service:
-        raise HTTPException(status_code=503, detail="No XTTS voice service available")
 
     try:
         import time as t
         start = t.time()
 
         output_file = TEMP_DIR / f"admin_test_{datetime.now().timestamp()}.wav"
-        tts_service.synthesize_to_file(
-            text=request.text,
-            output_path=str(output_file),
-            preset=request.preset,
-            language="ru"
-        )
+
+        # Выбираем TTS сервис в зависимости от текущего движка
+        if engine == "piper" and piper_service:
+            # Piper TTS (CPU)
+            piper_service.synthesize_to_file(
+                text=request.text,
+                output_path=str(output_file),
+                voice=voice  # dmitri или irina
+            )
+            logger.info(f"🔊 Piper TTS test: voice={voice}")
+        elif engine == "openvoice" and openvoice_service:
+            # OpenVoice v2
+            openvoice_service.synthesize_to_file(
+                text=request.text,
+                output_path=str(output_file),
+                language="ru"
+            )
+            logger.info(f"🔊 OpenVoice TTS test")
+        elif engine == "xtts":
+            # XTTS v2
+            tts_service = None
+            if voice == "gulya" and gulya_voice_service:
+                tts_service = gulya_voice_service
+            elif voice == "lidia" and voice_service:
+                tts_service = voice_service
+            elif gulya_voice_service:
+                tts_service = gulya_voice_service
+            elif voice_service:
+                tts_service = voice_service
+
+            if not tts_service:
+                raise HTTPException(status_code=503, detail="No XTTS voice service available")
+
+            tts_service.synthesize_to_file(
+                text=request.text,
+                output_path=str(output_file),
+                preset=request.preset,
+                language="ru"
+            )
+            logger.info(f"🔊 XTTS TTS test: voice={voice}, preset={request.preset}")
+        else:
+            # Fallback - попробуем любой доступный сервис
+            if piper_service:
+                piper_service.synthesize_to_file(
+                    text=request.text,
+                    output_path=str(output_file),
+                    voice="dmitri"
+                )
+            elif gulya_voice_service:
+                gulya_voice_service.synthesize_to_file(
+                    text=request.text,
+                    output_path=str(output_file),
+                    preset=request.preset,
+                    language="ru"
+                )
+            else:
+                raise HTTPException(status_code=503, detail="No TTS service available")
 
         elapsed = t.time() - start
 
@@ -1703,6 +1741,29 @@ class AdminFAQRequest(BaseModel):
 
 class AdminFAQTestRequest(BaseModel):
     text: str
+
+
+class AdminWidgetConfigRequest(BaseModel):
+    enabled: bool = True
+    title: str = "AI Ассистент"
+    greeting: str = "Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?"
+    placeholder: str = "Введите сообщение..."
+    primary_color: str = "#6366f1"
+    position: str = "right"  # "left" or "right"
+    allowed_domains: List[str] = []
+    tunnel_url: str = ""
+
+
+class AdminTelegramConfigRequest(BaseModel):
+    enabled: bool = False
+    bot_token: str = ""
+    api_url: str = "http://localhost:8002"
+    allowed_users: List[int] = []
+    admin_users: List[int] = []
+    welcome_message: str = "Здравствуйте! Я AI-ассистент компании Шаервэй. Чем могу помочь?"
+    unauthorized_message: str = "Извините, у вас нет доступа к этому боту."
+    error_message: str = "Произошла ошибка. Попробуйте позже."
+    typing_enabled: bool = True
 
 
 class AdminFinetuneConfigRequest(BaseModel):
@@ -3264,6 +3325,325 @@ async def admin_get_model_details(repo_id: str):
         return {"details": details}
     else:
         raise HTTPException(status_code=404, detail="Model not found")
+
+
+# ============== Widget Config Endpoints ==============
+
+WIDGET_CONFIG_FILE = Path("widget_config.json")
+
+def get_widget_config() -> dict:
+    """Загрузить конфигурацию виджета"""
+    default_config = {
+        "enabled": False,
+        "title": "AI Ассистент",
+        "greeting": "Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?",
+        "placeholder": "Введите сообщение...",
+        "primary_color": "#6366f1",
+        "position": "right",
+        "allowed_domains": ["shaerware.digital", "shaerware.github.io", "localhost"],
+        "tunnel_url": ""
+    }
+    if WIDGET_CONFIG_FILE.exists():
+        try:
+            config = json.loads(WIDGET_CONFIG_FILE.read_text(encoding='utf-8'))
+            return {**default_config, **config}
+        except Exception:
+            pass
+    return default_config
+
+
+def save_widget_config(config: dict):
+    """Сохранить конфигурацию виджета"""
+    WIDGET_CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
+
+
+@app.get("/admin/widget/config")
+async def admin_get_widget_config():
+    """Получить конфигурацию виджета"""
+    return {"config": get_widget_config()}
+
+
+@app.post("/admin/widget/config")
+async def admin_save_widget_config(request: AdminWidgetConfigRequest):
+    """Сохранить конфигурацию виджета"""
+    config = {
+        "enabled": request.enabled,
+        "title": request.title,
+        "greeting": request.greeting,
+        "placeholder": request.placeholder,
+        "primary_color": request.primary_color,
+        "position": request.position,
+        "allowed_domains": request.allowed_domains,
+        "tunnel_url": request.tunnel_url
+    }
+    save_widget_config(config)
+    return {"status": "ok", "config": config}
+
+
+@app.get("/widget.js")
+async def get_widget_script(request: Request):
+    """Динамически генерируемый скрипт виджета"""
+    config = get_widget_config()
+
+    # Проверяем включен ли виджет
+    if not config.get("enabled", False):
+        return Response(
+            content="// Widget is disabled",
+            media_type="application/javascript"
+        )
+
+    # Проверяем домен (если указаны разрешенные)
+    origin = request.headers.get("origin", "") or request.headers.get("referer", "")
+    allowed_domains = config.get("allowed_domains", [])
+    if allowed_domains and origin:
+        origin_domain = origin.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+        if not any(d in origin_domain for d in allowed_domains):
+            return Response(
+                content=f"// Widget not allowed for domain: {origin_domain}",
+                media_type="application/javascript"
+            )
+
+    # Определяем API URL
+    api_url = config.get("tunnel_url", "").strip()
+    if not api_url:
+        # Используем текущий хост если tunnel_url не указан
+        api_url = str(request.base_url).rstrip("/")
+
+    # Читаем базовый скрипт виджета
+    widget_path = Path(__file__).parent / "web-widget" / "ai-chat-widget.js"
+    if not widget_path.exists():
+        return Response(
+            content="// Widget script not found",
+            media_type="application/javascript",
+            status_code=404
+        )
+
+    widget_js = widget_path.read_text(encoding='utf-8')
+
+    # Генерируем скрипт с настройками
+    settings_js = f"""
+// Auto-generated widget settings
+window.aiChatSettings = {{
+  apiUrl: '{api_url}',
+  title: '{config.get("title", "AI Ассистент")}',
+  greeting: '{config.get("greeting", "").replace("'", "\\'")}',
+  placeholder: '{config.get("placeholder", "").replace("'", "\\'")}',
+  primaryColor: '{config.get("primary_color", "#6366f1")}',
+  position: '{config.get("position", "right")}'
+}};
+
+"""
+    full_script = settings_js + widget_js
+
+    return Response(
+        content=full_script,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+
+# ============== Telegram Bot Endpoints ==============
+
+TELEGRAM_CONFIG_FILE = Path("telegram_config.json")
+
+# Telegram bot process management
+_telegram_bot_process = None
+_telegram_bot_task = None
+
+def get_telegram_config() -> dict:
+    """Загрузить конфигурацию Telegram бота"""
+    default_config = {
+        "enabled": False,
+        "bot_token": "",
+        "api_url": "http://localhost:8002",
+        "allowed_users": [],
+        "admin_users": [],
+        "welcome_message": "Здравствуйте! Я AI-ассистент компании Шаервэй. Чем могу помочь?",
+        "unauthorized_message": "Извините, у вас нет доступа к этому боту.",
+        "error_message": "Произошла ошибка. Попробуйте позже.",
+        "typing_enabled": True
+    }
+    if TELEGRAM_CONFIG_FILE.exists():
+        try:
+            config = json.loads(TELEGRAM_CONFIG_FILE.read_text(encoding='utf-8'))
+            return {**default_config, **config}
+        except Exception:
+            pass
+    return default_config
+
+
+def save_telegram_config(config: dict):
+    """Сохранить конфигурацию Telegram бота"""
+    TELEGRAM_CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
+
+
+@app.get("/admin/telegram/config")
+async def admin_get_telegram_config():
+    """Получить конфигурацию Telegram бота"""
+    config = get_telegram_config()
+    # Маскируем токен для безопасности
+    if config.get("bot_token"):
+        token = config["bot_token"]
+        if len(token) > 10:
+            config["bot_token_masked"] = token[:4] + "..." + token[-4:]
+        else:
+            config["bot_token_masked"] = "***"
+    else:
+        config["bot_token_masked"] = ""
+    return {"config": config}
+
+
+@app.post("/admin/telegram/config")
+async def admin_save_telegram_config(request: AdminTelegramConfigRequest):
+    """Сохранить конфигурацию Telegram бота"""
+    # Load existing config to preserve token if not provided
+    existing = get_telegram_config()
+
+    config = {
+        "enabled": request.enabled,
+        "bot_token": request.bot_token if request.bot_token else existing.get("bot_token", ""),
+        "api_url": request.api_url,
+        "allowed_users": request.allowed_users,
+        "admin_users": request.admin_users,
+        "welcome_message": request.welcome_message,
+        "unauthorized_message": request.unauthorized_message,
+        "error_message": request.error_message,
+        "typing_enabled": request.typing_enabled
+    }
+    save_telegram_config(config)
+    return {"status": "ok", "config": config}
+
+
+@app.get("/admin/telegram/status")
+async def admin_get_telegram_status():
+    """Получить статус Telegram бота"""
+    global _telegram_bot_process
+
+    config = get_telegram_config()
+    running = False
+
+    if _telegram_bot_process is not None:
+        if _telegram_bot_process.poll() is None:
+            running = True
+        else:
+            _telegram_bot_process = None
+
+    # Count sessions
+    sessions_file = Path("telegram_sessions.json")
+    sessions_count = 0
+    if sessions_file.exists():
+        try:
+            sessions = json.loads(sessions_file.read_text(encoding='utf-8'))
+            sessions_count = len(sessions)
+        except Exception:
+            pass
+
+    return {
+        "status": {
+            "running": running,
+            "enabled": config.get("enabled", False),
+            "has_token": bool(config.get("bot_token")),
+            "active_sessions": sessions_count,
+            "allowed_users_count": len(config.get("allowed_users", [])),
+            "admin_users_count": len(config.get("admin_users", [])),
+            "pid": _telegram_bot_process.pid if _telegram_bot_process else None
+        }
+    }
+
+
+@app.post("/admin/telegram/start")
+async def admin_start_telegram_bot():
+    """Запустить Telegram бота"""
+    global _telegram_bot_process
+
+    config = get_telegram_config()
+
+    if not config.get("bot_token"):
+        raise HTTPException(status_code=400, detail="Bot token not configured")
+
+    if not config.get("enabled"):
+        raise HTTPException(status_code=400, detail="Bot is disabled in config")
+
+    # Check if already running
+    if _telegram_bot_process is not None and _telegram_bot_process.poll() is None:
+        return {"status": "already_running", "pid": _telegram_bot_process.pid}
+
+    # Start bot process
+    import subprocess
+    bot_script = Path(__file__).parent / "telegram_bot_service.py"
+
+    if not bot_script.exists():
+        raise HTTPException(status_code=500, detail="Bot script not found")
+
+    try:
+        _telegram_bot_process = subprocess.Popen(
+            ["python3", str(bot_script)],
+            cwd=str(Path(__file__).parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        logger.info(f"Started Telegram bot with PID {_telegram_bot_process.pid}")
+        return {"status": "started", "pid": _telegram_bot_process.pid}
+    except Exception as e:
+        logger.error(f"Failed to start Telegram bot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/telegram/stop")
+async def admin_stop_telegram_bot():
+    """Остановить Telegram бота"""
+    global _telegram_bot_process
+
+    if _telegram_bot_process is None:
+        return {"status": "not_running"}
+
+    if _telegram_bot_process.poll() is not None:
+        _telegram_bot_process = None
+        return {"status": "not_running"}
+
+    try:
+        _telegram_bot_process.terminate()
+        _telegram_bot_process.wait(timeout=5)
+        logger.info("Telegram bot stopped")
+    except Exception as e:
+        logger.error(f"Error stopping bot: {e}")
+        _telegram_bot_process.kill()
+
+    _telegram_bot_process = None
+    return {"status": "stopped"}
+
+
+@app.post("/admin/telegram/restart")
+async def admin_restart_telegram_bot():
+    """Перезапустить Telegram бота"""
+    await admin_stop_telegram_bot()
+    await asyncio.sleep(1)
+    return await admin_start_telegram_bot()
+
+
+@app.delete("/admin/telegram/sessions")
+async def admin_clear_telegram_sessions():
+    """Очистить все сессии Telegram"""
+    sessions_file = Path("telegram_sessions.json")
+    if sessions_file.exists():
+        sessions_file.unlink()
+    return {"status": "ok", "message": "All sessions cleared"}
+
+
+@app.get("/admin/telegram/sessions")
+async def admin_get_telegram_sessions():
+    """Получить список сессий Telegram"""
+    sessions_file = Path("telegram_sessions.json")
+    if sessions_file.exists():
+        try:
+            sessions = json.loads(sessions_file.read_text(encoding='utf-8'))
+            return {"sessions": sessions}
+        except Exception:
+            pass
+    return {"sessions": {}}
 
 
 # ============== Static Files for Vue Admin ==============
