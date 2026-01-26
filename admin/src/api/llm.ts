@@ -23,8 +23,8 @@ export const llmApi = {
   getBackend: () =>
     api.get<LlmBackend>('/admin/llm/backend'),
 
-  setBackend: (backend: 'vllm' | 'gemini') =>
-    api.post<{ status: string; backend: string; message?: string }>('/admin/llm/backend', { backend }),
+  setBackend: (backend: 'vllm' | 'gemini', stopUnused: boolean = false) =>
+    api.post<{ status: string; backend: string; model?: string; message?: string }>('/admin/llm/backend', { backend, stop_unused: stopUnused }),
 
   getPersonas: () =>
     api.get<{ personas: Record<string, Persona> }>('/admin/llm/personas'),

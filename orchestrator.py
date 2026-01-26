@@ -1702,6 +1702,7 @@ def get_current_tts_service():
 # Pydantic models for new endpoints
 class AdminBackendRequest(BaseModel):
     backend: str  # "vllm" or "gemini"
+    stop_unused: bool = False  # Остановить неиспользуемый сервис (vLLM) для освобождения GPU
 
 
 class AdminPersonaRequest(BaseModel):
@@ -2105,20 +2106,107 @@ async def admin_get_llm_backend():
 
 @app.post("/admin/llm/backend")
 async def admin_set_llm_backend(request: AdminBackendRequest):
-    """Переключить LLM backend (требует перезапуск)"""
-    global LLM_BACKEND
+    """Переключить LLM backend с горячей перезагрузкой сервиса"""
+    global LLM_BACKEND, llm_service
+
     if request.backend not in ["vllm", "gemini"]:
         raise HTTPException(status_code=400, detail="Invalid backend. Use 'vllm' or 'gemini'")
 
-    # Сохраняем в env для следующего запуска
-    os.environ["LLM_BACKEND"] = request.backend
-    LLM_BACKEND = request.backend
+    # Проверяем текущий бэкенд
+    current_backend = "vllm" if (llm_service and hasattr(llm_service, 'api_url')) else "gemini"
+    if request.backend == current_backend:
+        return {
+            "status": "ok",
+            "backend": request.backend,
+            "message": f"Уже используется {request.backend}"
+        }
 
-    return {
-        "status": "ok",
-        "backend": request.backend,
-        "message": "Перезапустите orchestrator для применения изменений"
-    }
+    manager = get_service_manager()
+    stop_vllm = request.stop_unused if hasattr(request, 'stop_unused') else False
+
+    try:
+        if request.backend == "vllm":
+            # Переключение на vLLM
+            logger.info("🔄 Переключение на vLLM...")
+
+            # Проверяем, запущен ли vLLM
+            vllm_status = manager.get_service_status("vllm")
+
+            if not vllm_status.get("is_running"):
+                # Запускаем vLLM
+                logger.info("🚀 Запуск vLLM...")
+                start_result = await manager.start_service("vllm")
+                if start_result.get("status") != "ok":
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Не удалось запустить vLLM: {start_result.get('message', 'Unknown error')}"
+                    )
+
+                # Ждём готовности vLLM (до 120 секунд)
+                logger.info("⏳ Ожидание готовности vLLM...")
+                import httpx
+                for i in range(60):  # 60 * 2 = 120 секунд
+                    await asyncio.sleep(2)
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            resp = await client.get("http://localhost:11434/health", timeout=5.0)
+                            if resp.status_code == 200:
+                                logger.info(f"✅ vLLM готов (попытка {i+1})")
+                                break
+                    except:
+                        pass
+                else:
+                    raise HTTPException(status_code=503, detail="vLLM не стал доступен за 120 секунд")
+
+            # Создаём новый vLLM сервис
+            if VLLMLLMService is None:
+                raise HTTPException(status_code=503, detail="VLLMLLMService не доступен")
+
+            new_service = VLLMLLMService()
+            if not new_service.is_available():
+                raise HTTPException(status_code=503, detail="vLLM запущен, но не отвечает на API")
+
+            llm_service = new_service
+            LLM_BACKEND = "vllm"
+            os.environ["LLM_BACKEND"] = "vllm"
+
+            logger.info("✅ Переключено на vLLM")
+            return {
+                "status": "ok",
+                "backend": "vllm",
+                "model": getattr(llm_service, 'model_name', 'unknown'),
+                "message": "Переключено на vLLM"
+            }
+
+        else:
+            # Переключение на Gemini
+            logger.info("🔄 Переключение на Gemini...")
+
+            new_service = LLMService()
+            llm_service = new_service
+            LLM_BACKEND = "gemini"
+            os.environ["LLM_BACKEND"] = "gemini"
+
+            # Опционально останавливаем vLLM для освобождения GPU
+            if stop_vllm:
+                vllm_status = manager.get_service_status("vllm")
+                if vllm_status.get("is_running"):
+                    logger.info("🛑 Останавливаем vLLM для освобождения GPU...")
+                    await manager.stop_service("vllm")
+
+            logger.info("✅ Переключено на Gemini")
+            return {
+                "status": "ok",
+                "backend": "gemini",
+                "model": getattr(llm_service, 'model_name', 'unknown'),
+                "message": "Переключено на Gemini" + (" (vLLM остановлен)" if stop_vllm else "")
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Ошибка переключения бэкенда: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/admin/llm/personas")
