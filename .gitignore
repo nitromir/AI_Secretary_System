@@ -102,3 +102,14 @@ result.json
 lydia_dataset_v2.jsonl
 lydia_dataset.jsonl
 Гуляchat_sessions.json
+
+# Database (data is stored locally, not in git)
+data/
+*.db
+
+# Alembic migrations (keep versions)
+alembic/versions/*.pyc
+
+# JSON configs with sensitive data
+telegram_config.json
+widget_config.json

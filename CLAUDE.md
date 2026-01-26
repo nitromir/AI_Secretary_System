@@ -170,15 +170,45 @@ python quantize_awq.py      # W4A16 quantization
 
 | File | Purpose |
 |------|---------|
-| `typical_responses.json` | FAQ database (hot-reloadable) |
-| `custom_presets.json` | TTS custom presets |
-| `chat_sessions.json` | Chat history storage |
-| `widget_config.json` | Website widget settings |
-| `telegram_config.json` | Telegram bot settings |
+| `data/secretary.db` | SQLite database (primary storage) |
+| `typical_responses.json` | FAQ (legacy, synced from DB) |
+| `custom_presets.json` | TTS presets (legacy, synced from DB) |
+| `chat_sessions.json` | Chat history (legacy, synced from DB) |
+| `widget_config.json` | Widget settings (legacy, synced from DB) |
+| `telegram_config.json` | Telegram settings (legacy, synced from DB) |
 | `./Гуля/`, `./Лидия/` | Voice sample WAV files |
 | `web-widget/` | Embeddable chat widget source |
 | `finetune/datasets/` | Training data symlinks (not in git) |
 | `finetune/adapters/` | LoRA model symlinks (not in git) |
+
+### Database (SQLite + Redis)
+
+**SQLite tables:**
+| Table | Purpose |
+|-------|---------|
+| `chat_sessions` | Chat session metadata |
+| `chat_messages` | Individual chat messages |
+| `faq_entries` | FAQ question-answer pairs |
+| `tts_presets` | Custom TTS voice presets |
+| `system_config` | Key-value system config (telegram, widget, etc.) |
+| `telegram_sessions` | Telegram user → chat session mapping |
+| `audit_log` | System audit trail |
+
+**Redis keys (optional, for caching):**
+| Key Pattern | Purpose | TTL |
+|-------------|---------|-----|
+| `chat:session:{id}` | Cached chat sessions | 5 min |
+| `faq:cache` | FAQ question→answer dict | 10 min |
+| `config:{key}` | System config cache | 5 min |
+| `ratelimit:{ip}:{endpoint}` | Rate limiting | 1 min |
+
+**Migration from JSON:**
+```bash
+# First time setup - migrate existing JSON data to SQLite
+python scripts/migrate_json_to_db.py
+```
+
+**Database location:** `data/secretary.db`
 
 ## Environment Variables
 
@@ -191,6 +221,7 @@ GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
 CUDA_VISIBLE_DEVICES=1
 ADMIN_JWT_SECRET=...                # Auto-generated if empty
+REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 ```
 
 ## Code Patterns
@@ -268,9 +299,11 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 - ✅ Chat TTS playback — озвучивание ответов ассистента
 - ✅ Website Widget — встраиваемый чат-виджет для сайтов (web-widget/)
 - ✅ Telegram Bot — интеграция с Telegram (telegram_bot_service.py)
+- ✅ Database Integration — SQLite + Redis для надёжного хранения (db/)
+- ✅ Hot-switching LLM — переключение vLLM/Gemini без перезапуска
 
 **Ближайшие задачи (Фаза 1):**
-1. Audit Log + Export — compliance для enterprise
+1. Audit Log + Export — compliance для enterprise (база готова в db/repositories/audit.py)
 2. Telephony Gateway — интеграция с SIM7600 (AT-команды)
 3. Backup & Restore — полный бэкап системы
 

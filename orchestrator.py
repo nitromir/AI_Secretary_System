@@ -40,6 +40,19 @@ from auth_manager import (
     get_optional_user, require_admin, get_auth_status, AUTH_ENABLED
 )
 
+# Database integration
+from db.integration import (
+    init_database,
+    shutdown_database,
+    get_database_status,
+    async_chat_manager,
+    async_faq_manager,
+    async_preset_manager,
+    async_config_manager,
+    async_telegram_manager,
+    async_audit_logger,
+)
+
 # vLLM импорт (опциональный - локальная Llama через vLLM)
 try:
     from vllm_llm_service import VLLMLLMService
@@ -367,6 +380,9 @@ async def startup_event():
 
     logger.info("🚀 Запуск AI Secretary Orchestrator")
 
+    # Initialize database first
+    await init_database()
+
     try:
         # Инициализация Piper TTS (Dmitri, Irina) - CPU, загружаем первым
         logger.info("📦 Загрузка Piper TTS Service (CPU)...")
@@ -452,6 +468,14 @@ async def startup_event():
         raise
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("🛑 Shutting down AI Secretary Orchestrator")
+    await shutdown_database()
+    logger.info("✅ Shutdown complete")
+
+
 @app.get("/")
 async def root():
     """Проверка работоспособности"""
@@ -495,9 +519,13 @@ async def health_check():
     any_tts = services_status["voice_clone_xtts_gulya"] or services_status["voice_clone_xtts_lidia"] or services_status["voice_clone_openvoice"] or services_status["piper_tts"]
     core_ok = any_tts and services_status["llm"]
 
+    # Get database status
+    db_status = await get_database_status()
+
     result = {
         "status": "healthy" if core_ok else "degraded",
         "services": services_status,
+        "database": db_status.get("database", {}),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -2390,39 +2418,23 @@ async def admin_set_piper_params(request: AdminPiperParamsRequest):
 @app.get("/admin/tts/presets/custom")
 async def admin_get_custom_presets():
     """Получить пользовательские пресеты TTS"""
-    custom_presets_file = Path("custom_presets.json")
-    if custom_presets_file.exists():
-        return {"presets": json.loads(custom_presets_file.read_text())}
-    return {"presets": {}}
+    presets = await async_preset_manager.get_custom()
+    return {"presets": presets}
 
 
 @app.post("/admin/tts/presets/custom")
 async def admin_create_custom_preset(request: AdminCustomPresetRequest):
     """Создать пользовательский пресет TTS"""
-    custom_presets_file = Path("custom_presets.json")
-    presets = {}
-    if custom_presets_file.exists():
-        presets = json.loads(custom_presets_file.read_text())
-
-    presets[request.name] = request.params
-    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
-
+    await async_preset_manager.create(request.name, request.params)
     return {"status": "ok", "preset": request.name}
 
 
 @app.put("/admin/tts/presets/custom/{name}")
 async def admin_update_custom_preset(name: str, request: AdminCustomPresetRequest):
     """Обновить пользовательский пресет TTS"""
-    custom_presets_file = Path("custom_presets.json")
-    if not custom_presets_file.exists():
+    result = await async_preset_manager.update(name, request.params)
+    if not result:
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
-
-    presets = json.loads(custom_presets_file.read_text())
-    if name not in presets:
-        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
-
-    presets[name] = request.params
-    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
 
     return {"status": "ok", "preset": name}
 
@@ -2430,16 +2442,8 @@ async def admin_update_custom_preset(name: str, request: AdminCustomPresetReques
 @app.delete("/admin/tts/presets/custom/{name}")
 async def admin_delete_custom_preset(name: str):
     """Удалить пользовательский пресет TTS"""
-    custom_presets_file = Path("custom_presets.json")
-    if not custom_presets_file.exists():
+    if not await async_preset_manager.delete(name):
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
-
-    presets = json.loads(custom_presets_file.read_text())
-    if name not in presets:
-        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
-
-    del presets[name]
-    custom_presets_file.write_text(json.dumps(presets, indent=2, ensure_ascii=False))
 
     return {"status": "ok", "deleted": name}
 
@@ -2449,23 +2453,14 @@ async def admin_delete_custom_preset(name: str):
 @app.get("/admin/faq")
 async def admin_get_faq():
     """Получить все FAQ записи"""
-    faq_path = Path("typical_responses.json")
-    if not faq_path.exists():
-        return {"faq": {}}
-
-    return {"faq": json.loads(faq_path.read_text(encoding='utf-8'))}
+    faq = await async_faq_manager.get_all()
+    return {"faq": faq}
 
 
 @app.post("/admin/faq")
 async def admin_add_faq(request: AdminFAQRequest):
     """Добавить FAQ запись"""
-    faq_path = Path("typical_responses.json")
-    faq = {}
-    if faq_path.exists():
-        faq = json.loads(faq_path.read_text(encoding='utf-8'))
-
-    faq[request.trigger] = request.response
-    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
+    await async_faq_manager.add(request.trigger, request.response)
 
     # Перезагружаем FAQ в LLM сервисе
     if llm_service and hasattr(llm_service, 'reload_faq'):
@@ -2477,18 +2472,9 @@ async def admin_add_faq(request: AdminFAQRequest):
 @app.put("/admin/faq/{trigger}")
 async def admin_update_faq(trigger: str, request: AdminFAQRequest):
     """Обновить FAQ запись"""
-    faq_path = Path("typical_responses.json")
-    if not faq_path.exists():
-        raise HTTPException(status_code=404, detail="FAQ file not found")
-
-    faq = json.loads(faq_path.read_text(encoding='utf-8'))
-
-    # Удаляем старый trigger если изменился
-    if trigger in faq and trigger != request.trigger:
-        del faq[trigger]
-
-    faq[request.trigger] = request.response
-    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
+    result = await async_faq_manager.update(trigger, request.trigger, request.response)
+    if not result:
+        raise HTTPException(status_code=404, detail="FAQ entry not found")
 
     if llm_service and hasattr(llm_service, 'reload_faq'):
         llm_service.reload_faq()
@@ -2499,16 +2485,8 @@ async def admin_update_faq(trigger: str, request: AdminFAQRequest):
 @app.delete("/admin/faq/{trigger}")
 async def admin_delete_faq(trigger: str):
     """Удалить FAQ запись"""
-    faq_path = Path("typical_responses.json")
-    if not faq_path.exists():
-        raise HTTPException(status_code=404, detail="FAQ file not found")
-
-    faq = json.loads(faq_path.read_text(encoding='utf-8'))
-    if trigger not in faq:
+    if not await async_faq_manager.delete(trigger):
         raise HTTPException(status_code=404, detail=f"Trigger not found: {trigger}")
-
-    del faq[trigger]
-    faq_path.write_text(json.dumps(faq, indent=2, ensure_ascii=False), encoding='utf-8')
 
     if llm_service and hasattr(llm_service, 'reload_faq'):
         llm_service.reload_faq()
@@ -3086,23 +3064,21 @@ async def admin_get_system_status():
 @app.get("/admin/chat/sessions")
 async def admin_list_chat_sessions():
     """Список всех чат-сессий"""
-    manager = get_chat_manager()
-    return {"sessions": manager.list_sessions()}
+    sessions = await async_chat_manager.list_sessions()
+    return {"sessions": sessions}
 
 
 @app.post("/admin/chat/sessions")
 async def admin_create_chat_session(request: CreateSessionRequest):
     """Создать новую чат-сессию"""
-    manager = get_chat_manager()
-    session = manager.create_session(request.title, request.system_prompt)
+    session = await async_chat_manager.create_session(request.title, request.system_prompt)
     return {"session": session}
 
 
 @app.get("/admin/chat/sessions/{session_id}")
 async def admin_get_chat_session(session_id: str):
     """Получить чат-сессию"""
-    manager = get_chat_manager()
-    session = manager.get_session(session_id)
+    session = await async_chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session}
@@ -3111,8 +3087,7 @@ async def admin_get_chat_session(session_id: str):
 @app.put("/admin/chat/sessions/{session_id}")
 async def admin_update_chat_session(session_id: str, request: UpdateSessionRequest):
     """Обновить чат-сессию"""
-    manager = get_chat_manager()
-    session = manager.update_session(session_id, request.title, request.system_prompt)
+    session = await async_chat_manager.update_session(session_id, request.title, request.system_prompt)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session}
@@ -3121,8 +3096,7 @@ async def admin_update_chat_session(session_id: str, request: UpdateSessionReque
 @app.delete("/admin/chat/sessions/{session_id}")
 async def admin_delete_chat_session(session_id: str):
     """Удалить чат-сессию"""
-    manager = get_chat_manager()
-    if not manager.delete_session(session_id):
+    if not await async_chat_manager.delete_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"status": "ok"}
 
@@ -3130,8 +3104,7 @@ async def admin_delete_chat_session(session_id: str):
 @app.post("/admin/chat/sessions/{session_id}/messages")
 async def admin_send_chat_message(session_id: str, request: SendMessageRequest):
     """Отправить сообщение и получить ответ (non-streaming)"""
-    manager = get_chat_manager()
-    session = manager.get_session(session_id)
+    session = await async_chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -3139,13 +3112,13 @@ async def admin_send_chat_message(session_id: str, request: SendMessageRequest):
         raise HTTPException(status_code=503, detail="LLM service not available")
 
     # Добавляем сообщение пользователя
-    user_msg = manager.add_message(session_id, 'user', request.content)
+    user_msg = await async_chat_manager.add_message(session_id, 'user', request.content)
 
     # Получаем историю для LLM
     default_prompt = None
     if hasattr(llm_service, 'get_system_prompt'):
         default_prompt = llm_service.get_system_prompt()
-    messages = manager.get_messages_for_llm(session_id, default_prompt)
+    messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     # Генерируем ответ
     try:
@@ -3153,7 +3126,7 @@ async def admin_send_chat_message(session_id: str, request: SendMessageRequest):
         if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
             response_text = ''.join(response_text)
 
-        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        assistant_msg = await async_chat_manager.add_message(session_id, 'assistant', response_text)
         return {"message": user_msg, "response": assistant_msg}
 
     except Exception as e:
@@ -3164,8 +3137,7 @@ async def admin_send_chat_message(session_id: str, request: SendMessageRequest):
 @app.post("/admin/chat/sessions/{session_id}/stream")
 async def admin_stream_chat_message(session_id: str, request: SendMessageRequest):
     """Отправить сообщение и получить streaming ответ"""
-    manager = get_chat_manager()
-    session = manager.get_session(session_id)
+    session = await async_chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -3173,13 +3145,13 @@ async def admin_stream_chat_message(session_id: str, request: SendMessageRequest
         raise HTTPException(status_code=503, detail="LLM service not available")
 
     # Добавляем сообщение пользователя
-    user_msg = manager.add_message(session_id, 'user', request.content)
+    user_msg = await async_chat_manager.add_message(session_id, 'user', request.content)
 
     # Получаем историю для LLM
     default_prompt = None
     if hasattr(llm_service, 'get_system_prompt'):
         default_prompt = llm_service.get_system_prompt()
-    messages = manager.get_messages_for_llm(session_id, default_prompt)
+    messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     async def generate_stream():
         full_response = []
@@ -3194,7 +3166,7 @@ async def admin_stream_chat_message(session_id: str, request: SendMessageRequest
 
             # Сохраняем полный ответ
             response_text = ''.join(full_response)
-            assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+            assistant_msg = await async_chat_manager.add_message(session_id, 'assistant', response_text)
 
             # Отправляем финальное сообщение
             yield f"data: {json.dumps({'type': 'assistant_message', 'message': assistant_msg}, ensure_ascii=False)}\n\n"
@@ -3214,8 +3186,7 @@ async def admin_stream_chat_message(session_id: str, request: SendMessageRequest
 @app.put("/admin/chat/sessions/{session_id}/messages/{message_id}")
 async def admin_edit_chat_message(session_id: str, message_id: str, request: EditMessageRequest):
     """Редактировать сообщение пользователя и перегенерировать ответ"""
-    manager = get_chat_manager()
-    session = manager.get_session(session_id)
+    session = await async_chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -3235,10 +3206,10 @@ async def admin_edit_chat_message(session_id: str, message_id: str, request: Edi
         raise HTTPException(status_code=400, detail="Can only edit user messages")
 
     # Удаляем это сообщение и все последующие
-    manager.delete_message(session_id, message_id)
+    await async_chat_manager.delete_message(session_id, message_id)
 
     # Добавляем отредактированное сообщение
-    user_msg = manager.add_message(session_id, 'user', request.content)
+    user_msg = await async_chat_manager.add_message(session_id, 'user', request.content)
 
     # Если был ответ после этого сообщения - генерируем новый
     if not llm_service:
@@ -3247,14 +3218,14 @@ async def admin_edit_chat_message(session_id: str, message_id: str, request: Edi
     default_prompt = None
     if hasattr(llm_service, 'get_system_prompt'):
         default_prompt = llm_service.get_system_prompt()
-    messages = manager.get_messages_for_llm(session_id, default_prompt)
+    messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     try:
         response_text = llm_service.generate_response_from_messages(messages, stream=False)
         if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
             response_text = ''.join(response_text)
 
-        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        assistant_msg = await async_chat_manager.add_message(session_id, 'assistant', response_text)
         return {"message": user_msg, "response": assistant_msg}
 
     except Exception as e:
@@ -3265,8 +3236,7 @@ async def admin_edit_chat_message(session_id: str, message_id: str, request: Edi
 @app.delete("/admin/chat/sessions/{session_id}/messages/{message_id}")
 async def admin_delete_chat_message(session_id: str, message_id: str):
     """Удалить сообщение и все последующие"""
-    manager = get_chat_manager()
-    if not manager.delete_message(session_id, message_id):
+    if not await async_chat_manager.delete_message(session_id, message_id):
         raise HTTPException(status_code=404, detail="Message not found")
     return {"status": "ok"}
 
@@ -3274,8 +3244,7 @@ async def admin_delete_chat_message(session_id: str, message_id: str):
 @app.post("/admin/chat/sessions/{session_id}/messages/{message_id}/regenerate")
 async def admin_regenerate_chat_response(session_id: str, message_id: str):
     """Перегенерировать ответ на сообщение"""
-    manager = get_chat_manager()
-    session = manager.get_session(session_id)
+    session = await async_chat_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -3292,23 +3261,23 @@ async def admin_regenerate_chat_response(session_id: str, message_id: str):
     if message_index == -1:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    # Удаляем все сообщения после этого (включая старый ответ)
-    messages_to_keep = session['messages'][:message_index + 1]
-    manager.sessions[session_id]['messages'] = messages_to_keep
-    manager._save()
+    # Если есть сообщение после этого - удаляем его (ответ ассистента)
+    if message_index + 1 < len(session['messages']):
+        next_msg = session['messages'][message_index + 1]
+        await async_chat_manager.delete_message(session_id, next_msg['id'])
 
     # Генерируем новый ответ
     default_prompt = None
     if hasattr(llm_service, 'get_system_prompt'):
         default_prompt = llm_service.get_system_prompt()
-    llm_messages = manager.get_messages_for_llm(session_id, default_prompt)
+    llm_messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     try:
         response_text = llm_service.generate_response_from_messages(llm_messages, stream=False)
         if hasattr(response_text, '__iter__') and not isinstance(response_text, str):
             response_text = ''.join(response_text)
 
-        assistant_msg = manager.add_message(session_id, 'assistant', response_text)
+        assistant_msg = await async_chat_manager.add_message(session_id, 'assistant', response_text)
         return {"response": assistant_msg}
 
     except Exception as e:
@@ -3448,7 +3417,8 @@ def save_widget_config(config: dict):
 @app.get("/admin/widget/config")
 async def admin_get_widget_config():
     """Получить конфигурацию виджета"""
-    return {"config": get_widget_config()}
+    config = await async_config_manager.get_widget()
+    return {"config": config}
 
 
 @app.post("/admin/widget/config")
@@ -3464,14 +3434,14 @@ async def admin_save_widget_config(request: AdminWidgetConfigRequest):
         "allowed_domains": request.allowed_domains,
         "tunnel_url": request.tunnel_url
     }
-    save_widget_config(config)
+    await async_config_manager.set_widget(config)
     return {"status": "ok", "config": config}
 
 
 @app.get("/widget.js")
 async def get_widget_script(request: Request):
     """Динамически генерируемый скрипт виджета"""
-    config = get_widget_config()
+    config = await async_config_manager.get_widget()
 
     # Проверяем включен ли виджет
     if not config.get("enabled", False):
@@ -3571,7 +3541,7 @@ def save_telegram_config(config: dict):
 @app.get("/admin/telegram/config")
 async def admin_get_telegram_config():
     """Получить конфигурацию Telegram бота"""
-    config = get_telegram_config()
+    config = await async_config_manager.get_telegram()
     # Маскируем токен для безопасности
     if config.get("bot_token"):
         token = config["bot_token"]
@@ -3588,7 +3558,7 @@ async def admin_get_telegram_config():
 async def admin_save_telegram_config(request: AdminTelegramConfigRequest):
     """Сохранить конфигурацию Telegram бота"""
     # Load existing config to preserve token if not provided
-    existing = get_telegram_config()
+    existing = await async_config_manager.get_telegram()
 
     config = {
         "enabled": request.enabled,
@@ -3601,7 +3571,7 @@ async def admin_save_telegram_config(request: AdminTelegramConfigRequest):
         "error_message": request.error_message,
         "typing_enabled": request.typing_enabled
     }
-    save_telegram_config(config)
+    await async_config_manager.set_telegram(config)
     return {"status": "ok", "config": config}
 
 
@@ -3610,7 +3580,7 @@ async def admin_get_telegram_status():
     """Получить статус Telegram бота"""
     global _telegram_bot_process
 
-    config = get_telegram_config()
+    config = await async_config_manager.get_telegram()
     running = False
 
     if _telegram_bot_process is not None:
@@ -3619,15 +3589,9 @@ async def admin_get_telegram_status():
         else:
             _telegram_bot_process = None
 
-    # Count sessions
-    sessions_file = Path("telegram_sessions.json")
-    sessions_count = 0
-    if sessions_file.exists():
-        try:
-            sessions = json.loads(sessions_file.read_text(encoding='utf-8'))
-            sessions_count = len(sessions)
-        except Exception:
-            pass
+    # Count sessions from database
+    sessions = await async_telegram_manager.get_all_sessions()
+    sessions_count = len(sessions)
 
     return {
         "status": {
@@ -3647,7 +3611,7 @@ async def admin_start_telegram_bot():
     """Запустить Telegram бота"""
     global _telegram_bot_process
 
-    config = get_telegram_config()
+    config = await async_config_manager.get_telegram()
 
     if not config.get("bot_token"):
         raise HTTPException(status_code=400, detail="Bot token not configured")
@@ -3715,23 +3679,15 @@ async def admin_restart_telegram_bot():
 @app.delete("/admin/telegram/sessions")
 async def admin_clear_telegram_sessions():
     """Очистить все сессии Telegram"""
-    sessions_file = Path("telegram_sessions.json")
-    if sessions_file.exists():
-        sessions_file.unlink()
-    return {"status": "ok", "message": "All sessions cleared"}
+    count = await async_telegram_manager.clear_all()
+    return {"status": "ok", "message": f"Cleared {count} sessions"}
 
 
 @app.get("/admin/telegram/sessions")
 async def admin_get_telegram_sessions():
     """Получить список сессий Telegram"""
-    sessions_file = Path("telegram_sessions.json")
-    if sessions_file.exists():
-        try:
-            sessions = json.loads(sessions_file.read_text(encoding='utf-8'))
-            return {"sessions": sessions}
-        except Exception:
-            pass
-    return {"sessions": {}}
+    sessions = await async_telegram_manager.get_sessions_dict()
+    return {"sessions": sessions}
 
 
 # ============== Static Files for Vue Admin ==============
