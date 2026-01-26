@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Sparkles,
   Activity,
+  HardDrive,
   Settings,
   Menu,
   X,
@@ -71,6 +72,7 @@ const navItems = [
   { path: '/faq', nameKey: 'nav.faq', icon: MessageSquare },
   { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
   { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity },
+  { path: '/models', nameKey: 'nav.models', icon: HardDrive },
   { path: '/settings', nameKey: 'common.settings', icon: Settings },
 ]
 

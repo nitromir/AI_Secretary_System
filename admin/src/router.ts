@@ -8,6 +8,7 @@ import TtsView from './views/TtsView.vue'
 import FaqView from './views/FaqView.vue'
 import FinetuneView from './views/FinetuneView.vue'
 import MonitoringView from './views/MonitoringView.vue'
+import ModelsView from './views/ModelsView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LoginView from './views/LoginView.vue'
 
@@ -67,6 +68,12 @@ const router = createRouter({
       name: 'monitoring',
       component: MonitoringView,
       meta: { title: 'Monitoring', icon: 'Activity' }
+    },
+    {
+      path: '/models',
+      name: 'models',
+      component: ModelsView,
+      meta: { title: 'Models', icon: 'HardDrive' }
     },
     {
       path: '/settings',
