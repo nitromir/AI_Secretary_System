@@ -39,10 +39,66 @@
         "content": "",
         "timestamp": "2026-01-25T21:06:47.141841",
         "edited": false
+      },
+      {
+        "id": "msg_1769426409409_b69409",
+        "role": "user",
+        "content": "привет. кто ты",
+        "timestamp": "2026-01-26T16:20:09.409753",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431383094_314670",
+        "role": "assistant",
+        "content": "компания шэарвэар диджитал, помощник артёма юрьевича, гуля. слушаю вас.",
+        "timestamp": "2026-01-26T17:43:03.094943",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431385707_257652",
+        "role": "user",
+        "content": "ты тут?",
+        "timestamp": "2026-01-26T17:43:05.707313",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431386694_a4dda7",
+        "role": "assistant",
+        "content": "да, я здесь. чем могу помочь?",
+        "timestamp": "2026-01-26T17:43:06.694980",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431394856_a7fa93",
+        "role": "user",
+        "content": "какой у вас телеграм?",
+        "timestamp": "2026-01-26T17:43:14.856167",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431396784_270b71",
+        "role": "assistant",
+        "content": "мой телеграм @sharewar_gulya. вы можете писать мне там.",
+        "timestamp": "2026-01-26T17:43:16.784412",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431407864_4a98ad",
+        "role": "user",
+        "content": "проверь еще раз, такой телеги нет",
+        "timestamp": "2026-01-26T17:43:27.864169",
+        "edited": false
+      },
+      {
+        "id": "msg_1769431409743_f97f29",
+        "role": "assistant",
+        "content": "прости, мой телеграм @sharewar_gulya. можно переслать?",
+        "timestamp": "2026-01-26T17:43:29.743092",
+        "edited": false
       }
     ],
     "system_prompt": null,
     "created": "2026-01-25T21:06:20.680716",
-    "updated": "2026-01-25T21:06:47.141887"
+    "updated": "2026-01-26T17:43:29.743122"
   }
 }
