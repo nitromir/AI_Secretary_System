@@ -4,7 +4,7 @@
 STT (Whisper) -> LLM (Gemini) -> TTS (XTTS v2)
 """
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
@@ -26,7 +26,7 @@ import soundfile as sf
 
 # Импорты наших сервисов
 from voice_clone_service import VoiceCloneService, INTONATION_PRESETS
-from stt_service import STTService
+from stt_service import STTService, VoskSTTService, UnifiedSTTService
 from llm_service import LLMService
 from piper_tts_service import PiperTTSService
 from service_manager import get_service_manager, ServiceManager
@@ -1218,6 +1218,197 @@ async def admin_clear_tts_cache():
             streaming_tts_manager._cache.clear()
         return {"status": "ok", "cleared_items": count}
     return {"status": "ok", "cleared_items": 0}
+
+
+# ============== STT API ==============
+
+# Глобальные STT сервисы (ленивая инициализация)
+_vosk_service: Optional[VoskSTTService] = None
+_unified_stt: Optional[UnifiedSTTService] = None
+
+
+def get_vosk_service() -> Optional[VoskSTTService]:
+    """Получить Vosk STT сервис (ленивая инициализация)"""
+    global _vosk_service
+    if _vosk_service is None:
+        try:
+            _vosk_service = VoskSTTService(language="ru", model_size="small")
+            logger.info("✅ Vosk STT инициализирован")
+        except Exception as e:
+            logger.warning(f"⚠️ Vosk STT недоступен: {e}")
+    return _vosk_service
+
+
+def get_unified_stt() -> Optional[UnifiedSTTService]:
+    """Получить унифицированный STT сервис"""
+    global _unified_stt
+    if _unified_stt is None:
+        try:
+            _unified_stt = UnifiedSTTService(language="ru", prefer_vosk=True)
+            logger.info("✅ Unified STT инициализирован")
+        except Exception as e:
+            logger.warning(f"⚠️ Unified STT недоступен: {e}")
+    return _unified_stt
+
+
+class STTTranscribeRequest(BaseModel):
+    """Запрос на распознавание речи"""
+    language: str = "ru"
+    engine: str = "auto"  # auto, vosk, whisper
+
+
+@app.get("/admin/stt/status")
+async def admin_stt_status():
+    """Статус STT сервисов"""
+    vosk_available = False
+    whisper_available = False
+    vosk_model = None
+
+    # Проверяем Vosk
+    try:
+        vosk = get_vosk_service()
+        if vosk:
+            vosk_available = True
+            vosk_model = str(vosk.model_path.name) if vosk.model_path else None
+    except:
+        pass
+
+    # Проверяем Whisper
+    try:
+        from faster_whisper import WhisperModel
+        whisper_available = True
+    except:
+        pass
+
+    return {
+        "vosk": {
+            "available": vosk_available,
+            "model": vosk_model,
+            "realtime": True,
+            "offline": True
+        },
+        "whisper": {
+            "available": whisper_available,
+            "realtime": False,
+            "offline": True
+        },
+        "preferred_engine": "vosk" if vosk_available else ("whisper" if whisper_available else None)
+    }
+
+
+@app.get("/admin/stt/models")
+async def admin_stt_models():
+    """Список доступных моделей STT"""
+    models_dir = Path("models/vosk")
+    models = []
+
+    if models_dir.exists():
+        for path in models_dir.iterdir():
+            if path.is_dir() and "model" in path.name.lower():
+                # Определяем размер модели
+                size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                models.append({
+                    "name": path.name,
+                    "path": str(path),
+                    "size_mb": round(size_bytes / (1024 * 1024), 1),
+                    "language": "ru" if "ru" in path.name else ("en" if "en" in path.name else "unknown")
+                })
+
+    return {
+        "models_dir": str(models_dir),
+        "models": models,
+        "download_url": "https://alphacephei.com/vosk/models"
+    }
+
+
+@app.post("/admin/stt/transcribe")
+async def admin_stt_transcribe(
+    file: UploadFile = File(...),
+    language: str = "ru",
+    engine: str = "auto"
+):
+    """
+    Распознать речь из загруженного аудио файла
+
+    Args:
+        file: WAV/MP3 аудио файл
+        language: Язык (ru, en)
+        engine: Движок (auto, vosk, whisper)
+    """
+    import tempfile
+
+    # Сохраняем файл
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        # Выбираем движок
+        if engine == "vosk" or (engine == "auto" and get_vosk_service()):
+            vosk = get_vosk_service()
+            if not vosk:
+                raise HTTPException(status_code=503, detail="Vosk STT недоступен")
+            result = vosk.transcribe(tmp_path, language)
+            result["engine"] = "vosk"
+
+        elif engine == "whisper":
+            unified = get_unified_stt()
+            if not unified:
+                raise HTTPException(status_code=503, detail="Whisper STT недоступен")
+            result = unified.transcribe(tmp_path, language, use_whisper=True)
+            result["engine"] = "whisper"
+
+        else:
+            unified = get_unified_stt()
+            if not unified:
+                raise HTTPException(status_code=503, detail="STT сервисы недоступны")
+            result = unified.transcribe(tmp_path, language)
+            result["engine"] = "auto"
+
+        return result
+
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@app.post("/admin/stt/test")
+async def admin_stt_test(text_to_speak: str = "Привет, это тест распознавания речи"):
+    """
+    Тест STT: синтезируем речь через TTS, затем распознаём обратно
+
+    Полезно для проверки качества STT
+    """
+    import tempfile
+
+    # Сначала синтезируем речь
+    tts_service = gulya_voice_service or voice_service
+    if not tts_service:
+        raise HTTPException(status_code=503, detail="TTS сервис недоступен")
+
+    vosk = get_vosk_service()
+    if not vosk:
+        raise HTTPException(status_code=503, detail="Vosk STT недоступен")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        # Синтезируем
+        tts_service.synthesize(text_to_speak, tmp_path)
+
+        # Распознаём
+        result = vosk.transcribe(tmp_path)
+
+        return {
+            "original_text": text_to_speak,
+            "recognized_text": result["text"],
+            "match": text_to_speak.lower().strip() == result["text"].lower().strip(),
+            "words_count": len(result.get("words", []))
+        }
+
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 @app.get("/admin/llm/prompt")
@@ -2977,12 +3168,44 @@ async def admin_regenerate_chat_response(session_id: str, message_id: str):
 
 # ============== Static Files for Vue Admin ==============
 
-# Serve built Vue app (will be mounted after build)
-admin_dist_path = Path(__file__).parent / "admin" / "dist"
-if admin_dist_path.exists():
-    from fastapi.staticfiles import StaticFiles
-    app.mount("/admin", StaticFiles(directory=str(admin_dist_path), html=True), name="admin")
-    logger.info(f"📂 Vue admin mounted at /admin from {admin_dist_path}")
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+VITE_DEV_URL = os.getenv("VITE_DEV_URL", "http://localhost:5173")
+
+if DEV_MODE:
+    # Dev mode: proxy to Vite dev server for hot reload
+    import httpx
+
+    @app.api_route("/admin/{path:path}", methods=["GET", "HEAD"])
+    async def proxy_to_vite(path: str, request: Request):
+        """Proxy static files to Vite dev server"""
+        async with httpx.AsyncClient() as client:
+            url = f"{VITE_DEV_URL}/admin/{path}"
+            try:
+                resp = await client.get(url, headers=dict(request.headers))
+                return Response(
+                    content=resp.content,
+                    status_code=resp.status_code,
+                    headers=dict(resp.headers)
+                )
+            except httpx.ConnectError:
+                return Response(
+                    content=b"Vite dev server not running. Start with: cd admin && npm run dev",
+                    status_code=503
+                )
+
+    @app.get("/admin")
+    async def proxy_admin_root():
+        """Redirect /admin to /admin/"""
+        return RedirectResponse(url="/admin/")
+
+    logger.info(f"🔧 DEV MODE: Proxying /admin/* to Vite at {VITE_DEV_URL}")
+else:
+    # Production: serve built Vue app
+    admin_dist_path = Path(__file__).parent / "admin" / "dist"
+    if admin_dist_path.exists():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/admin", StaticFiles(directory=str(admin_dist_path), html=True), name="admin")
+        logger.info(f"📂 Vue admin mounted at /admin from {admin_dist_path}")
 
 
 if __name__ == "__main__":
