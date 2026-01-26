@@ -3,7 +3,7 @@
 Главный оркестратор - координирует все сервисы
 STT (Whisper) -> LLM (Gemini) -> TTS (XTTS v2)
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse, Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -33,6 +33,7 @@ from service_manager import get_service_manager, ServiceManager
 from finetune_manager import get_finetune_manager, FinetuneManager, TrainingConfig, DatasetStats
 from system_monitor import get_system_monitor
 from tts_finetune_manager import get_tts_finetune_manager
+from model_manager import get_model_manager
 from auth_manager import (
     LoginRequest, LoginResponse, User,
     authenticate_user, create_access_token, get_current_user,
@@ -3164,6 +3165,105 @@ async def admin_regenerate_chat_response(session_id: str, message_id: str):
     except Exception as e:
         logger.error(f"❌ Chat regenerate error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Model Management API ==============
+
+@app.get("/admin/models/list")
+async def admin_list_models():
+    """Список всех локальных моделей"""
+    manager = get_model_manager()
+    return {"models": manager.get_cached_models()}
+
+
+@app.post("/admin/models/scan")
+async def admin_scan_models(request: Request):
+    """Запустить сканирование моделей"""
+    data = await request.json() if request.headers.get('content-type') == 'application/json' else {}
+    include_system = data.get('include_system', False)
+
+    manager = get_model_manager()
+    if manager.scan_all_models(include_system=include_system):
+        return {"status": "ok", "message": "Scan started"}
+    else:
+        return {"status": "error", "message": "Scan already in progress"}
+
+
+@app.post("/admin/models/scan/cancel")
+async def admin_cancel_scan():
+    """Отменить сканирование"""
+    manager = get_model_manager()
+    manager.cancel_scan()
+    return {"status": "ok", "message": "Scan cancelled"}
+
+
+@app.get("/admin/models/scan/status")
+async def admin_scan_status():
+    """Статус сканирования"""
+    manager = get_model_manager()
+    return {"status": manager.get_scan_progress()}
+
+
+@app.post("/admin/models/download")
+async def admin_download_model(request: Request):
+    """Скачать модель с HuggingFace"""
+    data = await request.json()
+    repo_id = data.get('repo_id')
+    revision = data.get('revision', 'main')
+
+    if not repo_id:
+        raise HTTPException(status_code=400, detail="repo_id required")
+
+    manager = get_model_manager()
+    if manager.download_model(repo_id, revision):
+        return {"status": "ok", "message": f"Download started: {repo_id}"}
+    else:
+        return {"status": "error", "message": "Download already in progress"}
+
+
+@app.post("/admin/models/download/cancel")
+async def admin_cancel_download():
+    """Отменить загрузку"""
+    manager = get_model_manager()
+    manager.cancel_download()
+    return {"status": "ok", "message": "Download cancelled"}
+
+
+@app.get("/admin/models/download/status")
+async def admin_download_status():
+    """Статус загрузки"""
+    manager = get_model_manager()
+    return {"status": manager.get_download_progress()}
+
+
+@app.delete("/admin/models/delete")
+async def admin_delete_model(path: str):
+    """Удалить модель"""
+    manager = get_model_manager()
+    result = manager.delete_model(path)
+    if result['status'] == 'ok':
+        return result
+    else:
+        raise HTTPException(status_code=400, detail=result.get('error', 'Delete failed'))
+
+
+@app.get("/admin/models/search")
+async def admin_search_huggingface(query: str, limit: int = 20):
+    """Поиск моделей на HuggingFace"""
+    manager = get_model_manager()
+    results = manager.search_huggingface(query, limit)
+    return {"results": results}
+
+
+@app.get("/admin/models/details/{repo_id:path}")
+async def admin_get_model_details(repo_id: str):
+    """Получить детали модели с HuggingFace"""
+    manager = get_model_manager()
+    details = manager.get_model_details(repo_id)
+    if details:
+        return {"details": details}
+    else:
+        raise HTTPException(status_code=404, detail="Model not found")
 
 
 # ============== Static Files for Vue Admin ==============

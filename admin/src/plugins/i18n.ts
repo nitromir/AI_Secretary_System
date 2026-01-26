@@ -12,6 +12,7 @@ const messages = {
       faq: 'FAQ',
       finetune: 'Обучение',
       monitoring: 'Мониторинг',
+      models: 'Модели',
       settings: 'Настройки',
       search: 'Поиск...',
       logout: 'Выход'
@@ -169,6 +170,7 @@ const messages = {
       faq: 'FAQ',
       finetune: 'Fine-tune',
       monitoring: 'Monitoring',
+      models: 'Models',
       settings: 'Settings',
       search: 'Search...',
       logout: 'Logout'
