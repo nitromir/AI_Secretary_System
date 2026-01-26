@@ -88,6 +88,30 @@ class DatasetStats:
     modified: Optional[str] = None
 
 
+@dataclass
+class ProcessingStatus:
+    """Статус обработки датасета"""
+    is_running: bool = False
+    stage: str = ""  # "parsing", "transcribing", "building"
+    current: int = 0
+    total: int = 0
+    voice_transcribed: int = 0
+    voice_total: int = 0
+    error: Optional[str] = None
+
+
+@dataclass
+class DatasetConfig:
+    """Конфигурация обработки датасета"""
+    owner_name: str = "Артем Юрьевич"
+    transcribe_voice: bool = False
+    min_dialog_messages: int = 2
+    max_message_length: int = 2000
+    max_dialog_length: int = 20
+    include_groups: bool = False
+    output_name: str = "dataset"
+
+
 class FinetuneManager:
     """
     Менеджер дообучения LoRA адаптеров.
@@ -128,6 +152,12 @@ class FinetuneManager:
         self.training_log: List[str] = []
         self.training_start_time: Optional[datetime] = None
         self._training_lock = threading.Lock()
+
+        # Состояние обработки датасета
+        self.processing_status = ProcessingStatus()
+        self.dataset_config = DatasetConfig()
+        self._processing_lock = threading.Lock()
+        self._stt_service = None  # Lazy load
 
         # Создаем директории если не существуют
         self.datasets_dir.mkdir(parents=True, exist_ok=True)
@@ -224,27 +254,260 @@ class FinetuneManager:
             logger.error(f"❌ Ошибка загрузки датасета: {e}")
             return {"status": "error", "message": str(e)}
 
-    async def process_dataset(self) -> dict:
+    def _get_stt_service(self):
+        """Lazy load STT service for voice transcription"""
+        if self._stt_service is None:
+            try:
+                from stt_service import STTService
+                self._stt_service = STTService(model_size="base", use_faster_whisper=True, device="cpu")
+                logger.info("✅ STT сервис загружен для расшифровки голосовых")
+            except Exception as e:
+                logger.warning(f"⚠️ STT недоступен: {e}")
+                self._stt_service = False  # Mark as unavailable
+        return self._stt_service if self._stt_service else None
+
+    def _extract_text(self, text_field) -> str:
+        """Извлекает текст из поля (может быть строкой или списком)"""
+        if isinstance(text_field, str):
+            return text_field.strip()
+        if isinstance(text_field, list):
+            parts = []
+            for item in text_field:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    parts.append(item.get('text', ''))
+            return ''.join(parts).strip()
+        return ''
+
+    def _transcribe_voice(self, voice_path: Path, telegram_export_dir: Path) -> Optional[str]:
+        """Расшифровывает голосовое сообщение"""
+        stt = self._get_stt_service()
+        if not stt:
+            return None
+
+        # Путь к файлу относительно экспорта Telegram
+        full_path = telegram_export_dir / voice_path
+        if not full_path.exists():
+            # Попробуем найти в datasets_dir
+            full_path = self.datasets_dir / voice_path
+        if not full_path.exists():
+            logger.warning(f"Голосовое не найдено: {voice_path}")
+            return None
+
+        try:
+            result = stt.transcribe(str(full_path), language="ru")
+            return result.get("text", "").strip()
+        except Exception as e:
+            logger.error(f"Ошибка расшифровки {voice_path}: {e}")
+            return None
+
+    def get_dataset_config(self) -> dict:
+        """Возвращает текущую конфигурацию обработки"""
+        return asdict(self.dataset_config)
+
+    def set_dataset_config(self, **kwargs) -> dict:
+        """Устанавливает конфигурацию обработки"""
+        for key, value in kwargs.items():
+            if hasattr(self.dataset_config, key):
+                setattr(self.dataset_config, key, value)
+        return {"status": "ok", "config": asdict(self.dataset_config)}
+
+    def get_processing_status(self) -> dict:
+        """Возвращает статус обработки датасета"""
+        with self._processing_lock:
+            return asdict(self.processing_status)
+
+    async def process_dataset(self, config: Optional[dict] = None) -> dict:
         """
         Обрабатывает Telegram export и создает JSONL для обучения.
-        Запускает prepare_dataset.py
+        Поддерживает расшифровку голосовых сообщений.
         """
-        result = self._run_script(self.PREPARE_SCRIPT)
+        # Применяем конфигурацию если передана
+        if config:
+            self.set_dataset_config(**config)
 
-        if result["status"] == "ok":
-            # Проверяем результат - ищем созданный jsonl файл
-            output_files = list(self.datasets_dir.glob("*_dataset_*.jsonl"))
-            if output_files:
-                output_file = max(output_files, key=lambda f: f.stat().st_mtime)
-                lines = len(output_file.read_text().strip().split('\n'))
-                return {
-                    "status": "ok",
-                    "message": f"Датасет обработан: {lines} примеров",
-                    "output_file": str(output_file),
-                    "examples_count": lines
+        cfg = self.dataset_config
+
+        # Проверяем наличие result.json
+        input_file = self.datasets_dir / "result.json"
+        if not input_file.exists():
+            return {"status": "error", "message": "Файл result.json не найден. Загрузите Telegram export."}
+
+        with self._processing_lock:
+            if self.processing_status.is_running:
+                return {"status": "error", "message": "Обработка уже запущена"}
+            self.processing_status = ProcessingStatus(is_running=True, stage="parsing")
+
+        try:
+            # Загружаем Telegram export
+            logger.info(f"📂 Загрузка {input_file}...")
+            with open(input_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            chat_list = data.get('chats', {}).get('list', [])
+            logger.info(f"📊 Найдено чатов: {len(chat_list)}")
+
+            with self._processing_lock:
+                self.processing_status.total = len(chat_list)
+
+            all_dialogs = []
+            voice_messages = []  # Для отложенной расшифровки
+            stats = {
+                'total_chats': len(chat_list),
+                'processed_chats': 0,
+                'skipped_chats': 0,
+                'voice_messages': 0,
+            }
+
+            # Определяем директорию с медиафайлами
+            telegram_export_dir = input_file.parent
+
+            for idx, chat in enumerate(chat_list):
+                with self._processing_lock:
+                    self.processing_status.current = idx + 1
+
+                chat_type = chat.get('type', '')
+
+                # Фильтруем по типу чата
+                if chat_type == 'personal_chat':
+                    pass  # Всегда обрабатываем
+                elif chat_type in ['private_group', 'public_group', 'private_supergroup', 'public_supergroup']:
+                    if not cfg.include_groups:
+                        stats['skipped_chats'] += 1
+                        continue
+                else:
+                    stats['skipped_chats'] += 1
+                    continue
+
+                messages = chat.get('messages', [])
+                current_dialog = []
+                prev_role = None
+
+                for msg in messages:
+                    if msg.get('type') != 'message':
+                        continue
+
+                    sender = msg.get('from', '')
+                    text = self._extract_text(msg.get('text', ''))
+
+                    # Обработка голосовых сообщений
+                    media_type = msg.get('media_type')
+                    if media_type == 'voice_message' and cfg.transcribe_voice:
+                        voice_file = msg.get('file')
+                        if voice_file:
+                            stats['voice_messages'] += 1
+                            voice_messages.append({
+                                'file': voice_file,
+                                'sender': sender,
+                                'dialog_idx': len(all_dialogs),
+                                'msg_idx': len(current_dialog),
+                                'export_dir': telegram_export_dir
+                            })
+                            # Placeholder - будет заменен после расшифровки
+                            text = f"[VOICE:{voice_file}]"
+
+                    if not text or len(text) < 1:
+                        continue
+
+                    if len(text) > cfg.max_message_length:
+                        text = text[:cfg.max_message_length] + '...'
+
+                    # Определяем роль
+                    role = 'assistant' if sender == cfg.owner_name else 'user'
+
+                    # Склеиваем последовательные сообщения
+                    if role == prev_role and current_dialog:
+                        current_dialog[-1]['value'] += '\n' + text
+                    else:
+                        current_dialog.append({'from': role, 'value': text})
+
+                    prev_role = role
+
+                # Разбиваем длинные диалоги
+                for i in range(0, len(current_dialog), cfg.max_dialog_length):
+                    chunk = current_dialog[i:i + cfg.max_dialog_length]
+
+                    # Диалог должен начинаться с user и заканчиваться assistant
+                    while chunk and chunk[0]['from'] == 'assistant':
+                        chunk = chunk[1:]
+                    while chunk and chunk[-1]['from'] == 'user':
+                        chunk = chunk[:-1]
+
+                    if len(chunk) >= cfg.min_dialog_messages:
+                        has_user = any(m['from'] == 'user' for m in chunk)
+                        has_assistant = any(m['from'] == 'assistant' for m in chunk)
+                        if has_user and has_assistant:
+                            all_dialogs.append({'messages': chunk})
+
+                if current_dialog:
+                    stats['processed_chats'] += 1
+                else:
+                    stats['skipped_chats'] += 1
+
+            # Расшифровка голосовых сообщений
+            if voice_messages and cfg.transcribe_voice:
+                with self._processing_lock:
+                    self.processing_status.stage = "transcribing"
+                    self.processing_status.voice_total = len(voice_messages)
+                    self.processing_status.voice_transcribed = 0
+
+                logger.info(f"🎤 Расшифровка {len(voice_messages)} голосовых сообщений...")
+
+                for vm in voice_messages:
+                    transcribed = self._transcribe_voice(Path(vm['file']), vm['export_dir'])
+                    if transcribed:
+                        # Находим и заменяем placeholder
+                        # Это упрощённая логика - в реальности нужно отслеживать индексы
+                        for dialog in all_dialogs:
+                            for msg in dialog['messages']:
+                                placeholder = f"[VOICE:{vm['file']}]"
+                                if placeholder in msg['value']:
+                                    msg['value'] = msg['value'].replace(placeholder, transcribed)
+
+                    with self._processing_lock:
+                        self.processing_status.voice_transcribed += 1
+
+            # Удаляем нерасшифрованные плейсхолдеры
+            for dialog in all_dialogs:
+                dialog['messages'] = [
+                    m for m in dialog['messages']
+                    if not m['value'].startswith('[VOICE:')
+                ]
+            # Удаляем пустые диалоги
+            all_dialogs = [d for d in all_dialogs if len(d['messages']) >= cfg.min_dialog_messages]
+
+            # Сохраняем результат
+            with self._processing_lock:
+                self.processing_status.stage = "building"
+
+            output_file = self.datasets_dir / f"{cfg.output_name}_dataset.jsonl"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                for dialog in all_dialogs:
+                    f.write(json.dumps(dialog, ensure_ascii=False) + '\n')
+
+            total_messages = sum(len(d['messages']) for d in all_dialogs)
+            logger.info(f"✅ Датасет создан: {len(all_dialogs)} диалогов, {total_messages} сообщений")
+
+            return {
+                "status": "ok",
+                "message": f"Датасет обработан: {len(all_dialogs)} диалогов",
+                "output_file": str(output_file),
+                "stats": {
+                    **stats,
+                    "total_dialogs": len(all_dialogs),
+                    "total_messages": total_messages,
                 }
+            }
 
-        return result
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки: {e}")
+            return {"status": "error", "message": str(e)}
+
+        finally:
+            with self._processing_lock:
+                self.processing_status.is_running = False
+                self.processing_status.stage = ""
 
     def get_dataset_stats(self, dataset_file: Optional[str] = None) -> DatasetStats:
         """

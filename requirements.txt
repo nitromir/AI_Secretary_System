@@ -28,3 +28,6 @@ pydantic==2.5.3
 numpy==1.24.3
 torch==2.1.2
 torchaudio==2.1.2
+
+# System monitoring
+psutil==5.9.8

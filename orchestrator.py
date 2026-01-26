@@ -31,6 +31,8 @@ from llm_service import LLMService
 from piper_tts_service import PiperTTSService
 from service_manager import get_service_manager, ServiceManager
 from finetune_manager import get_finetune_manager, FinetuneManager, TrainingConfig, DatasetStats
+from system_monitor import get_system_monitor
+from tts_finetune_manager import get_tts_finetune_manager
 from auth_manager import (
     LoginRequest, LoginResponse, User,
     authenticate_user, create_access_token, get_current_user,
@@ -1073,12 +1075,13 @@ async def admin_status():
             }
 
     # TTS конфигурация
-    if voice_service:
+    xtts_svc = gulya_voice_service or voice_service
+    if xtts_svc:
         status["tts_config"] = {
-            "device": voice_service.device,
-            "default_preset": voice_service.default_preset,
-            "samples_count": len(voice_service.voice_samples),
-            "cache_dir": str(voice_service.cache_dir),
+            "device": xtts_svc.device,
+            "default_preset": xtts_svc.default_preset,
+            "samples_count": len(xtts_svc.voice_samples),
+            "cache_dir": str(xtts_svc.cache_dir),
         }
 
     return status
@@ -1100,7 +1103,8 @@ async def admin_tts_presets():
             "speed": preset.speed,
         }
 
-    current = voice_service.default_preset if voice_service else "natural"
+    xtts_svc = gulya_voice_service or voice_service
+    current = xtts_svc.default_preset if xtts_svc else "natural"
 
     return {
         "presets": presets,
@@ -1119,8 +1123,9 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
             detail=f"Неизвестный пресет: {request.preset}. Доступные: {list(INTONATION_PRESETS.keys())}"
         )
 
-    if voice_service:
-        voice_service.default_preset = request.preset
+    xtts_svc = gulya_voice_service or voice_service
+    if xtts_svc:
+        xtts_svc.default_preset = request.preset
         preset = INTONATION_PRESETS[request.preset]
         return {
             "status": "ok",
@@ -1132,21 +1137,35 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
             }
         }
 
-    raise HTTPException(status_code=503, detail="Voice service not initialized")
+    raise HTTPException(status_code=503, detail="No XTTS voice service available")
 
 
 @app.post("/admin/tts/test")
 async def admin_tts_test(request: AdminTTSTestRequest):
     """Тестовый синтез речи - возвращает аудио-файл для воспроизведения в браузере"""
-    if not voice_service:
-        raise HTTPException(status_code=503, detail="Voice service not initialized")
+    # Используем текущий голос или любой доступный XTTS/Piper
+    tts_service = None
+    engine = current_voice_config.get("engine", "xtts")
+    voice = current_voice_config.get("voice", "gulya")
+
+    if engine == "xtts" and voice == "gulya" and gulya_voice_service:
+        tts_service = gulya_voice_service
+    elif engine == "xtts" and voice == "lidia" and voice_service:
+        tts_service = voice_service
+    elif gulya_voice_service:
+        tts_service = gulya_voice_service
+    elif voice_service:
+        tts_service = voice_service
+
+    if not tts_service:
+        raise HTTPException(status_code=503, detail="No XTTS voice service available")
 
     try:
         import time as t
         start = t.time()
 
         output_file = TEMP_DIR / f"admin_test_{datetime.now().timestamp()}.wav"
-        voice_service.synthesize_to_file(
+        tts_service.synthesize_to_file(
             text=request.text,
             output_path=str(output_file),
             preset=request.preset,
@@ -2192,11 +2211,43 @@ async def admin_upload_dataset(file: UploadFile = File(...)):
     return await manager.upload_dataset(content, file.filename)
 
 
+class DatasetProcessRequest(BaseModel):
+    owner_name: Optional[str] = None
+    transcribe_voice: Optional[bool] = None
+    min_dialog_messages: Optional[int] = None
+    max_message_length: Optional[int] = None
+    max_dialog_length: Optional[int] = None
+    include_groups: Optional[bool] = None
+    output_name: Optional[str] = None
+
+
 @app.post("/admin/finetune/dataset/process")
-async def admin_process_dataset():
+async def admin_process_dataset(request: Optional[DatasetProcessRequest] = None):
     """Обработать загруженный датасет"""
     manager = get_finetune_manager()
-    return await manager.process_dataset()
+    config = request.model_dump(exclude_none=True) if request else None
+    return await manager.process_dataset(config)
+
+
+@app.get("/admin/finetune/dataset/config")
+async def admin_get_dataset_config():
+    """Получить конфигурацию обработки датасета"""
+    manager = get_finetune_manager()
+    return {"config": manager.get_dataset_config()}
+
+
+@app.post("/admin/finetune/dataset/config")
+async def admin_set_dataset_config(request: DatasetProcessRequest):
+    """Установить конфигурацию обработки датасета"""
+    manager = get_finetune_manager()
+    return manager.set_dataset_config(**request.model_dump(exclude_none=True))
+
+
+@app.get("/admin/finetune/dataset/processing-status")
+async def admin_get_processing_status():
+    """Получить статус обработки датасета"""
+    manager = get_finetune_manager()
+    return {"status": manager.get_processing_status()}
 
 
 @app.get("/admin/finetune/dataset/stats")
@@ -2372,6 +2423,131 @@ async def admin_delete_adapter(name: str):
     """Удалить LoRA адаптер"""
     manager = get_finetune_manager()
     return await manager.delete_adapter(name)
+
+
+# ============== TTS Finetune Endpoints ==============
+
+@app.get("/admin/tts-finetune/config")
+async def admin_get_tts_finetune_config():
+    """Получить конфигурацию TTS fine-tuning"""
+    manager = get_tts_finetune_manager()
+    return {"config": manager.get_config()}
+
+
+@app.post("/admin/tts-finetune/config")
+async def admin_set_tts_finetune_config(config: dict):
+    """Обновить конфигурацию TTS fine-tuning"""
+    manager = get_tts_finetune_manager()
+    return {"status": "ok", "config": manager.set_config(config)}
+
+
+@app.get("/admin/tts-finetune/samples")
+async def admin_get_tts_samples():
+    """Получить список образцов голоса"""
+    manager = get_tts_finetune_manager()
+    return {"samples": manager.get_samples()}
+
+
+@app.post("/admin/tts-finetune/samples/upload")
+async def admin_upload_tts_sample(file: UploadFile = File(...)):
+    """Загрузить образец голоса"""
+    manager = get_tts_finetune_manager()
+    content = await file.read()
+    sample = manager.add_sample(file.filename, content)
+    return {"status": "ok", "sample": {
+        "filename": sample.filename,
+        "path": sample.path,
+        "duration_sec": sample.duration_sec,
+        "size_kb": sample.size_kb
+    }}
+
+
+@app.delete("/admin/tts-finetune/samples/{filename}")
+async def admin_delete_tts_sample(filename: str):
+    """Удалить образец голоса"""
+    manager = get_tts_finetune_manager()
+    if manager.delete_sample(filename):
+        return {"status": "ok", "message": f"Sample {filename} deleted"}
+    raise HTTPException(status_code=404, detail="Sample not found")
+
+
+@app.put("/admin/tts-finetune/samples/{filename}/transcript")
+async def admin_update_tts_transcript(filename: str, request: dict):
+    """Обновить транскрипцию образца"""
+    manager = get_tts_finetune_manager()
+    transcript = request.get("transcript", "")
+    sample = manager.update_transcript(filename, transcript)
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    return {"status": "ok", "sample": {
+        "filename": sample.filename,
+        "transcript": sample.transcript,
+        "transcript_edited": sample.transcript_edited
+    }}
+
+
+@app.post("/admin/tts-finetune/transcribe")
+async def admin_transcribe_tts_samples():
+    """Запустить транскрибацию образцов через Whisper"""
+    manager = get_tts_finetune_manager()
+    if manager.transcribe_samples():
+        return {"status": "ok", "message": "Transcription started"}
+    return {"status": "error", "message": "Already running or no samples to transcribe"}
+
+
+@app.post("/admin/tts-finetune/prepare")
+async def admin_prepare_tts_dataset():
+    """Подготовить датасет (извлечь audio_codes)"""
+    manager = get_tts_finetune_manager()
+    if manager.prepare_dataset():
+        return {"status": "ok", "message": "Dataset preparation started"}
+    return {"status": "error", "message": "Already running or no samples with transcripts"}
+
+
+@app.get("/admin/tts-finetune/processing-status")
+async def admin_get_tts_processing_status():
+    """Получить статус обработки"""
+    manager = get_tts_finetune_manager()
+    return {"status": manager.get_processing_status()}
+
+
+@app.post("/admin/tts-finetune/train/start")
+async def admin_start_tts_training():
+    """Запустить обучение TTS"""
+    manager = get_tts_finetune_manager()
+    if manager.start_training():
+        return {"status": "ok", "message": "Training started"}
+    return {"status": "error", "message": "Already running or dataset not prepared"}
+
+
+@app.post("/admin/tts-finetune/train/stop")
+async def admin_stop_tts_training():
+    """Остановить обучение TTS"""
+    manager = get_tts_finetune_manager()
+    if manager.stop_training():
+        return {"status": "ok", "message": "Training stopped"}
+    return {"status": "error", "message": "Training not running"}
+
+
+@app.get("/admin/tts-finetune/train/status")
+async def admin_get_tts_training_status():
+    """Получить статус обучения TTS"""
+    manager = get_tts_finetune_manager()
+    return {"status": manager.get_training_status()}
+
+
+@app.get("/admin/tts-finetune/train/log")
+async def admin_get_tts_training_log():
+    """Получить лог обучения TTS"""
+    manager = get_tts_finetune_manager()
+    return {"log": manager.get_training_log()}
+
+
+@app.get("/admin/tts-finetune/models")
+async def admin_get_tts_trained_models():
+    """Получить список обученных TTS моделей"""
+    manager = get_tts_finetune_manager()
+    return {"models": manager.get_trained_models()}
 
 
 # ============== Monitoring Endpoints ==============
@@ -2555,6 +2731,13 @@ async def admin_reset_metrics():
             streaming_tts_manager._cache.clear()
 
     return {"status": "ok", "message": "Metrics reset"}
+
+
+@app.get("/admin/monitor/system")
+async def admin_get_system_status():
+    """Полная информация о системе: GPU, CPU, RAM, диски, Docker, сеть"""
+    monitor = get_system_monitor()
+    return monitor.get_full_status()
 
 
 # ============== Chat Endpoints ==============

@@ -508,7 +508,7 @@ class VoiceCloneService:
         gpt_cond_chunk_len: Optional[int] = None,
         # Управление обработкой
         preprocess_text: bool = True,
-        split_sentences: bool = True,
+        split_sentences: bool = False,  # True requires spacy
     ) -> tuple[np.ndarray, int]:
         """
         Синтезирует речь с заданными параметрами
