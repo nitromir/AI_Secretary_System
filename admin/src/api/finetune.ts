@@ -18,6 +18,26 @@ export interface DatasetFile {
   type?: string
 }
 
+export interface DatasetConfig {
+  owner_name: string
+  transcribe_voice: boolean
+  min_dialog_messages: number
+  max_message_length: number
+  max_dialog_length: number
+  include_groups: boolean
+  output_name: string
+}
+
+export interface ProcessingStatus {
+  is_running: boolean
+  stage: string
+  current: number
+  total: number
+  voice_transcribed: number
+  voice_total: number
+  error: string | null
+}
+
 export interface TrainingConfig {
   base_model: string
   lora_rank: number
@@ -63,10 +83,20 @@ export const finetuneApi = {
       file
     ),
 
-  processDataset: () =>
-    api.post<{ status: string; message: string; output_file?: string; examples_count?: number }>(
-      '/admin/finetune/dataset/process'
+  processDataset: (config?: Partial<DatasetConfig>) =>
+    api.post<{ status: string; message: string; output_file?: string; stats?: Record<string, number> }>(
+      '/admin/finetune/dataset/process',
+      config
     ),
+
+  getDatasetConfig: () =>
+    api.get<{ config: DatasetConfig }>('/admin/finetune/dataset/config'),
+
+  setDatasetConfig: (config: Partial<DatasetConfig>) =>
+    api.post<{ status: string; config: DatasetConfig }>('/admin/finetune/dataset/config', config),
+
+  getProcessingStatus: () =>
+    api.get<{ status: ProcessingStatus }>('/admin/finetune/dataset/processing-status'),
 
   getDatasetStats: () =>
     api.get<{ stats: DatasetStats }>('/admin/finetune/dataset/stats'),

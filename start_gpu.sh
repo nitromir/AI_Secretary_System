@@ -6,8 +6,8 @@
 # Для запуска с Llama: ./start_gpu.sh --llama
 #
 # Распределение памяти RTX 3060 (12GB):
-#   vLLM:  70% = ~8.4GB
-#   XTTS:  остаток ~3.6GB (достаточно для модели)
+#   vLLM:  50% = ~6GB
+#   XTTS:  остаток ~5GB
 #
 # Порты:
 #   8002:  Orchestrator (главный API)
@@ -43,8 +43,8 @@ echo "    - Orchestrator + XTTS: http://localhost:8002"
 echo "    - vLLM: http://localhost:11434"
 echo ""
 echo "  GPU memory:"
-echo "    - vLLM:  70% (~8.4GB)"
-echo "    - XTTS:  ~3.6GB"
+echo "    - vLLM:  50% (~6GB)"
+echo "    - XTTS:  ~5GB"
 echo ""
 echo "=========================================="
 
@@ -70,7 +70,7 @@ echo "[1/2] Запуск vLLM..."
 
 if [[ "$MODEL" == "qwen" ]]; then
     echo "      Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
-    echo "      Память GPU: 70%"
+    echo "      Память GPU: 50%"
 
     # Проверка LoRA (не критично - работает и без)
     if [ ! -f "$LORA_PATH/adapter_config.json" ]; then
@@ -91,7 +91,7 @@ if [[ "$MODEL" == "qwen" ]]; then
         export CUDA_VISIBLE_DEVICES=1
         source ~/vllm_env/venv/bin/activate
         vllm serve "Qwen/Qwen2.5-7B-Instruct-AWQ" \
-            --gpu-memory-utilization 0.70 \
+            --gpu-memory-utilization 0.50 \
             --max-model-len 4096 \
             --dtype float16 \
             --max-num-seqs 32 \
@@ -103,14 +103,14 @@ if [[ "$MODEL" == "qwen" ]]; then
 else
     # Llama GPTQ
     echo "      Модель: Llama-3.1-8B-Instruct GPTQ INT4"
-    echo "      Память GPU: 70%"
+    echo "      Память GPU: 50%"
 
     (
         export CUDA_DEVICE_ORDER=PCI_BUS_ID
         export CUDA_VISIBLE_DEVICES=1
         source ~/vllm_env/venv/bin/activate
         vllm serve "fbaldassarri/meta-llama_Llama-3.1-8B-Instruct-auto_gptq-int4-gs128-sym" \
-            --gpu-memory-utilization 0.70 \
+            --gpu-memory-utilization 0.50 \
             --max-model-len 4096 \
             --quantization gptq \
             --dtype float16 \

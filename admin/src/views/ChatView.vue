@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { chatApi, type ChatSession, type ChatMessage, type ChatSessionSummary } from '@/api'
+import { chatApi, ttsApi, type ChatSession, type ChatMessage, type ChatSessionSummary } from '@/api'
 import {
   MessageSquare,
   Plus,
@@ -17,7 +17,10 @@ import {
   Bot,
   User,
   Copy,
-  MoreVertical
+  MoreVertical,
+  Volume2,
+  VolumeX,
+  Square
 } from 'lucide-vue-next'
 
 const queryClient = useQueryClient()
@@ -33,6 +36,13 @@ const showSettings = ref(false)
 const customPrompt = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
 const showSidebar = ref(true)
+
+// TTS state
+const audioRef = ref<HTMLAudioElement | null>(null)
+const audioUrl = ref<string | null>(null)
+const speakingMessageId = ref<string | null>(null)
+const isSpeaking = ref(false)
+const ttsLoading = ref<string | null>(null)
 
 // Queries
 const { data: sessionsData, refetch: refetchSessions } = useQuery({
@@ -233,6 +243,65 @@ function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
 }
 
+// TTS functions
+async function speakMessage(messageId: string, text: string) {
+  // If already speaking this message, stop
+  if (speakingMessageId.value === messageId && isSpeaking.value) {
+    stopSpeaking()
+    return
+  }
+
+  // Stop any current playback
+  stopSpeaking()
+
+  ttsLoading.value = messageId
+  try {
+    const blob = await ttsApi.testSynthesize(text)
+
+    // Cleanup previous URL
+    if (audioUrl.value) {
+      URL.revokeObjectURL(audioUrl.value)
+    }
+
+    audioUrl.value = URL.createObjectURL(blob)
+    speakingMessageId.value = messageId
+
+    // Play audio
+    nextTick(() => {
+      if (audioRef.value) {
+        audioRef.value.play()
+        isSpeaking.value = true
+      }
+    })
+  } catch (e) {
+    console.error('TTS failed:', e)
+  } finally {
+    ttsLoading.value = null
+  }
+}
+
+function stopSpeaking() {
+  if (audioRef.value) {
+    audioRef.value.pause()
+    audioRef.value.currentTime = 0
+  }
+  isSpeaking.value = false
+  speakingMessageId.value = null
+}
+
+function onAudioEnded() {
+  isSpeaking.value = false
+  speakingMessageId.value = null
+}
+
+// Cleanup on unmount
+onUnmounted(() => {
+  stopSpeaking()
+  if (audioUrl.value) {
+    URL.revokeObjectURL(audioUrl.value)
+  }
+})
+
 function formatTime(timestamp: string) {
   return new Date(timestamp).toLocaleTimeString('ru-RU', {
     hour: '2-digit',
@@ -255,6 +324,9 @@ watch(sessions, (newSessions) => {
 </script>
 
 <template>
+  <!-- Hidden audio element for TTS playback -->
+  <audio ref="audioRef" :src="audioUrl || undefined" @ended="onAudioEnded" class="hidden" />
+
   <div class="flex h-[calc(100vh-8rem)] -m-6">
     <!-- Sidebar: Chat List -->
     <div
@@ -432,6 +504,18 @@ watch(sessions, (newSessions) => {
                     message.role === 'user' ? 'left-1' : 'right-1'
                   ]"
                 >
+                  <!-- TTS button for assistant messages -->
+                  <button
+                    v-if="message.role === 'assistant'"
+                    @click="speakMessage(message.id, message.content)"
+                    :disabled="ttsLoading === message.id"
+                    class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
+                    :title="speakingMessageId === message.id && isSpeaking ? 'Stop' : 'Listen'"
+                  >
+                    <Loader2 v-if="ttsLoading === message.id" class="w-3 h-3 animate-spin" />
+                    <Square v-else-if="speakingMessageId === message.id && isSpeaking" class="w-3 h-3 text-primary" />
+                    <Volume2 v-else class="w-3 h-3" />
+                  </button>
                   <button
                     @click="copyToClipboard(message.content)"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
