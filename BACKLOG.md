@@ -2,7 +2,7 @@
 
 Roadmap и план работ для AI Secretary System. Этот файл используется для отслеживания прогресса и планирования разработки.
 
-**Последнее обновление:** 2026-01-26 (v2 — Chat TTS)
+**Последнее обновление:** 2026-01-26 (v3 — Vosk STT)
 **Контекст:** Офлайн-first система + телефония через SIM7600G-H Waveshare
 
 ---
@@ -17,8 +17,8 @@ Roadmap и план работ для AI Secretary System. Этот файл и�
 - [x] XTTS v2 + Piper TTS
 - [x] vLLM + Gemini fallback
 - [x] **Chat TTS playback** — озвучивание ответов ассистента в чате
+- [x] **Локальный STT (Vosk)** — VoskSTTService + UnifiedSTTService + API endpoints
 - [ ] **Телефония SIM7600** — в планах
-- [ ] **Локальный STT** — в планах
 - [ ] **Enterprise-функции** — в планах
 
 ---
@@ -98,7 +98,7 @@ admin/src/api/telephony.ts
 ---
 
 ### 1.3 Local STT (Vosk)
-**Статус:** `planned`
+**Статус:** `done`
 **Приоритет:** P0 (требуется для телефонии)
 **Сложность:** 5/10
 **Оценка:** 1-1.5 недели
@@ -108,12 +108,12 @@ admin/src/api/telephony.ts
 Замена faster-whisper на Vosk для realtime офлайн распознавания речи.
 
 **Задачи:**
-- [ ] Создать `stt_service.py` с Vosk
-- [ ] Скачать модель `vosk-model-ru-0.42` (~1.5GB)
-- [ ] Streaming распознавание для телефонии
-- [ ] Batch распознавание для записей
+- [x] Создать `stt_service.py` с Vosk (VoskSTTService, UnifiedSTTService)
+- [ ] Скачать модель `vosk-model-ru-0.42` (~1.5GB) или `vosk-model-small-ru-0.22` (~45MB)
+- [x] Streaming распознавание для телефонии (`stream_recognize()`)
+- [x] Batch распознавание для записей (`transcribe()`)
 - [ ] WebSocket endpoint для realtime STT
-- [ ] Интеграция в voice pipeline
+- [x] API endpoints: `/admin/stt/status`, `/admin/stt/transcribe`, `/admin/stt/test`
 
 **Модели:**
 | Модель | Размер | Качество | Использование |
@@ -459,6 +459,15 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-01-26 (update 3)
+- Добавлен Vosk STT в stt_service.py
+  - `VoskSTTService` — realtime офлайн распознавание
+  - `UnifiedSTTService` — автовыбор Vosk/Whisper
+  - `stream_recognize()` — streaming для телефонии
+  - `recognize_microphone()` — распознавание с микрофона
+- API endpoints: `/admin/stt/status`, `/admin/stt/models`, `/admin/stt/transcribe`, `/admin/stt/test`
+- Обновлены зависимости: vosk, sounddevice
 
 ### 2026-01-26 (update 2)
 - Добавлена кнопка TTS playback в ChatView.vue

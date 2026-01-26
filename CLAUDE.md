@@ -58,12 +58,19 @@ tail -f logs/vllm.log
 
 ### Admin Panel
 
-```bash
-# Development (http://localhost:5173, login: admin / admin)
-cd admin && npm install && npm run dev
+**Single entry point:** http://localhost:8002/admin/ (login: admin / admin)
 
-# Production build (served at http://localhost:8002/admin)
-cd admin && npm run build
+```bash
+# Production mode (default) - serve built Vue app
+cd admin && npm run build   # Build once
+./start_gpu.sh              # Start orchestrator
+
+# Development mode - hot reload via Vite proxy
+cd admin && npm run dev     # Start Vite at :5173
+DEV_MODE=1 ./start_gpu.sh   # Orchestrator proxies /admin to Vite
+
+# Always access via: http://localhost:8002/admin/
+# (DEV_MODE proxies static files to Vite for hot reload)
 
 # Lint
 cd admin && npm run lint
@@ -97,6 +104,7 @@ python quantize_awq.py      # W4A16 quantization
 | `voice_clone_service.py` | XTTS v2 with custom presets |
 | `openvoice_service.py` | OpenVoice v2 (older GPUs) |
 | `piper_tts_service.py` | Piper ONNX CPU TTS |
+| `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
 | `llm_service.py` | Gemini API fallback |
 
@@ -186,13 +194,14 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 - `GET/POST /admin/services/*` — Service control
 - `GET/POST /admin/llm/*` — Backend, persona, params
 - `GET/POST /admin/tts/*` — TTS config, test playback
+- `GET/POST /admin/stt/*` — STT status, transcribe, test
 - `GET/POST/PUT/DELETE /admin/faq/*` — FAQ CRUD
 - `POST /admin/finetune/*` — Training pipeline
 - `GET /admin/monitor/*` — GPU stats, SSE metrics
 
 ## Known Issues
 
-1. **STT disabled** — faster-whisper hangs; use text chat only
+1. **Vosk model required** — Download `vosk-model-ru-0.42` (~1.5GB) to `models/vosk/` for STT
 2. **XTTS requires CC >= 7.0** — RTX 3060 or newer
 3. **GPU memory sharing** — vLLM 50% (~6GB) + XTTS ~5GB on 12GB GPU
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost`
@@ -204,10 +213,13 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 
 **Текущий фокус:** Офлайн-first + телефония через SIM7600G-H Waveshare
 
+**Выполнено:**
+- ✅ Local STT (Vosk) — VoskSTTService + UnifiedSTTService для realtime распознавания
+- ✅ Chat TTS playback — озвучивание ответов ассистента
+
 **Ближайшие задачи (Фаза 1):**
 1. Audit Log + Export — compliance для enterprise
 2. Telephony Gateway — интеграция с SIM7600 (AT-команды)
-3. Local STT (Vosk) — замена faster-whisper для realtime
-4. Backup & Restore — полный бэкап системы
+3. Backup & Restore — полный бэкап системы
 
 **Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии

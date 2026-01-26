@@ -6,6 +6,8 @@ soundfile==0.12.1
 # Speech-to-Text
 openai-whisper==20231117
 faster-whisper==1.0.3
+vosk==0.3.45  # Offline realtime STT
+sounddevice==0.4.6  # Microphone input for STT
 
 # Web framework
 fastapi==0.109.0

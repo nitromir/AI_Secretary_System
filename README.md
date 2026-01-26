@@ -5,12 +5,15 @@
 ## Features
 
 - **Multi-Voice TTS**: 5 голосов (2 клонированных XTTS, 1 OpenVoice, 2 Piper)
+- **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
 - **Local LLM**: vLLM с Qwen2.5-7B + LoRA fine-tuning
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Vue 3 PWA с 8 вкладками, i18n, темами, аудитом
+- **Admin Panel**: Vue 3 PWA с 9 вкладками, i18n, темами, аудитом
+- **Chat with TTS**: Озвучивание ответов ассистента в чате
 - **OpenAI-compatible API**: Интеграция с OpenWebUI
 - **Fine-tuning Pipeline**: Загрузка датасета → Обучение → Hot-swap адаптеров
+- **Offline-first**: Все компоненты работают без интернета
 
 ## Architecture
 
@@ -20,26 +23,26 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │   Vue 3 Admin Panel (8 tabs, PWA)  │  │
+                              │  │   Vue 3 Admin Panel (9 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
                                                  │
-      ┌──────────────┬──────────────┬────────────┼────────────┬─────────────┬──────────────┐
-      ↓              ↓              ↓            ↓            ↓             ↓              ↓
- Service        Finetune        LLM         Voice Clone   OpenVoice    Piper TTS       FAQ
- Manager        Manager       Service         XTTS v2       v2          (CPU)         System
-service_      finetune_      vLLM/Gemini   voice_clone_  openvoice_   piper_tts_   typical_
-manager.py    manager.py                   service.py    service.py   service.py   responses.json
+      ┌──────────────┬──────────────┬────────────┼────────────┬─────────────┬──────────────┬──────────────┐
+      ↓              ↓              ↓            ↓            ↓             ↓              ↓              ↓
+ Service        Finetune        LLM         Voice Clone   OpenVoice    Piper TTS       FAQ           STT
+ Manager        Manager       Service         XTTS v2       v2          (CPU)         System     Vosk/Whisper
+service_      finetune_      vLLM/Gemini   voice_clone_  openvoice_   piper_tts_   typical_      stt_
+manager.py    manager.py                   service.py    service.py   service.py   responses.json service.py
 ```
 
 ### GPU Configuration (RTX 3060 12GB)
 
 ```
-vLLM Qwen2.5-7B + LoRA  →  ~8.4GB (70% GPU, port 11434)
-XTTS v2 voice cloning   →  ~3.6GB (remaining)
+vLLM Qwen2.5-7B + LoRA  →  ~6GB (50% GPU, port 11434)
+XTTS v2 voice cloning   →  ~5GB (remaining)
 ────────────────────────────────────────────────────────
-Total                   →  12GB
+Total                   →  ~11GB
 ```
 
 ## Quick Start
@@ -66,11 +69,12 @@ open http://localhost:8002/admin
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 PWA админ-панель с 8 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 9 вкладками:
 
 | Tab | Description |
 |-----|-------------|
 | **Dashboard** | Статусы сервисов, GPU спарклайны, health индикаторы |
+| **Chat** | Чат с ИИ, TTS playback ответов, перегенерация сообщений |
 | **Services** | Запуск/остановка vLLM, SSE логи в реальном времени |
 | **LLM** | Переключение backend, персоны, параметры генерации |
 | **TTS** | Выбор голоса, пресеты XTTS, тестирование синтеза |
@@ -89,6 +93,7 @@ open http://localhost:8002/admin
 | **Themes** | Light, Dark, Night-Eyes (тёплая для глаз) |
 | **PWA** | Установка как приложение, offline кэширование |
 | **Real-time** | SSE метрики GPU с fallback на polling |
+| **Chat TTS** | Озвучивание ответов ассистента (Volume2 button) |
 | **Charts** | Спарклайны и графики на Chart.js |
 | **Command Palette** | Быстрый поиск ⌘K / Ctrl+K |
 | **Audit Log** | Логирование всех действий пользователей |
@@ -141,6 +146,35 @@ curl -X POST http://localhost:8002/admin/voice \
 
 # Via Admin Panel
 open http://localhost:8002/admin → TTS tab
+```
+
+## Speech-to-Text (STT)
+
+Система поддерживает два движка распознавания речи:
+
+| Engine | Mode | Speed | Use Case |
+|--------|------|-------|----------|
+| **Vosk** | Realtime streaming | Fast | Телефония, микрофон |
+| **Whisper** | Batch processing | Slower | Транскрибация файлов |
+
+`UnifiedSTTService` автоматически выбирает оптимальный движок.
+
+**Установка модели Vosk:**
+```bash
+mkdir -p models/vosk
+cd models/vosk
+wget https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip
+unzip vosk-model-ru-0.42.zip
+```
+
+**Использование API:**
+```bash
+# Статус STT
+curl http://localhost:8002/admin/stt/status
+
+# Транскрибация файла
+curl -X POST http://localhost:8002/admin/stt/transcribe \
+  -F "audio=@recording.wav"
 ```
 
 ## Personas
@@ -244,6 +278,12 @@ DELETE /admin/faq/{trigger}          # Delete entry
 POST   /admin/faq/reload             # Hot reload
 POST   /admin/faq/test               # Test matching
 
+# STT (Speech-to-Text)
+GET  /admin/stt/status               # STT service status
+GET  /admin/stt/models               # Available STT models
+POST /admin/stt/transcribe           # Transcribe audio file
+POST /admin/stt/test                 # Test with microphone
+
 # Fine-tuning
 POST /admin/finetune/dataset/upload  # Upload Telegram export
 POST /admin/finetune/dataset/process # Run prepare_telegram.py
@@ -345,13 +385,14 @@ ADMIN_JWT_SECRET=...                # JWT secret (auto-generated if empty)
 
 ```
 AI_Secretary_System/
-├── orchestrator.py          # FastAPI server + 45 admin endpoints
+├── orchestrator.py          # FastAPI server + ~55 admin endpoints
 ├── auth_manager.py          # JWT authentication
 ├── service_manager.py       # Service process control
 ├── finetune_manager.py      # Fine-tuning pipeline
 ├── voice_clone_service.py   # XTTS v2 + custom presets
 ├── openvoice_service.py     # OpenVoice v2
 ├── piper_tts_service.py     # Piper TTS (CPU)
+├── stt_service.py           # Vosk (realtime) + Whisper (batch) STT
 ├── vllm_llm_service.py      # vLLM + runtime params
 ├── llm_service.py           # Gemini fallback
 ├── typical_responses.json   # FAQ database
@@ -359,7 +400,7 @@ AI_Secretary_System/
 │
 ├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/           # 8 main views
+│   │   ├── views/           # 9 main views + LoginView
 │   │   ├── api/             # API clients + SSE
 │   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
 │   │   ├── components/      # UI + charts
@@ -371,7 +412,9 @@ AI_Secretary_System/
 │
 ├── Гуля/                    # Voice samples (122 WAV)
 ├── Лидия/                   # Voice samples
-├── models/                  # Piper ONNX models
+├── models/                  # AI models
+│   ├── piper/               # Piper ONNX models (CPU TTS)
+│   └── vosk/                # Vosk models (STT)
 ├── logs/                    # Service logs
 ├── start_gpu.sh             # Launch GPU mode
 ├── start_cpu.sh             # Launch CPU mode
@@ -505,6 +548,25 @@ npm run build
 |----------|--------|
 | `⌘K` / `Ctrl+K` | Open command palette |
 | `Escape` | Close dialogs |
+
+## Roadmap
+
+См. [BACKLOG.md](./BACKLOG.md) для полного плана разработки.
+
+**Текущий фокус:** Офлайн-first + телефония через SIM7600G-H
+
+**Выполнено:**
+- [x] Базовая архитектура (orchestrator, TTS, LLM)
+- [x] Vue 3 админ-панель (9 табов, PWA)
+- [x] XTTS v2 + Piper TTS
+- [x] vLLM + Gemini fallback
+- [x] Vosk STT (realtime streaming)
+- [x] Chat TTS playback
+
+**В планах:**
+- [ ] Телефония SIM7600G-H (AT-команды)
+- [ ] Audit Log + Export
+- [ ] Backup & Restore
 
 ## License
 
