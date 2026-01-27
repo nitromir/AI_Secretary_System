@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 11 tabs, i18n (ru/en), themes, ~60 API endpoints, website chat widget, and Telegram bot integration.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 15 tabs, i18n (ru/en), themes, ~70 API endpoints, website chat widget, and Telegram bot integration.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (11 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (15 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -136,7 +136,7 @@ python quantize_awq.py      # W4A16 quantization
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, ~55 endpoints, serves admin panel |
+| `orchestrator.py` | FastAPI server, ~70 endpoints, serves admin panel |
 | `auth_manager.py` | JWT authentication |
 | `service_manager.py` | Process control (vLLM) |
 | `finetune_manager.py` | LoRA training pipeline |
@@ -150,11 +150,11 @@ python quantize_awq.py      # W4A16 quantization
 
 ### Admin Panel (Vue 3)
 
-**Tabs:** Dashboard, Chat, Services, LLM, TTS, FAQ, Finetune, Monitoring, Models, Widget, Telegram, Settings
+**Tabs:** Dashboard, Chat, Services, LLM, TTS, FAQ, Finetune, Monitoring, Models, Widget, Telegram, Audit, Settings
 
 | Directory | Purpose |
 |-----------|---------|
-| `admin/src/views/` | Main views (one per tab) + LoginView |
+| `admin/src/views/` | 15 main views + LoginView |
 | `admin/src/api/` | API clients + SSE helpers |
 | `admin/src/stores/` | Pinia stores (auth, theme, toast, audit, services, llm) |
 | `admin/src/composables/` | useSSE, useRealtimeMetrics, useExportImport |
@@ -274,6 +274,7 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - `GET /admin/monitor/*` — GPU stats, SSE metrics
 - `GET/POST /admin/widget/*` — Widget config, generate code
 - `GET/POST /admin/telegram/*` — Telegram bot config, start/stop
+- `GET /admin/audit/*` — Audit log viewing, filtering, export
 - `GET /widget.js` — Dynamic widget script (public)
 
 ## Known Issues
@@ -301,10 +302,11 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - ✅ Telegram Bot — интеграция с Telegram (telegram_bot_service.py)
 - ✅ Database Integration — SQLite + Redis для надёжного хранения (db/)
 - ✅ Hot-switching LLM — переключение vLLM/Gemini без перезапуска
+- ✅ Audit Log UI — просмотр и фильтрация логов действий (AuditView.vue)
 
 **Ближайшие задачи (Фаза 1):**
-1. Audit Log + Export — compliance для enterprise (база готова в db/repositories/audit.py)
-2. Telephony Gateway — интеграция с SIM7600 (AT-команды)
-3. Backup & Restore — полный бэкап системы
+1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
+2. Backup & Restore — полный бэкап системы
+3. Multi-Instance Bots & Widgets — несколько ботов/виджетов с разными настройками
 
 **Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии

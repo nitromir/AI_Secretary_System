@@ -537,6 +537,149 @@ GET    /widget.js?instance={id}          # Скрипт виджета
 
 ---
 
+### 3.5 Calendar Integration
+**Статус:** `planned`
+**Приоритет:** P2
+**Сложность:** 6/10
+**Оценка:** 2-3 недели
+**Влияние:** ★★★★☆
+
+**Описание:**
+Интеграция с календарями (Google Calendar, Outlook) для управления расписанием через голос и чат. Секретарь сможет проверять свободные слоты, создавать встречи, напоминать о событиях.
+
+**Задачи:**
+- [ ] OAuth2 авторизация для Google Calendar API
+- [ ] OAuth2 авторизация для Microsoft Graph API (Outlook)
+- [ ] Сервис `calendar_service.py`:
+  - `get_events(date_range)` — получить события
+  - `find_free_slots(duration, date_range)` — найти свободные слоты
+  - `create_event(title, start, end, attendees)` — создать встречу
+  - `update_event(id, changes)` — обновить событие
+  - `delete_event(id)` — удалить событие
+- [ ] Intent detection для календарных запросов
+- [ ] NLU для парсинга дат/времени ("завтра в 3", "в следующий вторник")
+- [ ] Подтверждение действий перед выполнением
+- [ ] Таб "Calendar" в админке
+- [ ] Настройка подключённых аккаунтов
+
+**Примеры использования:**
+```
+Пользователь: "Что у меня завтра?"
+Секретарь: "Завтра у вас 3 встречи: в 10:00 созвон с командой,
+           в 14:00 встреча с клиентом, в 16:30 weekly sync."
+
+Пользователь: "Запланируй встречу с Иваном на среду в 15:00"
+Секретарь: "Создаю встречу 'Встреча с Иваном' на среду, 29 января,
+           в 15:00. Продолжительность — 1 час. Подтверждаете?"
+```
+
+**Структура данных:**
+```python
+class CalendarAccount(Base):
+    __tablename__ = "calendar_accounts"
+
+    id: str                    # UUID
+    provider: str              # "google", "outlook"
+    email: str                 # Связанный email
+    access_token: str          # OAuth2 token (encrypted)
+    refresh_token: str
+    token_expires: datetime
+    enabled: bool
+    created_at: datetime
+```
+
+**API endpoints:**
+```bash
+GET    /admin/calendar/accounts          # Список подключённых аккаунтов
+POST   /admin/calendar/accounts/connect  # Начать OAuth2 flow
+DELETE /admin/calendar/accounts/{id}     # Отключить аккаунт
+GET    /admin/calendar/events            # События за период
+POST   /admin/calendar/events            # Создать событие
+```
+
+**Зависимости:**
+- google-api-python-client
+- google-auth-oauthlib
+- msal (Microsoft Authentication Library)
+
+---
+
+### 3.6 Document Text Recognition
+**Статус:** `planned`
+**Приоритет:** P2
+**Сложность:** 5/10
+**Оценка:** 1.5-2 недели
+**Влияние:** ★★★★☆
+
+**Описание:**
+Распознавание и извлечение текста из загруженных документов: PDF, DOC/DOCX, Excel, изображения (JPEG/PNG), Google Docs. Позволяет секретарю отвечать на вопросы по содержимому документов.
+
+**Задачи:**
+- [ ] Сервис `document_service.py`:
+  - `extract_text(file_path)` — извлечь текст из любого формата
+  - `extract_text_from_url(url)` — для Google Docs/Sheets
+  - `summarize(text, max_length)` — краткое содержание
+- [ ] Поддержка форматов:
+  - **PDF** — PyMuPDF (fitz) или pdfplumber
+  - **DOC/DOCX** — python-docx
+  - **XLS/XLSX** — openpyxl или pandas
+  - **Изображения (OCR)** — Tesseract или EasyOCR
+  - **Google Docs** — Google Drive API
+- [ ] Upload endpoint: `POST /admin/documents/upload`
+- [ ] Индексация для поиска (опционально)
+- [ ] Хранение extracted text в БД
+- [ ] Интеграция с LLM для Q&A по документу
+- [ ] UI для загрузки и просмотра документов
+
+**Примеры использования:**
+```
+Пользователь: [загружает contract.pdf]
+Секретарь: "Документ 'contract.pdf' загружен. Что хотите узнать?"
+
+Пользователь: "Какой срок действия договора?"
+Секретарь: "Согласно пункту 8.1, срок действия договора —
+           с 01.01.2026 по 31.12.2026 с автоматической пролонгацией."
+
+Пользователь: [загружает invoice.jpg]
+Секретарь: "Распознала счёт №12345 от ООО 'Поставщик' на сумму 150,000 руб."
+```
+
+**Структура данных:**
+```python
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: str                    # UUID
+    filename: str              # Оригинальное имя файла
+    file_type: str             # "pdf", "docx", "xlsx", "image"
+    file_path: str             # Путь к файлу
+    file_size: int             # Размер в байтах
+    extracted_text: str        # Извлечённый текст
+    metadata: dict             # Доп. метаданные (страницы, автор и т.д.)
+    session_id: str            # Привязка к чат-сессии (опционально)
+    created_at: datetime
+```
+
+**API endpoints:**
+```bash
+POST   /admin/documents/upload           # Загрузить документ
+GET    /admin/documents                  # Список документов
+GET    /admin/documents/{id}             # Получить документ
+DELETE /admin/documents/{id}             # Удалить документ
+POST   /admin/documents/{id}/ask         # Задать вопрос по документу
+```
+
+**Зависимости:**
+```bash
+pip install PyMuPDF python-docx openpyxl pytesseract Pillow easyocr
+# Для Tesseract (system):
+sudo apt install tesseract-ocr tesseract-ocr-rus
+```
+
+**Примечание:** OCR на GPU (EasyOCR) даёт лучшее качество, но Tesseract работает на CPU и достаточен для большинства задач.
+
+---
+
 ## Фаза 4: Scale & Reliability (опционально)
 
 ### 4.1 High Availability
@@ -577,6 +720,141 @@ GET    /widget.js?instance={id}          # Скрипт виджета
 **Оценка:** 1-2 недели
 
 **Примечание:** Для офлайн системы менее критично. Реализовать при необходимости.
+
+---
+
+## Фаза 5: Technical Debt & Quality
+
+### 5.1 Automated Testing
+**Статус:** `planned`
+**Приоритет:** P1
+**Сложность:** 6/10
+**Оценка:** 2-3 недели
+**Влияние:** ★★★★★
+
+**Описание:**
+Покрытие кода автоматическими тестами для стабильности и уверенного рефакторинга.
+
+**Задачи:**
+- [ ] Unit-тесты для сервисов:
+  - `test_vllm_llm_service.py`
+  - `test_voice_clone_service.py`
+  - `test_stt_service.py`
+  - `test_telegram_bot_service.py`
+- [ ] Integration-тесты для API:
+  - `test_chat_api.py` — CRUD сессий, streaming
+  - `test_faq_api.py` — CRUD FAQ
+  - `test_tts_api.py` — синтез речи
+  - `test_auth_api.py` — JWT flow
+- [ ] E2E тесты для админки (Playwright/Cypress):
+  - Login flow
+  - Chat functionality
+  - FAQ management
+- [ ] CI/CD pipeline (GitHub Actions):
+  - Lint (ruff, eslint)
+  - Unit tests
+  - Integration tests (с mock LLM)
+- [ ] Coverage отчёты (>70% цель)
+- [ ] Pre-commit hooks
+
+**Структура тестов:**
+```
+tests/
+├── unit/
+│   ├── test_vllm_llm_service.py
+│   ├── test_voice_clone_service.py
+│   ├── test_stt_service.py
+│   └── test_db_repositories.py
+├── integration/
+│   ├── test_chat_api.py
+│   ├── test_faq_api.py
+│   ├── test_tts_api.py
+│   └── conftest.py          # Fixtures, test client
+├── e2e/
+│   └── admin/
+│       ├── login.spec.ts
+│       └── chat.spec.ts
+└── conftest.py              # Global fixtures
+```
+
+**Зависимости:**
+```bash
+pip install pytest pytest-asyncio pytest-cov httpx
+npm install -D @playwright/test  # или cypress
+```
+
+---
+
+### 5.2 Code Quality & Linting
+**Статус:** `planned`
+**Приоритет:** P2
+**Сложность:** 3/10
+**Оценка:** 0.5-1 неделя
+**Влияние:** ★★★☆☆
+
+**Задачи:**
+- [ ] Настроить ruff (Python linter + formatter)
+- [ ] Настроить mypy для type checking
+- [ ] Настроить eslint + prettier для Vue
+- [ ] Pre-commit hooks для автоматической проверки
+- [ ] Исправить существующие lint ошибки
+- [ ] Добавить type hints в критичные модули
+
+**Конфиг файлы:**
+```
+pyproject.toml    # ruff, mypy config
+.pre-commit-config.yaml
+admin/.eslintrc.js
+admin/.prettierrc
+```
+
+---
+
+### 5.3 Documentation
+**Статус:** `planned`
+**Приоритет:** P2
+**Сложность:** 4/10
+**Оценка:** 1-2 недели
+**Влияние:** ★★★☆☆
+
+**Задачи:**
+- [ ] API документация (OpenAPI/Swagger уже есть, улучшить описания)
+- [ ] Архитектурная диаграмма (обновить)
+- [ ] Deployment guide (Docker, systemd)
+- [ ] Troubleshooting guide
+- [ ] Contributing guide для будущих контрибуторов
+
+---
+
+### 5.4 Performance Profiling
+**Статус:** `planned`
+**Приоритет:** P3
+**Сложность:** 5/10
+**Оценка:** 1 неделя
+**Влияние:** ★★★☆☆
+
+**Задачи:**
+- [ ] Профилирование latency LLM → TTS pipeline
+- [ ] Memory profiling (особенно XTTS)
+- [ ] Оптимизация startup time
+- [ ] Кэширование частых FAQ ответов (уже есть в Redis)
+- [ ] Lazy loading моделей
+
+---
+
+### 5.5 Error Handling & Logging
+**Статус:** `planned`
+**Приоритет:** P2
+**Сложность:** 4/10
+**Оценка:** 1 неделя
+**Влияние:** ★★★★☆
+
+**Задачи:**
+- [ ] Структурированное логирование (JSON format)
+- [ ] Централизованный error handler
+- [ ] Graceful degradation (LLM fallback уже есть)
+- [ ] Health check improvements
+- [ ] Alerting (опционально — Telegram notifications)
 
 ---
 
@@ -634,6 +912,22 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-01-27 (update 6) — Calendar, Documents, Tech Debt
+- Добавлена секция **3.5 Calendar Integration**
+  - Google Calendar и Outlook интеграция через OAuth2
+  - Управление расписанием через голос и чат
+  - Intent detection для календарных запросов
+- Добавлена секция **3.6 Document Text Recognition**
+  - OCR и парсинг: PDF, DOC/DOCX, Excel, JPEG/PNG, Google Docs
+  - Q&A по загруженным документам через LLM
+  - Поддержка Tesseract и EasyOCR
+- Добавлена **Фаза 5: Technical Debt & Quality**
+  - 5.1 Automated Testing — unit, integration, e2e тесты
+  - 5.2 Code Quality — ruff, mypy, eslint, pre-commit
+  - 5.3 Documentation — API docs, deployment guide
+  - 5.4 Performance Profiling — latency, memory optimization
+  - 5.5 Error Handling & Logging — structured logs, alerting
 
 ### 2026-01-26 (update 5) — Multi-Instance Bots & Widgets
 - Добавлена задача **3.4 Multi-Instance Bots & Widgets** в Фазу 3

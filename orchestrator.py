@@ -1004,6 +1004,15 @@ async def admin_login(request: LoginRequest):
         )
 
     token, expires_in = create_access_token(user.username, user.role)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="login",
+        resource="auth",
+        user_id=user.username,
+        details={"role": user.role}
+    )
+
     return LoginResponse(
         access_token=token,
         token_type="bearer",
@@ -2142,7 +2151,7 @@ async def admin_get_llm_backend():
 
 
 @app.post("/admin/llm/backend")
-async def admin_set_llm_backend(request: AdminBackendRequest):
+async def admin_set_llm_backend(request: AdminBackendRequest, user: User = Depends(get_current_user)):
     """Переключить LLM backend с горячей перезагрузкой сервиса"""
     global LLM_BACKEND, llm_service
 
@@ -2208,6 +2217,16 @@ async def admin_set_llm_backend(request: AdminBackendRequest):
             os.environ["LLM_BACKEND"] = "vllm"
 
             logger.info("✅ Переключено на vLLM")
+
+            # Audit log
+            await async_audit_logger.log(
+                action="update",
+                resource="config",
+                resource_id="llm_backend",
+                user_id=user.username,
+                details={"backend": "vllm", "model": getattr(llm_service, 'model_name', 'unknown')}
+            )
+
             return {
                 "status": "ok",
                 "backend": "vllm",
@@ -2232,6 +2251,16 @@ async def admin_set_llm_backend(request: AdminBackendRequest):
                     await manager.stop_service("vllm")
 
             logger.info("✅ Переключено на Gemini")
+
+            # Audit log
+            await async_audit_logger.log(
+                action="update",
+                resource="config",
+                resource_id="llm_backend",
+                user_id=user.username,
+                details={"backend": "gemini", "model": getattr(llm_service, 'model_name', 'unknown')}
+            )
+
             return {
                 "status": "ok",
                 "backend": "gemini",
@@ -2276,11 +2305,19 @@ async def admin_get_current_persona():
 
 
 @app.post("/admin/llm/persona")
-async def admin_set_persona(request: AdminPersonaRequest):
+async def admin_set_persona(request: AdminPersonaRequest, user: User = Depends(get_current_user)):
     """Установить персону"""
     if llm_service and hasattr(llm_service, 'set_persona'):
         success = llm_service.set_persona(request.persona)
         if success:
+            # Audit log
+            await async_audit_logger.log(
+                action="update",
+                resource="config",
+                resource_id="llm_persona",
+                user_id=user.username,
+                details={"persona": request.persona}
+            )
             return {"status": "ok", "persona": request.persona}
         raise HTTPException(status_code=400, detail=f"Persona not found: {request.persona}")
     raise HTTPException(status_code=503, detail="LLM service does not support personas")
@@ -2467,9 +2504,18 @@ async def admin_get_faq():
 
 
 @app.post("/admin/faq")
-async def admin_add_faq(request: AdminFAQRequest):
+async def admin_add_faq(request: AdminFAQRequest, user: User = Depends(get_current_user)):
     """Добавить FAQ запись"""
     await async_faq_manager.add(request.trigger, request.response)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="create",
+        resource="faq",
+        resource_id=request.trigger,
+        user_id=user.username,
+        details={"response": request.response[:100]}
+    )
 
     # Перезагружаем FAQ в LLM сервисе
     if llm_service and hasattr(llm_service, 'reload_faq'):
@@ -2479,11 +2525,20 @@ async def admin_add_faq(request: AdminFAQRequest):
 
 
 @app.put("/admin/faq/{trigger}")
-async def admin_update_faq(trigger: str, request: AdminFAQRequest):
+async def admin_update_faq(trigger: str, request: AdminFAQRequest, user: User = Depends(get_current_user)):
     """Обновить FAQ запись"""
     result = await async_faq_manager.update(trigger, request.trigger, request.response)
     if not result:
         raise HTTPException(status_code=404, detail="FAQ entry not found")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="faq",
+        resource_id=request.trigger,
+        user_id=user.username,
+        details={"old_trigger": trigger, "response": request.response[:100]}
+    )
 
     if llm_service and hasattr(llm_service, 'reload_faq'):
         llm_service.reload_faq()
@@ -2492,10 +2547,18 @@ async def admin_update_faq(trigger: str, request: AdminFAQRequest):
 
 
 @app.delete("/admin/faq/{trigger}")
-async def admin_delete_faq(trigger: str):
+async def admin_delete_faq(trigger: str, user: User = Depends(get_current_user)):
     """Удалить FAQ запись"""
     if not await async_faq_manager.delete(trigger):
         raise HTTPException(status_code=404, detail=f"Trigger not found: {trigger}")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="delete",
+        resource="faq",
+        resource_id=trigger,
+        user_id=user.username
+    )
 
     if llm_service and hasattr(llm_service, 'reload_faq'):
         llm_service.reload_faq()
@@ -3431,7 +3494,7 @@ async def admin_get_widget_config():
 
 
 @app.post("/admin/widget/config")
-async def admin_save_widget_config(request: AdminWidgetConfigRequest):
+async def admin_save_widget_config(request: AdminWidgetConfigRequest, user: User = Depends(get_current_user)):
     """Сохранить конфигурацию виджета"""
     config = {
         "enabled": request.enabled,
@@ -3444,6 +3507,16 @@ async def admin_save_widget_config(request: AdminWidgetConfigRequest):
         "tunnel_url": request.tunnel_url
     }
     await async_config_manager.set_widget(config)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="config",
+        resource_id="widget",
+        user_id=user.username,
+        details={"enabled": config["enabled"], "title": config["title"]}
+    )
+
     return {"status": "ok", "config": config}
 
 
@@ -3564,7 +3637,7 @@ async def admin_get_telegram_config():
 
 
 @app.post("/admin/telegram/config")
-async def admin_save_telegram_config(request: AdminTelegramConfigRequest):
+async def admin_save_telegram_config(request: AdminTelegramConfigRequest, user: User = Depends(get_current_user)):
     """Сохранить конфигурацию Telegram бота"""
     # Load existing config to preserve token if not provided
     existing = await async_config_manager.get_telegram()
@@ -3581,6 +3654,16 @@ async def admin_save_telegram_config(request: AdminTelegramConfigRequest):
         "typing_enabled": request.typing_enabled
     }
     await async_config_manager.set_telegram(config)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="config",
+        resource_id="telegram",
+        user_id=user.username,
+        details={"enabled": config["enabled"]}
+    )
+
     return {"status": "ok", "config": config}
 
 
