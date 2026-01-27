@@ -8,6 +8,7 @@ Supports:
 - OpenAI (OpenAI-compatible API)
 - Anthropic Claude (OpenAI-compatible API)
 - DeepSeek (OpenAI-compatible API)
+- OpenRouter (aggregator with many free models)
 - Custom OpenAI-compatible endpoints
 """
 
@@ -62,6 +63,18 @@ PROVIDER_TYPES = {
         "name": "DeepSeek",
         "default_base_url": "https://api.deepseek.com/v1",
         "default_models": ["deepseek-chat", "deepseek-coder"],
+        "requires_base_url": True,
+    },
+    "openrouter": {
+        "name": "OpenRouter",
+        "default_base_url": "https://openrouter.ai/api/v1",
+        "default_models": [
+            "google/gemma-2-9b-it:free",
+            "meta-llama/llama-3.2-3b-instruct:free",
+            "qwen/qwen-2-7b-instruct:free",
+            "mistralai/mistral-7b-instruct:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free",
+        ],
         "requires_base_url": True,
     },
     "custom": {
@@ -418,6 +431,7 @@ class CloudLLMService:
         "openai": OpenAICompatibleProvider,
         "claude": OpenAICompatibleProvider,
         "deepseek": OpenAICompatibleProvider,
+        "openrouter": OpenAICompatibleProvider,
         "custom": OpenAICompatibleProvider,
     }
 
