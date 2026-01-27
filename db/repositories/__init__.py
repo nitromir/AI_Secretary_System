@@ -14,6 +14,7 @@ from db.repositories.telegram import TelegramRepository
 from db.repositories.audit import AuditRepository
 from db.repositories.bot_instance import BotInstanceRepository
 from db.repositories.widget_instance import WidgetInstanceRepository
+from db.repositories.cloud_provider import CloudProviderRepository
 
 __all__ = [
     "BaseRepository",
@@ -25,4 +26,5 @@ __all__ = [
     "AuditRepository",
     "BotInstanceRepository",
     "WidgetInstanceRepository",
+    "CloudProviderRepository",
 ]

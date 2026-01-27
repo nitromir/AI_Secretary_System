@@ -4,6 +4,31 @@ export interface LlmBackend {
   backend: string
   model: string
   api_url?: string | null
+  provider_type?: string | null
+}
+
+// Cloud LLM Provider types
+export interface CloudProvider {
+  id: string
+  name: string
+  provider_type: string
+  api_key_masked?: string
+  api_key?: string
+  base_url?: string | null
+  model_name: string
+  enabled: boolean
+  is_default: boolean
+  config?: Record<string, unknown>
+  description?: string | null
+  created?: string
+  updated?: string
+}
+
+export interface ProviderType {
+  name: string
+  default_base_url: string | null
+  default_models: string[]
+  requires_base_url: boolean
 }
 
 export interface Persona {
@@ -44,8 +69,15 @@ export const llmApi = {
   getBackend: () =>
     api.get<LlmBackend>('/admin/llm/backend'),
 
-  setBackend: (backend: 'vllm' | 'gemini', stopUnused: boolean = false) =>
-    api.post<{ status: string; backend: string; model?: string; message?: string }>('/admin/llm/backend', { backend, stop_unused: stopUnused }),
+  setBackend: (backend: string, stopUnused: boolean = false) =>
+    api.post<{
+      status: string
+      backend: string
+      model?: string
+      message?: string
+      provider_id?: string
+      provider_type?: string
+    }>('/admin/llm/backend', { backend, stop_unused: stopUnused }),
 
   getModels: () =>
     api.get<LlmModelsResponse>('/admin/llm/models'),
@@ -79,4 +111,37 @@ export const llmApi = {
 
   clearHistory: () =>
     api.delete<{ status: string; cleared_messages: number }>('/admin/llm/history'),
+
+  // Cloud LLM Providers API
+  getProviders: (enabledOnly = false) =>
+    api.get<{ providers: CloudProvider[]; provider_types: Record<string, ProviderType> }>(
+      `/admin/llm/providers?enabled_only=${enabledOnly}`
+    ),
+
+  getProvider: (providerId: string, includeKey = false) =>
+    api.get<{ provider: CloudProvider }>(
+      `/admin/llm/providers/${providerId}?include_key=${includeKey}`
+    ),
+
+  createProvider: (data: Partial<CloudProvider>) =>
+    api.post<{ status: string; provider: CloudProvider }>('/admin/llm/providers', data),
+
+  updateProvider: (providerId: string, data: Partial<CloudProvider>) =>
+    api.put<{ status: string; provider: CloudProvider }>(
+      `/admin/llm/providers/${providerId}`,
+      data
+    ),
+
+  deleteProvider: (providerId: string) =>
+    api.delete<{ status: string; message: string }>(`/admin/llm/providers/${providerId}`),
+
+  testProvider: (providerId: string) =>
+    api.post<{ status: string; available: boolean; test_response?: string; message?: string }>(
+      `/admin/llm/providers/${providerId}/test`
+    ),
+
+  setDefaultProvider: (providerId: string) =>
+    api.post<{ status: string; message: string }>(
+      `/admin/llm/providers/${providerId}/set-default`
+    ),
 }

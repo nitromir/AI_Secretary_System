@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { llmApi, type LlmParams } from '@/api'
+import { llmApi, type LlmParams, type CloudProvider } from '@/api'
 import {
   Brain,
   User,
@@ -14,7 +14,14 @@ import {
   Cpu,
   Sparkles,
   Code,
-  Languages
+  Languages,
+  Cloud,
+  CloudOff,
+  Plus,
+  Edit2,
+  Play,
+  Star,
+  RefreshCw
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
 import { useToastStore } from '@/stores/toast'
@@ -27,6 +34,19 @@ const editingPrompt = ref(false)
 const promptText = ref('')
 const selectedPersonaForPrompt = ref('gulya')
 const stopUnusedVllm = ref(false)
+
+// Cloud provider state
+const showProviderModal = ref(false)
+const editingProvider = ref<CloudProvider | null>(null)
+const providerForm = ref({
+  name: '',
+  provider_type: 'kimi',
+  api_key: '',
+  base_url: '',
+  model_name: '',
+  description: '',
+  enabled: true,
+})
 
 // Queries
 const { data: backendData, isLoading: backendLoading } = useQuery({
@@ -59,6 +79,12 @@ const { data: historyData, refetch: refetchHistory } = useQuery({
   queryFn: () => llmApi.getHistory(),
 })
 
+// Cloud providers query
+const { data: providersData, refetch: refetchProviders } = useQuery({
+  queryKey: ['llm-providers'],
+  queryFn: () => llmApi.getProviders(),
+})
+
 // Local state for params
 const localParams = ref<Partial<LlmParams>>({})
 
@@ -70,13 +96,64 @@ watch(paramsData, (data) => {
 
 // Mutations
 const setBackendMutation = useMutation({
-  mutationFn: (backend: 'vllm' | 'gemini') => llmApi.setBackend(backend, backend === 'gemini' && stopUnusedVllm.value),
+  mutationFn: (backend: string) => llmApi.setBackend(backend, backend === 'gemini' && stopUnusedVllm.value),
   onSuccess: (data) => {
     queryClient.invalidateQueries({ queryKey: ['llm-backend'] })
     toast.success(data.message || `Переключено на ${data.backend}`)
   },
   onError: (error: Error) => {
     toast.error(`Ошибка переключения: ${error.message}`)
+  },
+})
+
+// Cloud provider mutations
+const createProviderMutation = useMutation({
+  mutationFn: (data: Partial<CloudProvider>) => llmApi.createProvider(data),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['llm-providers'] })
+    showProviderModal.value = false
+    toast.success('Provider created')
+  },
+  onError: (error: Error) => {
+    toast.error(`Error: ${error.message}`)
+  },
+})
+
+const updateProviderMutation = useMutation({
+  mutationFn: ({ id, data }: { id: string; data: Partial<CloudProvider> }) =>
+    llmApi.updateProvider(id, data),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['llm-providers'] })
+    showProviderModal.value = false
+    toast.success('Provider updated')
+  },
+  onError: (error: Error) => {
+    toast.error(`Error: ${error.message}`)
+  },
+})
+
+const deleteProviderMutation = useMutation({
+  mutationFn: (id: string) => llmApi.deleteProvider(id),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['llm-providers'] })
+    toast.success('Provider deleted')
+  },
+  onError: (error: Error) => {
+    toast.error(`Error: ${error.message}`)
+  },
+})
+
+const testProviderMutation = useMutation({
+  mutationFn: (id: string) => llmApi.testProvider(id),
+  onSuccess: (data) => {
+    if (data.available) {
+      toast.success(`Connection OK: ${data.test_response?.substring(0, 50)}`)
+    } else {
+      toast.error(`Connection failed: ${data.message}`)
+    }
+  },
+  onError: (error: Error) => {
+    toast.error(`Test failed: ${error.message}`)
   },
 })
 
@@ -110,6 +187,13 @@ const savePromptMutation = useMutation({
 const personas = computed(() => personasData.value?.personas || {})
 
 const isVllm = computed(() => backendData.value?.backend === 'vllm')
+const isCloudBackend = computed(() => backendData.value?.backend?.startsWith('cloud:'))
+const currentCloudProviderId = computed(() => {
+  if (isCloudBackend.value && backendData.value?.backend) {
+    return backendData.value.backend.split(':')[1]
+  }
+  return null
+})
 
 // Methods
 async function loadPromptForEdit(personaId: string) {
@@ -125,6 +209,63 @@ async function loadPromptForEdit(personaId: string) {
 
 function saveParams() {
   setParamsMutation.mutate(localParams.value)
+}
+
+// Cloud provider methods
+function openCreateProviderModal() {
+  editingProvider.value = null
+  const defaultType = 'kimi'
+  const typeConfig = providersData.value?.provider_types?.[defaultType]
+  providerForm.value = {
+    name: '',
+    provider_type: defaultType,
+    api_key: '',
+    base_url: typeConfig?.default_base_url || 'https://api.moonshot.ai/v1',
+    model_name: typeConfig?.default_models?.[0] || 'kimi-k2',
+    description: '',
+    enabled: true,
+  }
+  showProviderModal.value = true
+}
+
+function openEditProviderModal(provider: CloudProvider) {
+  editingProvider.value = provider
+  providerForm.value = {
+    name: provider.name,
+    provider_type: provider.provider_type,
+    api_key: '', // Don't prefill key
+    base_url: provider.base_url || '',
+    model_name: provider.model_name,
+    description: provider.description || '',
+    enabled: provider.enabled,
+  }
+  showProviderModal.value = true
+}
+
+function onProviderTypeChange() {
+  const typeConfig = providersData.value?.provider_types?.[providerForm.value.provider_type]
+  if (typeConfig) {
+    providerForm.value.base_url = typeConfig.default_base_url || ''
+    providerForm.value.model_name = typeConfig.default_models?.[0] || ''
+  }
+}
+
+function saveProvider() {
+  const data = { ...providerForm.value }
+  if (!data.api_key) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (data as any).api_key // Don't update if empty
+  }
+
+  if (editingProvider.value) {
+    updateProviderMutation.mutate({ id: editingProvider.value.id, data })
+  } else {
+    createProviderMutation.mutate(data)
+  }
+}
+
+function switchToCloudProvider(providerId: string) {
+  setBackendMutation.mutate(`cloud:${providerId}`)
 }
 </script>
 
@@ -204,6 +345,111 @@ function saveParams() {
           <div v-if="setBackendMutation.isError.value" class="flex items-center gap-2 text-sm text-red-500">
             <AlertCircle class="w-4 h-4" />
             {{ setBackendMutation.error.value?.message || 'Ошибка переключения' }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloud LLM Providers -->
+    <div class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border flex items-center justify-between">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <Cloud class="w-5 h-5" />
+          Cloud LLM Providers
+        </h2>
+        <div class="flex gap-2">
+          <button
+            @click="() => refetchProviders()"
+            class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw class="w-4 h-4" />
+          </button>
+          <button
+            @click="openCreateProviderModal"
+            class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus class="w-4 h-4" />
+            Add Provider
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div v-if="!providersData?.providers?.length" class="text-center py-8 text-muted-foreground">
+          <CloudOff class="w-12 h-12 mx-auto mb-3 opacity-50" />
+          <p>No cloud providers configured</p>
+          <p class="text-sm mt-1">Add a provider to use cloud LLM services</p>
+        </div>
+
+        <div v-else class="space-y-3">
+          <div
+            v-for="provider in providersData.providers"
+            :key="provider.id"
+            :class="[
+              'p-4 rounded-lg border transition-all',
+              currentCloudProviderId === provider.id
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/50'
+            ]"
+          >
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <h3 class="font-semibold">{{ provider.name }}</h3>
+                  <span class="px-2 py-0.5 bg-secondary rounded text-xs">
+                    {{ provider.provider_type }}
+                  </span>
+                  <span v-if="provider.is_default" class="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-600 rounded text-xs">
+                    <Star class="w-3 h-3" /> Default
+                  </span>
+                  <span v-if="!provider.enabled" class="px-2 py-0.5 bg-red-500/20 text-red-600 rounded text-xs">
+                    Disabled
+                  </span>
+                  <span v-if="currentCloudProviderId === provider.id" class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded text-xs">
+                    Active
+                  </span>
+                </div>
+                <p class="text-sm text-muted-foreground">
+                  Model: {{ provider.model_name || 'Not set' }}
+                </p>
+                <p v-if="provider.description" class="text-sm text-muted-foreground mt-1">
+                  {{ provider.description }}
+                </p>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button
+                  @click="testProviderMutation.mutate(provider.id)"
+                  :disabled="testProviderMutation.isPending.value"
+                  class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                  title="Test connection"
+                >
+                  <Loader2 v-if="testProviderMutation.isPending.value" class="w-4 h-4 animate-spin" />
+                  <Play v-else class="w-4 h-4" />
+                </button>
+                <button
+                  @click="switchToCloudProvider(provider.id)"
+                  :disabled="!provider.enabled || setBackendMutation.isPending.value"
+                  class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
+                >
+                  Use
+                </button>
+                <button
+                  @click="openEditProviderModal(provider)"
+                  class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                >
+                  <Edit2 class="w-4 h-4" />
+                </button>
+                <button
+                  @click="deleteProviderMutation.mutate(provider.id)"
+                  :disabled="deleteProviderMutation.isPending.value"
+                  class="p-2 bg-red-600/20 text-red-600 rounded-lg hover:bg-red-600/30 transition-colors"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -491,6 +737,120 @@ function saveParams() {
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             Save Prompt
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloud Provider Modal -->
+    <div
+      v-if="showProviderModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      @click.self="showProviderModal = false"
+    >
+      <div class="bg-card border border-border rounded-lg w-full max-w-lg p-6 m-4">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Cloud class="w-5 h-5" />
+          {{ editingProvider ? 'Edit Provider' : 'Add Cloud Provider' }}
+        </h3>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Name</label>
+            <input
+              v-model="providerForm.name"
+              type="text"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="My Kimi Provider"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">Provider Type</label>
+            <select
+              v-model="providerForm.provider_type"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              @change="onProviderTypeChange"
+            >
+              <option v-for="(type, key) in providersData?.provider_types" :key="key" :value="key">
+                {{ type.name }}
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">API Key</label>
+            <input
+              v-model="providerForm.api_key"
+              type="password"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              :placeholder="editingProvider ? 'Leave empty to keep current' : 'Enter API key'"
+            />
+          </div>
+
+          <div v-if="providersData?.provider_types?.[providerForm.provider_type]?.requires_base_url">
+            <label class="block text-sm font-medium mb-1">Base URL</label>
+            <input
+              v-model="providerForm.base_url"
+              type="text"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="https://api.moonshot.ai/v1"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">Model Name</label>
+            <input
+              v-model="providerForm.model_name"
+              type="text"
+              list="model-suggestions"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="kimi-k2"
+            />
+            <datalist id="model-suggestions">
+              <option
+                v-for="model in providersData?.provider_types?.[providerForm.provider_type]?.default_models"
+                :key="model"
+                :value="model"
+              />
+            </datalist>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">Description (optional)</label>
+            <input
+              v-model="providerForm.description"
+              type="text"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Production Kimi instance"
+            />
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="provider-enabled"
+              v-model="providerForm.enabled"
+              class="w-4 h-4 rounded border-border"
+            />
+            <label for="provider-enabled" class="text-sm">Enabled</label>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-6">
+          <button
+            @click="showProviderModal = false"
+            class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            @click="saveProvider"
+            :disabled="!providerForm.name || createProviderMutation.isPending.value || updateProviderMutation.isPending.value"
+            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            <Loader2 v-if="createProviderMutation.isPending.value || updateProviderMutation.isPending.value" class="w-4 h-4 inline mr-1 animate-spin" />
+            {{ editingProvider ? 'Update' : 'Create' }}
           </button>
         </div>
       </div>

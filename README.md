@@ -8,6 +8,7 @@
 - **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
 - **Local LLM**: vLLM с Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
+- **Cloud LLM Providers**: Подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek) с хранением credentials в БД
 - **FAQ System**: Мгновенные ответы на типичные вопросы
 - **Admin Panel**: Vue 3 PWA с 13 вкладками, i18n, темами, аудитом
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
@@ -431,6 +432,55 @@ curl -X POST http://localhost:8002/admin/llm/backend \
   -d '{"backend": "vllm"}'
 ```
 
+## Cloud LLM Providers
+
+Система поддерживает подключение множества облачных LLM провайдеров с хранением credentials в базе данных.
+
+### Поддерживаемые провайдеры
+
+| Provider | Type | Default Models | Base URL |
+|----------|------|----------------|----------|
+| **Google Gemini** | `gemini` | gemini-2.0-flash, gemini-2.5-pro | SDK |
+| **Moonshot Kimi** | `kimi` | kimi-k2, moonshot-v1-8k/32k/128k | api.moonshot.ai |
+| **OpenAI** | `openai` | gpt-4o, gpt-4o-mini | api.openai.com |
+| **Anthropic Claude** | `claude` | claude-opus-4, claude-sonnet-4 | api.anthropic.com |
+| **DeepSeek** | `deepseek` | deepseek-chat, deepseek-reasoner | api.deepseek.com |
+| **Custom** | `custom` | (user-defined) | (user-defined) |
+
+### Управление провайдерами
+
+**Через Admin Panel:**
+1. Откройте Admin → LLM
+2. В секции "Cloud LLM Providers" нажмите "Add Provider"
+3. Выберите тип, введите API key и название модели
+4. Нажмите "Test Connection" для проверки
+5. Нажмите "Use" для переключения на этого провайдера
+
+**Через API:**
+```bash
+# Список провайдеров
+curl http://localhost:8002/admin/llm/providers
+
+# Создать провайдер
+curl -X POST http://localhost:8002/admin/llm/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Kimi",
+    "provider_type": "kimi",
+    "api_key": "sk-xxx",
+    "base_url": "https://api.moonshot.ai/v1",
+    "model_name": "kimi-k2"
+  }'
+
+# Тест соединения
+curl -X POST http://localhost:8002/admin/llm/providers/{id}/test
+
+# Переключить на облачного провайдера
+curl -X POST http://localhost:8002/admin/llm/backend \
+  -H "Content-Type: application/json" \
+  -d '{"backend": "cloud:my-kimi-id"}'
+```
+
 ## API Reference
 
 ### OpenAI-Compatible (for OpenWebUI)
@@ -467,13 +517,22 @@ GET  /admin/logs/stream/{logfile}    # SSE log stream
 
 # LLM
 GET  /admin/llm/backend              # Current backend
-POST /admin/llm/backend              # Set backend
+POST /admin/llm/backend              # Set backend (vllm, gemini, cloud:{id})
 GET  /admin/llm/persona              # Current persona
 POST /admin/llm/persona              # Set persona
 GET  /admin/llm/params               # Generation params
 POST /admin/llm/params               # Update params
 GET  /admin/llm/prompt/{persona}     # System prompt
 POST /admin/llm/prompt/{persona}     # Update prompt
+
+# Cloud LLM Providers
+GET    /admin/llm/providers              # List providers + types
+POST   /admin/llm/providers              # Create provider
+GET    /admin/llm/providers/{id}         # Get provider
+PUT    /admin/llm/providers/{id}         # Update provider
+DELETE /admin/llm/providers/{id}         # Delete provider
+POST   /admin/llm/providers/{id}/test    # Test connection
+POST   /admin/llm/providers/{id}/set-default  # Set as default
 
 # TTS
 GET  /admin/voices                   # List voices
@@ -819,7 +878,7 @@ npm run build
 
 **Выполнено:**
 - [x] Базовая архитектура (orchestrator, TTS, LLM)
-- [x] Vue 3 админ-панель (12 табов, PWA)
+- [x] Vue 3 админ-панель (13 табов, PWA)
 - [x] XTTS v2 + Piper TTS
 - [x] vLLM + Gemini fallback + hot-switching
 - [x] Vosk STT (realtime streaming)
@@ -827,11 +886,12 @@ npm run build
 - [x] Website Widget (чат для сайтов)
 - [x] Telegram Bot интеграция
 - [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
+- [x] **Cloud LLM Providers** — подключение облачных LLM (Kimi, OpenAI, Claude, DeepSeek)
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)
-- [ ] Audit Log UI + Export (база готова)
 - [ ] Backup & Restore
+- [ ] Docker Compose (one-command deployment)
 
 ## License
 

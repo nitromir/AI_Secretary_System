@@ -53,7 +53,11 @@ from db.integration import (
     async_audit_logger,
     async_bot_instance_manager,
     async_widget_instance_manager,
+    async_cloud_provider_manager,
 )
+
+# Cloud LLM service for multi-provider support
+from cloud_llm_service import CloudLLMService, PROVIDER_TYPES
 
 # Multi-bot manager
 from multi_bot_manager import multi_bot_manager
@@ -1743,8 +1747,34 @@ def get_current_tts_service():
 
 # Pydantic models for new endpoints
 class AdminBackendRequest(BaseModel):
-    backend: str  # "vllm" or "gemini"
+    backend: str  # "vllm", "gemini", or "cloud:{provider_id}"
     stop_unused: bool = False  # Остановить неиспользуемый сервис (vLLM) для освобождения GPU
+
+
+class CloudProviderCreate(BaseModel):
+    """Create cloud LLM provider"""
+    name: str
+    provider_type: str  # gemini, kimi, openai, claude, deepseek, custom
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_name: str = ""
+    enabled: bool = True
+    is_default: bool = False
+    config: Optional[Dict] = None
+    description: Optional[str] = None
+
+
+class CloudProviderUpdate(BaseModel):
+    """Update cloud LLM provider"""
+    name: Optional[str] = None
+    provider_type: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_name: Optional[str] = None
+    enabled: Optional[bool] = None
+    is_default: Optional[bool] = None
+    config: Optional[Dict] = None
+    description: Optional[str] = None
 
 
 class AdminPersonaRequest(BaseModel):
@@ -2146,11 +2176,19 @@ async def admin_stream_log(logfile: str):
 async def admin_get_llm_backend():
     """Получить текущий LLM backend"""
     if llm_service:
-        backend = "vllm" if hasattr(llm_service, 'api_url') else "gemini"
+        # Detect backend type
+        if isinstance(llm_service, CloudLLMService):
+            backend = f"cloud:{llm_service.provider_id}"
+        elif hasattr(llm_service, 'api_url'):
+            backend = "vllm"
+        else:
+            backend = "gemini"
+
         return {
             "backend": backend,
             "model": getattr(llm_service, 'model_name', 'unknown'),
             "api_url": getattr(llm_service, 'api_url', None),
+            "provider_type": getattr(llm_service, 'provider_type', None),
         }
     return {"backend": "none", "error": "LLM service not initialized"}
 
@@ -2194,8 +2232,13 @@ async def admin_set_llm_backend(request: AdminBackendRequest, user: User = Depen
     """Переключить LLM backend с горячей перезагрузкой сервиса"""
     global LLM_BACKEND, llm_service
 
+    # Check if it's a cloud provider
+    if request.backend.startswith("cloud:"):
+        provider_id = request.backend.split(":", 1)[1]
+        return await _switch_to_cloud_provider(provider_id, request.stop_unused, user)
+
     if request.backend not in ["vllm", "gemini"]:
-        raise HTTPException(status_code=400, detail="Invalid backend. Use 'vllm' or 'gemini'")
+        raise HTTPException(status_code=400, detail="Invalid backend. Use 'vllm', 'gemini', or 'cloud:{provider_id}'")
 
     # Проверяем текущий бэкенд
     current_backend = "vllm" if (llm_service and hasattr(llm_service, 'api_url')) else "gemini"
@@ -2312,6 +2355,238 @@ async def admin_set_llm_backend(request: AdminBackendRequest, user: User = Depen
     except Exception as e:
         logger.error(f"❌ Ошибка переключения бэкенда: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _switch_to_cloud_provider(provider_id: str, stop_unused: bool, user: User):
+    """Helper function to switch to a cloud provider"""
+    global LLM_BACKEND, llm_service
+
+    provider_config = await async_cloud_provider_manager.get_provider_with_key(provider_id)
+    if not provider_config:
+        raise HTTPException(status_code=404, detail=f"Provider {provider_id} not found")
+
+    if not provider_config.get('enabled'):
+        raise HTTPException(status_code=400, detail=f"Provider {provider_id} is disabled")
+
+    if not provider_config.get('api_key'):
+        raise HTTPException(status_code=400, detail=f"Provider {provider_id} has no API key configured")
+
+    try:
+        new_service = CloudLLMService(provider_config)
+        if not new_service.is_available():
+            raise HTTPException(status_code=503, detail=f"Provider {provider_id} is not responding")
+
+        llm_service = new_service
+        LLM_BACKEND = f"cloud:{provider_id}"
+        os.environ["LLM_BACKEND"] = LLM_BACKEND
+
+        # Optionally stop vLLM to free GPU
+        if stop_unused:
+            manager = get_service_manager()
+            vllm_status = manager.get_service_status("vllm")
+            if vllm_status.get("is_running"):
+                logger.info("🛑 Stopping vLLM to free GPU memory...")
+                await manager.stop_service("vllm")
+
+        logger.info(f"✅ Switched to cloud provider: {provider_config.get('name')}")
+
+        # Audit log
+        await async_audit_logger.log(
+            action="update",
+            resource="config",
+            resource_id="llm_backend",
+            user_id=user.username,
+            details={
+                "backend": f"cloud:{provider_id}",
+                "provider_type": provider_config.get('provider_type'),
+                "model": provider_config.get('model_name'),
+            }
+        )
+
+        return {
+            "status": "ok",
+            "backend": f"cloud:{provider_id}",
+            "provider_id": provider_id,
+            "provider_type": provider_config.get('provider_type'),
+            "model": provider_config.get('model_name'),
+            "message": f"Switched to cloud provider: {provider_config.get('name')}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error switching to cloud provider: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Cloud LLM Providers API ==============
+
+@app.get("/admin/llm/providers")
+async def admin_list_cloud_providers(enabled_only: bool = False):
+    """List all cloud LLM providers"""
+    providers = await async_cloud_provider_manager.list_providers(enabled_only)
+    return {
+        "providers": providers,
+        "provider_types": PROVIDER_TYPES,
+    }
+
+
+@app.get("/admin/llm/providers/{provider_id}")
+async def admin_get_cloud_provider(
+    provider_id: str,
+    include_key: bool = False,
+    user: User = Depends(get_current_user)
+):
+    """Get cloud provider by ID"""
+    if include_key:
+        provider = await async_cloud_provider_manager.get_provider_with_key(provider_id)
+    else:
+        provider = await async_cloud_provider_manager.get_provider(provider_id)
+
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return {"provider": provider}
+
+
+@app.post("/admin/llm/providers")
+async def admin_create_cloud_provider(
+    data: CloudProviderCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create new cloud LLM provider"""
+    try:
+        provider = await async_cloud_provider_manager.create_provider(
+            name=data.name,
+            provider_type=data.provider_type,
+            api_key=data.api_key,
+            base_url=data.base_url,
+            model_name=data.model_name,
+            enabled=data.enabled,
+            is_default=data.is_default,
+            config=data.config,
+            description=data.description,
+        )
+
+        # Audit log
+        await async_audit_logger.log(
+            action="create",
+            resource="cloud_provider",
+            resource_id=provider["id"],
+            user_id=user.username,
+            details={"name": data.name, "provider_type": data.provider_type}
+        )
+
+        return {"status": "ok", "provider": provider}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/admin/llm/providers/{provider_id}")
+async def admin_update_cloud_provider(
+    provider_id: str,
+    data: CloudProviderUpdate,
+    user: User = Depends(get_current_user)
+):
+    """Update cloud LLM provider"""
+    # Filter out None values
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+
+    provider = await async_cloud_provider_manager.update_provider(provider_id, **update_data)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="cloud_provider",
+        resource_id=provider_id,
+        user_id=user.username,
+        details=update_data
+    )
+
+    return {"status": "ok", "provider": provider}
+
+
+@app.delete("/admin/llm/providers/{provider_id}")
+async def admin_delete_cloud_provider(
+    provider_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Delete cloud LLM provider"""
+    if not await async_cloud_provider_manager.delete_provider(provider_id):
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="delete",
+        resource="cloud_provider",
+        resource_id=provider_id,
+        user_id=user.username,
+    )
+
+    return {"status": "ok", "message": f"Provider {provider_id} deleted"}
+
+
+@app.post("/admin/llm/providers/{provider_id}/test")
+async def admin_test_cloud_provider(
+    provider_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Test cloud provider connection"""
+    provider_config = await async_cloud_provider_manager.get_provider_with_key(provider_id)
+    if not provider_config:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    if not provider_config.get('api_key'):
+        return {
+            "status": "error",
+            "available": False,
+            "message": "No API key configured",
+        }
+
+    try:
+        service = CloudLLMService(provider_config)
+        is_available = service.is_available()
+
+        if is_available:
+            # Quick test generation
+            test_response = service.generate_response("Скажи 'тест ок'", use_history=False)
+            return {
+                "status": "ok",
+                "available": True,
+                "test_response": test_response[:200] if test_response else "",
+            }
+        else:
+            return {
+                "status": "error",
+                "available": False,
+                "message": "Provider not responding",
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "available": False,
+            "message": str(e),
+        }
+
+
+@app.post("/admin/llm/providers/{provider_id}/set-default")
+async def admin_set_default_cloud_provider(
+    provider_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Set cloud provider as default"""
+    if not await async_cloud_provider_manager.set_default(provider_id):
+        raise HTTPException(status_code=404, detail="Provider not found or disabled")
+
+    await async_audit_logger.log(
+        action="update",
+        resource="cloud_provider",
+        resource_id=provider_id,
+        user_id=user.username,
+        details={"is_default": True}
+    )
+
+    return {"status": "ok", "message": f"Provider {provider_id} set as default"}
 
 
 @app.get("/admin/llm/personas")

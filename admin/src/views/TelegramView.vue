@@ -50,6 +50,7 @@ const formData = ref<Partial<BotInstance>>({
   description: '',
   enabled: true,
   bot_token: '',
+  api_url: '',
   allowed_users: [],
   admin_users: [],
   welcome_message: 'Здравствуйте! Я AI-ассистент. Чем могу помочь?',
@@ -178,6 +179,7 @@ function openCreateDialog() {
     description: '',
     enabled: true,
     bot_token: '',
+    api_url: '',
     allowed_users: [],
     admin_users: [],
     welcome_message: 'Здравствуйте! Я AI-ассистент. Чем могу помочь?',
@@ -662,6 +664,18 @@ watch(instances, (newInstances) => {
                   <Eye v-else class="w-4 h-4" />
                 </button>
               </div>
+            </div>
+
+            <!-- API URL -->
+            <div>
+              <label class="block text-sm font-medium mb-1">{{ t('telegram.apiUrl') }}</label>
+              <input
+                v-model="formData.api_url"
+                type="text"
+                class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                :placeholder="t('telegram.apiUrlPlaceholder')"
+              />
+              <p class="text-xs text-muted-foreground mt-1">{{ t('telegram.apiUrlDesc') }}</p>
             </div>
 
             <!-- Enabled -->

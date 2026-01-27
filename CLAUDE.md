@@ -137,7 +137,8 @@ python quantize_awq.py      # W4A16 quantization
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, ~80 endpoints, serves admin panel |
+| `orchestrator.py` | FastAPI server, ~90 endpoints, serves admin panel |
+| `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek) |
 | `auth_manager.py` | JWT authentication |
 | `service_manager.py` | Process control (vLLM) |
 | `finetune_manager.py` | LoRA training pipeline |
@@ -197,6 +198,7 @@ python quantize_awq.py      # W4A16 quantization
 | `system_config` | Key-value system config (telegram, widget, etc.) |
 | `telegram_sessions` | Telegram user → chat session mapping |
 | `audit_log` | System audit trail |
+| `cloud_llm_providers` | Cloud LLM provider credentials (API keys, URLs) |
 
 **Redis keys (optional, for caching):**
 | Key Pattern | Purpose | TTL |
@@ -254,6 +256,12 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 1. Add permission to `ROLE_PERMISSIONS` in `admin/src/stores/auth.ts`
 2. Check with `authStore.hasPermission('resource.action')`
 
+**Adding a new cloud LLM provider type:**
+1. Add entry to `PROVIDER_TYPES` dict in `db/models.py`
+2. If OpenAI-compatible, `OpenAICompatibleProvider` in `cloud_llm_service.py` handles it
+3. For custom SDK, create new provider class inheriting `BaseLLMProvider`
+4. Register in `CloudLLMService.PROVIDER_CLASSES`
+
 ## API Quick Reference
 
 **OpenAI-compatible (for OpenWebUI):**
@@ -271,6 +279,7 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - `POST /admin/auth/login` — Get JWT token
 - `GET/POST /admin/services/*` — Service control
 - `GET/POST /admin/llm/*` — Backend, persona, params
+- `GET/POST/PUT/DELETE /admin/llm/providers/*` — Cloud LLM providers CRUD
 - `GET/POST /admin/tts/*` — TTS config, test playback
 - `GET/POST /admin/stt/*` — STT status, transcribe, test
 - `GET/POST/PUT/DELETE /admin/faq/*` — FAQ CRUD
@@ -312,10 +321,12 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - ✅ Prompt Editor — редактирование дефолтного промпта из чата
 - ✅ DeepSeek LLM — третья модель (./start_gpu.sh --deepseek)
 - ✅ LLM Models UI — отображение доступных моделей в админке
+- ✅ Cloud LLM Providers — подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek)
 
 **Ближайшие задачи (Фаза 1):**
 1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
 2. Backup & Restore — полный бэкап системы
-3. Multi-Instance Bots & Widgets — несколько ботов/виджетов с разными настройками
+3. Docker Compose — one-command deployment
+4. Legacy JSON Removal — полная миграция на SQLite
 
 **Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии

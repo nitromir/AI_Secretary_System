@@ -11,6 +11,7 @@ Tables:
 - audit_log: System audit trail
 - bot_instances: Telegram bot instances with individual configs
 - widget_instances: Website widget instances with individual configs
+- cloud_llm_providers: Cloud LLM provider configurations (Gemini, Kimi, OpenAI, etc.)
 """
 
 from datetime import datetime
@@ -263,6 +264,7 @@ class BotInstance(Base):
 
     # Telegram configuration
     bot_token: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    api_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Tunnel URL for API
     allowed_users: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     admin_users: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     welcome_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -326,6 +328,7 @@ class BotInstance(Base):
             "enabled": self.enabled,
             # Telegram
             "bot_token_masked": "***" + self.bot_token[-4:] if self.bot_token and len(self.bot_token) > 4 else "",
+            "api_url": self.api_url,
             "allowed_users": self.get_allowed_users(),
             "admin_users": self.get_admin_users(),
             "welcome_message": self.welcome_message,
@@ -435,3 +438,103 @@ class WidgetInstance(Base):
             "created": self.created.isoformat() if self.created else None,
             "updated": self.updated.isoformat() if self.updated else None,
         }
+
+
+class CloudLLMProvider(Base):
+    """Cloud LLM provider configuration (Gemini, Kimi, OpenAI, Claude, custom)"""
+    __tablename__ = "cloud_llm_providers"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # slug: "gemini-default", "kimi-prod"
+    name: Mapped[str] = mapped_column(String(100), index=True)  # Display: "Gemini Pro", "Kimi K2"
+    provider_type: Mapped[str] = mapped_column(String(50), index=True)  # gemini, kimi, openai, claude, custom
+
+    # Credentials
+    api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # e.g., https://api.moonshot.ai/v1
+    model_name: Mapped[str] = mapped_column(String(100), default="")  # e.g., kimi-k2, gemini-2.0-flash
+
+    # Status
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Extended configuration (JSON)
+    config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON: temperature, max_tokens, etc.
+
+    # Metadata
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_config(self) -> dict:
+        """Get extended config as dict"""
+        if not self.config:
+            return {}
+        try:
+            return json.loads(self.config)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_config(self, config: dict):
+        """Set extended config from dict"""
+        self.config = json.dumps(config, ensure_ascii=False)
+
+    def to_dict(self, include_key: bool = False) -> dict:
+        """Convert to dict for API response"""
+        result = {
+            "id": self.id,
+            "name": self.name,
+            "provider_type": self.provider_type,
+            "api_key_masked": "***" + self.api_key[-4:] if self.api_key and len(self.api_key) > 4 else "",
+            "base_url": self.base_url,
+            "model_name": self.model_name,
+            "enabled": self.enabled,
+            "is_default": self.is_default,
+            "config": self.get_config(),
+            "description": self.description,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None,
+        }
+        if include_key and self.api_key:
+            result["api_key"] = self.api_key
+        return result
+
+
+# Provider types configuration
+PROVIDER_TYPES = {
+    "gemini": {
+        "name": "Google Gemini",
+        "default_base_url": None,  # Uses SDK
+        "default_models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
+        "requires_base_url": False,
+    },
+    "kimi": {
+        "name": "Moonshot Kimi",
+        "default_base_url": "https://api.moonshot.ai/v1",
+        "default_models": ["kimi-k2", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        "requires_base_url": True,
+    },
+    "openai": {
+        "name": "OpenAI",
+        "default_base_url": "https://api.openai.com/v1",
+        "default_models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+        "requires_base_url": True,
+    },
+    "claude": {
+        "name": "Anthropic Claude",
+        "default_base_url": "https://api.anthropic.com/v1",
+        "default_models": ["claude-opus-4-5-20251101", "claude-sonnet-4-20250514"],
+        "requires_base_url": True,
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "default_base_url": "https://api.deepseek.com/v1",
+        "default_models": ["deepseek-chat", "deepseek-coder"],
+        "requires_base_url": True,
+    },
+    "custom": {
+        "name": "Custom OpenAI-Compatible",
+        "default_base_url": "",
+        "default_models": [],
+        "requires_base_url": True,
+    },
+}

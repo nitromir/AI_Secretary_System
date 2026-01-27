@@ -33,6 +33,7 @@ export interface BotInstance {
   // Telegram
   bot_token?: string
   bot_token_masked?: string
+  api_url?: string
   allowed_users: number[]
   admin_users: number[]
   welcome_message?: string

@@ -4,7 +4,6 @@ FAQ repository for managing FAQ entries with caching.
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, List, Dict
 
 from sqlalchemy import select, delete, update
@@ -13,9 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import FAQEntry
 from db.repositories.base import BaseRepository
 from db.redis_client import cache_faq, get_cached_faq, invalidate_faq_cache
-
-# Legacy JSON file path for backward compatibility with LLM services
-LEGACY_FAQ_FILE = Path(__file__).parent.parent.parent / "typical_responses.json"
 
 
 class FAQRepository(BaseRepository[FAQEntry]):
@@ -57,22 +53,6 @@ class FAQRepository(BaseRepository[FAQEntry]):
         await cache_faq(faq_dict, ttl_seconds=600)
 
         return faq_dict
-
-    async def _sync_to_legacy_file(self):
-        """
-        Write FAQ to legacy JSON file for backward compatibility
-        with LLM services that read from the file directly.
-        """
-        try:
-            faq_dict = await self.get_as_dict()
-            LEGACY_FAQ_FILE.write_text(
-                json.dumps(faq_dict, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-        except Exception as e:
-            # Don't fail operations if legacy sync fails
-            import logging
-            logging.getLogger(__name__).warning(f"Failed to sync FAQ to legacy file: {e}")
 
     async def find_answer(self, question: str) -> Optional[str]:
         """
@@ -124,9 +104,8 @@ class FAQRepository(BaseRepository[FAQEntry]):
         await self.session.commit()
         await self.session.refresh(entry)
 
-        # Invalidate cache and sync to legacy file
+        # Invalidate cache
         await invalidate_faq_cache()
-        await self._sync_to_legacy_file()
 
         return entry.to_dict()
 
@@ -156,7 +135,6 @@ class FAQRepository(BaseRepository[FAQEntry]):
 
         await self.session.commit()
         await invalidate_faq_cache()
-        await self._sync_to_legacy_file()
 
         return entry.to_dict()
 
@@ -167,7 +145,6 @@ class FAQRepository(BaseRepository[FAQEntry]):
         )
         await self.session.commit()
         await invalidate_faq_cache()
-        await self._sync_to_legacy_file()
         return result.rowcount > 0
 
     async def delete_by_question(self, question: str) -> bool:
@@ -177,7 +154,6 @@ class FAQRepository(BaseRepository[FAQEntry]):
         )
         await self.session.commit()
         await invalidate_faq_cache()
-        await self._sync_to_legacy_file()
         return result.rowcount > 0
 
     async def import_from_dict(self, faq_dict: Dict[str, str]) -> int:

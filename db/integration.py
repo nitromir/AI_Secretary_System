@@ -24,6 +24,7 @@ from db.repositories import (
     AuditRepository,
     BotInstanceRepository,
     WidgetInstanceRepository,
+    CloudProviderRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -529,6 +530,84 @@ class AsyncWidgetInstanceManager:
             return await repo.import_from_legacy_config(config, instance_id)
 
 
+# ============== Cloud Provider Manager ==============
+
+class AsyncCloudProviderManager:
+    """Async manager for cloud LLM providers."""
+
+    async def list_providers(self, enabled_only: bool = False) -> List[dict]:
+        """List all cloud providers."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.list_providers(enabled_only=enabled_only)
+
+    async def get_provider(self, provider_id: str) -> Optional[dict]:
+        """Get provider by ID (without API key)."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_provider(provider_id)
+
+    async def get_provider_with_key(self, provider_id: str) -> Optional[dict]:
+        """Get provider with API key (for internal use)."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_provider_with_key(provider_id)
+
+    async def get_default_provider(self) -> Optional[dict]:
+        """Get the default cloud provider."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_default_provider()
+
+    async def get_first_enabled(self) -> Optional[dict]:
+        """Get first enabled provider (fallback if no default)."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_first_enabled()
+
+    async def create_provider(self, name: str, provider_type: str, **kwargs) -> dict:
+        """Create new cloud provider."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.create_provider(name, provider_type, **kwargs)
+
+    async def update_provider(self, provider_id: str, **kwargs) -> Optional[dict]:
+        """Update cloud provider."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.update_provider(provider_id, **kwargs)
+
+    async def delete_provider(self, provider_id: str) -> bool:
+        """Delete cloud provider."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.delete_provider(provider_id)
+
+    async def set_default(self, provider_id: str) -> bool:
+        """Set provider as default."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.set_default(provider_id)
+
+    async def get_by_type(self, provider_type: str, enabled_only: bool = True) -> List[dict]:
+        """Get providers by type."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_by_type(provider_type, enabled_only)
+
+    async def provider_exists(self, provider_id: str) -> bool:
+        """Check if provider exists."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.provider_exists(provider_id)
+
+    async def get_provider_count(self) -> int:
+        """Get total number of providers."""
+        async with AsyncSessionLocal() as session:
+            repo = CloudProviderRepository(session)
+            return await repo.get_provider_count()
+
+
 # ============== Audit Logger ==============
 
 class AsyncAuditLogger:
@@ -577,6 +656,7 @@ async_telegram_manager = AsyncTelegramSessionManager()
 async_audit_logger = AsyncAuditLogger()
 async_bot_instance_manager = AsyncBotInstanceManager()
 async_widget_instance_manager = AsyncWidgetInstanceManager()
+async_cloud_provider_manager = AsyncCloudProviderManager()
 
 
 # ============== Initialization Function ==============

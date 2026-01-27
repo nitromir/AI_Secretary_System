@@ -27,6 +27,8 @@ from db.models import (
     SystemConfig,
     TelegramSession,
     AuditLog,
+    CloudLLMProvider,
+    PROVIDER_TYPES,
 )
 
 __all__ = [
@@ -49,4 +51,6 @@ __all__ = [
     "SystemConfig",
     "TelegramSession",
     "AuditLog",
+    "CloudLLMProvider",
+    "PROVIDER_TYPES",
 ]

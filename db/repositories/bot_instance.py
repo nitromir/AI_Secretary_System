@@ -142,7 +142,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
 
         # Update simple fields
         simple_fields = [
-            'name', 'description', 'enabled', 'bot_token',
+            'name', 'description', 'enabled', 'bot_token', 'api_url',
             'welcome_message', 'unauthorized_message', 'error_message', 'typing_enabled',
             'llm_backend', 'llm_persona', 'system_prompt',
             'tts_engine', 'tts_voice', 'tts_preset'
