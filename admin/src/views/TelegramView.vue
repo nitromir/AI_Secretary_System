@@ -196,8 +196,15 @@ function openCreateDialog() {
   showCreateDialog.value = true
 }
 
-function openEditDialog(instance: BotInstance) {
-  formData.value = { ...instance }
+async function openEditDialog(instance: BotInstance) {
+  // Load instance with token for editing
+  try {
+    const response = await botInstancesApi.get(instance.id, true) // includeToken=true
+    formData.value = { ...response.instance }
+  } catch {
+    // Fallback to instance without token
+    formData.value = { ...instance }
+  }
   showEditDialog.value = true
 }
 
