@@ -71,7 +71,7 @@ class TelegramBotService:
 
         try:
             session = await self.get_http_session()
-            endpoint = f"{api_url}/admin/telegram/instances/{self.instance_id}"
+            endpoint = f"{api_url}/admin/telegram/instances/{self.instance_id}?include_token=true"
 
             async with session.get(endpoint, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
