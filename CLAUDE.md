@@ -104,17 +104,35 @@ After starting tunnel, use the generated HTTPS URL in:
 ### Telegram Bot
 
 ```bash
-# Start Telegram bot (requires orchestrator running)
+# Start default Telegram bot (requires orchestrator running)
 ./start_telegram_bot.sh
 
-# Or via admin panel: Admin → Telegram → Start Bot
+# Or via admin panel: Admin → Telegram → select bot → Start
 ```
 
-**Setup:**
+**Setup (single bot):**
 1. Create bot via [@BotFather](https://t.me/BotFather), get token
-2. Add token in Admin → Telegram → Bot Token
-3. Configure allowed users (optional whitelist)
-4. Start bot
+2. Add token in Admin → Telegram → select default bot → Edit → Bot Token
+3. Set API URL (cloudflare/ngrok tunnel URL)
+4. Configure allowed users (optional whitelist)
+5. Start bot
+
+**Multi-instance bots:**
+Each bot instance has independent:
+- Telegram token and user whitelist
+- LLM backend, persona, system prompt
+- TTS engine, voice, preset
+- Session isolation (users in different bots have separate chat histories)
+
+```bash
+# Create new bot instance via API
+curl -X POST http://localhost:8002/admin/telegram/instances \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"Sales Bot","bot_token":"...","api_url":"https://..."}'
+
+# Start specific bot instance
+curl -X POST http://localhost:8002/admin/telegram/instances/sales-bot/start
+```
 
 ### Fine-tuning (separate venv)
 
@@ -137,7 +155,8 @@ python quantize_awq.py      # W4A16 quantization
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, ~90 endpoints, serves admin panel |
+| `orchestrator.py` | FastAPI server, ~100 endpoints, serves admin panel |
+| `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots |
 | `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek) |
 | `auth_manager.py` | JWT authentication |
 | `service_manager.py` | Process control (vLLM) |
@@ -196,9 +215,11 @@ python quantize_awq.py      # W4A16 quantization
 | `faq_entries` | FAQ question-answer pairs |
 | `tts_presets` | Custom TTS voice presets |
 | `system_config` | Key-value system config (telegram, widget, etc.) |
-| `telegram_sessions` | Telegram user → chat session mapping |
+| `telegram_sessions` | Telegram user → chat session mapping (composite key: bot_id, user_id) |
 | `audit_log` | System audit trail |
 | `cloud_llm_providers` | Cloud LLM provider credentials (API keys, URLs) |
+| `bot_instances` | Telegram bot instances with individual config (token, users, AI, TTS) |
+| `widget_instances` | Website widget instances with individual config (appearance, AI, TTS) |
 
 **Redis keys (optional, for caching):**
 | Key Pattern | Purpose | TTL |
@@ -212,6 +233,9 @@ python quantize_awq.py      # W4A16 quantization
 ```bash
 # First time setup - migrate existing JSON data to SQLite
 python scripts/migrate_json_to_db.py
+
+# Migrate to multi-instance (creates 'default' bot/widget instances)
+python scripts/migrate_to_instances.py
 ```
 
 **Database location:** `data/secretary.db`
@@ -285,8 +309,12 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - `GET/POST/PUT/DELETE /admin/faq/*` — FAQ CRUD
 - `POST /admin/finetune/*` — Training pipeline
 - `GET /admin/monitor/*` — GPU stats, SSE metrics
-- `GET/POST /admin/widget/*` — Widget config, generate code
-- `GET/POST /admin/telegram/*` — Telegram bot config, start/stop
+- `GET/POST /admin/widget/*` — Widget config (legacy, uses 'default' instance)
+- `GET/POST/PUT/DELETE /admin/widget/instances/*` — Widget instances CRUD
+- `GET/POST /admin/telegram/*` — Telegram bot config (legacy, uses 'default' instance)
+- `GET/POST/PUT/DELETE /admin/telegram/instances/*` — Bot instances CRUD
+- `POST /admin/telegram/instances/{id}/start|stop|restart` — Bot control
+- `GET /admin/telegram/instances/{id}/status|sessions|logs` — Bot monitoring
 - `GET /admin/audit/*` — Audit log viewing, filtering, export
 - `GET /widget.js` — Dynamic widget script (public)
 
@@ -322,11 +350,12 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - ✅ DeepSeek LLM — третья модель (./start_gpu.sh --deepseek)
 - ✅ LLM Models UI — отображение доступных моделей в админке
 - ✅ Cloud LLM Providers — подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek)
+- ✅ Multi-Instance Bots — несколько Telegram ботов с независимыми настройками
+- ✅ Multi-Instance Widgets — несколько виджетов с независимыми настройками
 
 **Ближайшие задачи (Фаза 1):**
 1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
 2. Backup & Restore — полный бэкап системы
 3. Docker Compose — one-command deployment
-4. Legacy JSON Removal — полная миграция на SQLite
 
 **Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии
