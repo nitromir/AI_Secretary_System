@@ -18,6 +18,27 @@ export interface LlmParams {
   repetition_penalty: number
 }
 
+export interface LlmModelInfo {
+  id: string
+  name: string
+  full_name?: string
+  description?: string
+  size?: string
+  features?: string[]
+  start_flag?: string
+  lora_support?: boolean
+  vllm_model_name?: string
+  lora?: string
+  available?: boolean
+}
+
+export interface LlmModelsResponse {
+  available_models: Record<string, LlmModelInfo>
+  current_model: LlmModelInfo | null
+  loaded_models: string[]
+  backend: string
+}
+
 // LLM API
 export const llmApi = {
   getBackend: () =>
@@ -25,6 +46,9 @@ export const llmApi = {
 
   setBackend: (backend: 'vllm' | 'gemini', stopUnused: boolean = false) =>
     api.post<{ status: string; backend: string; model?: string; message?: string }>('/admin/llm/backend', { backend, stop_unused: stopUnused }),
+
+  getModels: () =>
+    api.get<LlmModelsResponse>('/admin/llm/models'),
 
   getPersonas: () =>
     api.get<{ personas: Record<string, Persona> }>('/admin/llm/personas'),
