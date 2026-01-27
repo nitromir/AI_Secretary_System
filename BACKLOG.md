@@ -433,30 +433,30 @@ class CallMetrics:
 ---
 
 ### 3.4 Multi-Instance Bots & Widgets
-**Статус:** `planned`
+**Статус:** `completed` ✅
 **Приоритет:** P1
 **Сложность:** 7/10
-**Оценка:** 2-3 недели
+**Завершено:** 2026-01-27
 **Влияние:** ★★★★★
 
 **Описание:**
 Возможность создавать неограниченное количество Telegram ботов и чат-виджетов. Каждый инстанс имеет собственные настройки: выбор LLM модели, системный промпт, персона, голос TTS.
 
 **Задачи:**
-- [ ] Новые таблицы: `bot_instances`, `widget_instances`
-- [ ] CRUD API для ботов: `/admin/telegram/bots`, `/admin/telegram/bots/{id}`
-- [ ] CRUD API для виджетов: `/admin/widget/instances`, `/admin/widget/instances/{id}`
-- [ ] Настройки каждого инстанса:
+- [x] Новые таблицы: `bot_instances`, `widget_instances`
+- [x] CRUD API для ботов: `/admin/telegram/instances`, `/admin/telegram/instances/{id}`
+- [x] CRUD API для виджетов: `/admin/widget/instances`, `/admin/widget/instances/{id}`
+- [x] Настройки каждого инстанса:
   - Выбор LLM backend (vLLM/Gemini)
-  - Выбор модели (Qwen, Llama, Lydia LoRA, etc.)
-  - Системный промпт (кастомный или персона)
+  - Системный промпт (кастомный)
   - Выбор голоса TTS
   - Персона секретаря
-  - FAQ set (опционально — разные FAQ для разных ботов)
-- [ ] Параллельный запуск нескольких Telegram ботов
-- [ ] Динамическая генерация `/widget.js?instance=xxx`
-- [ ] UI для управления инстансами
-- [ ] Статистика по каждому боту/виджету
+- [x] Параллельный запуск нескольких Telegram ботов (multi_bot_manager.py)
+- [x] Динамическая генерация `/widget.js?instance=xxx`
+- [x] UI для управления инстансами (TelegramView.vue)
+- [x] Изоляция сессий по bot_id (composite key)
+- [x] API URL поле для туннеля (cloudflare/ngrok)
+- [ ] Статистика по каждому боту/виджету (backlog)
 
 **Структура данных:**
 ```python
@@ -1086,7 +1086,19 @@ pip install zipfile36  # или стандартный zipfile
   - 5.4 Performance Profiling — latency, memory optimization
   - 5.5 Error Handling & Logging — structured logs, alerting
 
-### 2026-01-26 (update 5) — Multi-Instance Bots & Widgets
+### 2026-01-27 (update 6) — Multi-Instance Implementation ✅
+- **Реализована задача 3.4 Multi-Instance Bots & Widgets**
+  - Новые таблицы: `bot_instances`, `widget_instances` (db/models.py)
+  - Репозитории: `bot_instance.py`, `widget_instance.py`
+  - Multi-bot manager: `multi_bot_manager.py` — subprocess на каждого бота
+  - ~15 новых API endpoints для CRUD и управления инстансами
+  - Изоляция сессий: composite key (bot_id, user_id) в telegram_sessions
+  - UI: полный редизайн TelegramView.vue с sidebar списком ботов
+  - Backward compatibility: старые endpoints работают с 'default' инстансом
+  - Миграция: `scripts/migrate_to_instances.py`
+  - API URL поле для настройки туннеля (cloudflare/ngrok)
+
+### 2026-01-26 (update 5) — Multi-Instance Bots & Widgets (Planning)
 - Добавлена задача **3.4 Multi-Instance Bots & Widgets** в Фазу 3
   - Масштабирование: создание неограниченного количества ботов и виджетов
   - Индивидуальные настройки: LLM модель, системный промпт, персона, голос
