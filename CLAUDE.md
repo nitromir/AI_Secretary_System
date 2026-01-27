@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama), and Gemini fallback. Features a Vue 3 PWA admin panel with 15 tabs, i18n (ru/en), themes, ~70 API endpoints, website chat widget, and Telegram bot integration.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and Gemini fallback. Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~80 API endpoints, website chat widget, and Telegram bot integration.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (15 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (13 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -42,6 +42,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 # Start system
 ./start_gpu.sh              # GPU: XTTS + Qwen2.5-7B + LoRA (recommended)
 ./start_gpu.sh --llama      # GPU: XTTS + Llama-3.1-8B
+./start_gpu.sh --deepseek   # GPU: XTTS + DeepSeek-LLM-7B
 ./start_cpu.sh              # CPU: Piper + Gemini API
 ./start_qwen.sh             # Start only vLLM (debugging)
 
@@ -136,7 +137,7 @@ python quantize_awq.py      # W4A16 quantization
 
 | File | Purpose |
 |------|---------|
-| `orchestrator.py` | FastAPI server, ~70 endpoints, serves admin panel |
+| `orchestrator.py` | FastAPI server, ~80 endpoints, serves admin panel |
 | `auth_manager.py` | JWT authentication |
 | `service_manager.py` | Process control (vLLM) |
 | `finetune_manager.py` | LoRA training pipeline |
@@ -154,7 +155,7 @@ python quantize_awq.py      # W4A16 quantization
 
 | Directory | Purpose |
 |-----------|---------|
-| `admin/src/views/` | 15 main views + LoginView |
+| `admin/src/views/` | 13 main views + LoginView |
 | `admin/src/api/` | API clients + SSE helpers |
 | `admin/src/stores/` | Pinia stores (auth, theme, toast, audit, services, llm) |
 | `admin/src/composables/` | useSSE, useRealtimeMetrics, useExportImport |
@@ -165,6 +166,9 @@ python quantize_awq.py      # W4A16 quantization
 - Message edit/regenerate/delete
 - Custom system prompts per session
 - TTS playback for assistant messages (Volume2 button on hover)
+- Voice mode toggle (auto-play TTS on response)
+- Voice input via microphone (STT transcription)
+- Default prompt editing from chat settings
 
 ### Data Files
 
@@ -303,6 +307,11 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - ✅ Database Integration — SQLite + Redis для надёжного хранения (db/)
 - ✅ Hot-switching LLM — переключение vLLM/Gemini без перезапуска
 - ✅ Audit Log UI — просмотр и фильтрация логов действий (AuditView.vue)
+- ✅ Voice Mode — auto-play TTS при получении ответа
+- ✅ Voice Input (STT) — голосовой ввод через микрофон в чате
+- ✅ Prompt Editor — редактирование дефолтного промпта из чата
+- ✅ DeepSeek LLM — третья модель (./start_gpu.sh --deepseek)
+- ✅ LLM Models UI — отображение доступных моделей в админке
 
 **Ближайшие задачи (Фаза 1):**
 1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
