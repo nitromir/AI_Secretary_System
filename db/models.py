@@ -7,8 +7,10 @@ Tables:
 - faq_entries: FAQ question-answer pairs
 - tts_presets: Custom TTS voice presets
 - system_config: Key-value system configuration
-- telegram_sessions: Telegram user sessions
+- telegram_sessions: Telegram user sessions (per bot instance)
 - audit_log: System audit trail
+- bot_instances: Telegram bot instances with individual configs
+- widget_instances: Website widget instances with individual configs
 """
 
 from datetime import datetime
@@ -187,9 +189,11 @@ class SystemConfig(Base):
 
 
 class TelegramSession(Base):
-    """Telegram user session mapping"""
+    """Telegram user session mapping (per bot instance)"""
     __tablename__ = "telegram_sessions"
 
+    # Composite primary key: bot_id + user_id
+    bot_id: Mapped[str] = mapped_column(String(50), primary_key=True, default="default")
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     chat_session_id: Mapped[str] = mapped_column(
         String(50),
@@ -201,8 +205,13 @@ class TelegramSession(Base):
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    __table_args__ = (
+        Index("ix_telegram_sessions_bot_user", "bot_id", "user_id"),
+    )
+
     def to_dict(self) -> dict:
         return {
+            "bot_id": self.bot_id,
             "user_id": self.user_id,
             "chat_session_id": self.chat_session_id,
             "username": self.username,
@@ -240,4 +249,189 @@ class AuditLog(Base):
             "user_id": self.user_id,
             "user_ip": self.user_ip,
             "details": json.loads(self.details) if self.details else None,
+        }
+
+
+class BotInstance(Base):
+    """Telegram bot instance with individual configuration"""
+    __tablename__ = "bot_instances"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # slug like "sales-bot"
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+    # Telegram configuration
+    bot_token: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    allowed_users: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
+    admin_users: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
+    welcome_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    unauthorized_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    typing_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # AI configuration
+    llm_backend: Mapped[str] = mapped_column(String(20), default="vllm")  # vllm or gemini
+    llm_persona: Mapped[str] = mapped_column(String(50), default="gulya")
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    llm_params: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON: temperature, etc.
+
+    # TTS configuration
+    tts_engine: Mapped[str] = mapped_column(String(20), default="xtts")  # xtts, piper, openvoice
+    tts_voice: Mapped[str] = mapped_column(String(50), default="gulya")
+    tts_preset: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Timestamps
+    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_allowed_users(self) -> List[int]:
+        if not self.allowed_users:
+            return []
+        try:
+            return json.loads(self.allowed_users)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_allowed_users(self, users: List[int]):
+        self.allowed_users = json.dumps(users)
+
+    def get_admin_users(self) -> List[int]:
+        if not self.admin_users:
+            return []
+        try:
+            return json.loads(self.admin_users)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_admin_users(self, users: List[int]):
+        self.admin_users = json.dumps(users)
+
+    def get_llm_params(self) -> dict:
+        if not self.llm_params:
+            return {}
+        try:
+            return json.loads(self.llm_params)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_llm_params(self, params: dict):
+        self.llm_params = json.dumps(params, ensure_ascii=False)
+
+    def to_dict(self, include_token: bool = False) -> dict:
+        result = {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "enabled": self.enabled,
+            # Telegram
+            "bot_token_masked": "***" + self.bot_token[-4:] if self.bot_token and len(self.bot_token) > 4 else "",
+            "allowed_users": self.get_allowed_users(),
+            "admin_users": self.get_admin_users(),
+            "welcome_message": self.welcome_message,
+            "unauthorized_message": self.unauthorized_message,
+            "error_message": self.error_message,
+            "typing_enabled": self.typing_enabled,
+            # AI
+            "llm_backend": self.llm_backend,
+            "llm_persona": self.llm_persona,
+            "system_prompt": self.system_prompt,
+            "llm_params": self.get_llm_params(),
+            # TTS
+            "tts_engine": self.tts_engine,
+            "tts_voice": self.tts_voice,
+            "tts_preset": self.tts_preset,
+            # Timestamps
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None,
+        }
+        if include_token and self.bot_token:
+            result["bot_token"] = self.bot_token
+        return result
+
+
+class WidgetInstance(Base):
+    """Website widget instance with individual configuration"""
+    __tablename__ = "widget_instances"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # slug like "support-widget"
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+    # Appearance
+    title: Mapped[str] = mapped_column(String(100), default="AI Ассистент")
+    greeting: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    placeholder: Mapped[str] = mapped_column(String(200), default="Введите сообщение...")
+    primary_color: Mapped[str] = mapped_column(String(20), default="#6366f1")
+    position: Mapped[str] = mapped_column(String(20), default="right")  # left or right
+
+    # Access control
+    allowed_domains: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
+    tunnel_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # AI configuration
+    llm_backend: Mapped[str] = mapped_column(String(20), default="vllm")
+    llm_persona: Mapped[str] = mapped_column(String(50), default="gulya")
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    llm_params: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON
+
+    # TTS configuration
+    tts_engine: Mapped[str] = mapped_column(String(20), default="xtts")
+    tts_voice: Mapped[str] = mapped_column(String(50), default="gulya")
+    tts_preset: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Timestamps
+    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_allowed_domains(self) -> List[str]:
+        if not self.allowed_domains:
+            return []
+        try:
+            return json.loads(self.allowed_domains)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_allowed_domains(self, domains: List[str]):
+        self.allowed_domains = json.dumps(domains)
+
+    def get_llm_params(self) -> dict:
+        if not self.llm_params:
+            return {}
+        try:
+            return json.loads(self.llm_params)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_llm_params(self, params: dict):
+        self.llm_params = json.dumps(params, ensure_ascii=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "enabled": self.enabled,
+            # Appearance
+            "title": self.title,
+            "greeting": self.greeting,
+            "placeholder": self.placeholder,
+            "primary_color": self.primary_color,
+            "position": self.position,
+            # Access
+            "allowed_domains": self.get_allowed_domains(),
+            "tunnel_url": self.tunnel_url,
+            # AI
+            "llm_backend": self.llm_backend,
+            "llm_persona": self.llm_persona,
+            "system_prompt": self.system_prompt,
+            "llm_params": self.get_llm_params(),
+            # TTS
+            "tts_engine": self.tts_engine,
+            "tts_voice": self.tts_voice,
+            "tts_preset": self.tts_preset,
+            # Timestamps
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None,
         }

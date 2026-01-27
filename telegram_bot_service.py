@@ -2,6 +2,9 @@
 """
 Telegram Bot Service for AI Secretary
 Connects Telegram users to the AI assistant
+
+Supports multi-instance mode via BOT_INSTANCE_ID environment variable.
+Each bot instance has its own configuration loaded from the database.
 """
 
 import asyncio
@@ -32,6 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
+BOT_INSTANCE_ID = os.environ.get("BOT_INSTANCE_ID", "default")
 CONFIG_FILE = Path(__file__).parent / "telegram_config.json"
 SESSIONS_FILE = Path(__file__).parent / "telegram_sessions.json"
 
@@ -50,34 +54,98 @@ DEFAULT_CONFIG = {
 
 
 class TelegramBotService:
-    def __init__(self):
-        self.config: Dict = self._load_config()
-        self.sessions: Dict[int, str] = self._load_sessions()  # user_id -> session_id
+    def __init__(self, instance_id: str = None):
+        self.instance_id = instance_id or BOT_INSTANCE_ID
+        self.config: Dict = {}
+        self.sessions: Dict[int, str] = {}  # user_id -> session_id
         self.app: Optional[Application] = None
         self.running = False
         self._http_session: Optional[aiohttp.ClientSession] = None
+        self._config_loaded = False
 
-    def _load_config(self) -> Dict:
-        """Load configuration from file"""
-        if CONFIG_FILE.exists():
+        logger.info(f"Initializing TelegramBotService for instance: {self.instance_id}")
+
+    async def _load_config_from_api(self) -> Optional[Dict]:
+        """Load configuration from API (database)."""
+        api_url = os.environ.get("ORCHESTRATOR_API_URL", "http://localhost:8002")
+
+        try:
+            session = await self.get_http_session()
+            endpoint = f"{api_url}/admin/telegram/instances/{self.instance_id}"
+
+            async with session.get(endpoint, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    instance = data.get("instance", {})
+
+                    # Map instance fields to config format
+                    config = {
+                        "enabled": instance.get("enabled", False),
+                        "bot_token": instance.get("bot_token", ""),
+                        "api_url": api_url,
+                        "allowed_users": instance.get("allowed_users", []),
+                        "admin_users": instance.get("admin_users", []),
+                        "welcome_message": instance.get("welcome_message", DEFAULT_CONFIG["welcome_message"]),
+                        "unauthorized_message": instance.get("unauthorized_message", DEFAULT_CONFIG["unauthorized_message"]),
+                        "error_message": instance.get("error_message", DEFAULT_CONFIG["error_message"]),
+                        "typing_enabled": instance.get("typing_enabled", True),
+                        "max_message_length": DEFAULT_CONFIG["max_message_length"],
+                        # AI config for potential future use
+                        "llm_backend": instance.get("llm_backend", "vllm"),
+                        "llm_persona": instance.get("llm_persona", "gulya"),
+                        "system_prompt": instance.get("system_prompt"),
+                        "tts_engine": instance.get("tts_engine", "xtts"),
+                        "tts_voice": instance.get("tts_voice", "gulya"),
+                    }
+
+                    logger.info(f"Loaded config from API for instance {self.instance_id}")
+                    return config
+                elif resp.status == 404:
+                    logger.warning(f"Instance {self.instance_id} not found in database")
+                else:
+                    logger.warning(f"Failed to load config from API: {resp.status}")
+
+        except Exception as e:
+            logger.warning(f"Could not load config from API: {e}")
+
+        return None
+
+    def _load_config_from_file(self) -> Dict:
+        """Load configuration from legacy file (fallback for 'default' instance)."""
+        if self.instance_id == "default" and CONFIG_FILE.exists():
             try:
                 config = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
                 return {**DEFAULT_CONFIG, **config}
             except Exception as e:
-                logger.error(f"Error loading config: {e}")
+                logger.error(f"Error loading config from file: {e}")
         return DEFAULT_CONFIG.copy()
 
+    async def load_config(self) -> Dict:
+        """Load configuration (API first, then file fallback)."""
+        # Try API first
+        config = await self._load_config_from_api()
+
+        if config is None:
+            # Fallback to file for default instance
+            config = self._load_config_from_file()
+            logger.info(f"Using file-based config for instance {self.instance_id}")
+
+        self.config = config
+        self._config_loaded = True
+        return config
+
     def _save_config(self, config: Dict):
-        """Save configuration to file"""
-        CONFIG_FILE.write_text(
-            json.dumps(config, indent=2, ensure_ascii=False),
-            encoding='utf-8'
-        )
+        """Save configuration to file (only for default instance)."""
+        if self.instance_id == "default":
+            CONFIG_FILE.write_text(
+                json.dumps(config, indent=2, ensure_ascii=False),
+                encoding='utf-8'
+            )
         self.config = config
 
     def _load_sessions(self) -> Dict[int, str]:
-        """Load user sessions from file"""
-        if SESSIONS_FILE.exists():
+        """Load user sessions from file (legacy, only for default instance)."""
+        if self.instance_id == "default" and SESSIONS_FILE.exists():
             try:
                 data = json.loads(SESSIONS_FILE.read_text(encoding='utf-8'))
                 # Convert string keys back to int
@@ -87,16 +155,17 @@ class TelegramBotService:
         return {}
 
     def _save_sessions(self):
-        """Save user sessions to file"""
-        SESSIONS_FILE.write_text(
-            json.dumps(self.sessions, indent=2, ensure_ascii=False),
-            encoding='utf-8'
-        )
+        """Save user sessions to file (legacy, only for default instance)."""
+        if self.instance_id == "default":
+            SESSIONS_FILE.write_text(
+                json.dumps(self.sessions, indent=2, ensure_ascii=False),
+                encoding='utf-8'
+            )
 
-    def reload_config(self):
-        """Reload configuration from file"""
-        self.config = self._load_config()
-        logger.info("Configuration reloaded")
+    async def reload_config(self):
+        """Reload configuration from API/file"""
+        await self.load_config()
+        logger.info(f"Configuration reloaded for instance {self.instance_id}")
 
     def get_config(self) -> Dict:
         """Get current configuration"""
@@ -126,8 +195,8 @@ class TelegramBotService:
             self._http_session = aiohttp.ClientSession()
         return self._http_session
 
-    async def get_or_create_session(self, user_id: int) -> str:
-        """Get existing session or create new one for user"""
+    async def get_or_create_session(self, user_id: int, user_info: Dict = None) -> str:
+        """Get existing session or create new one for user."""
         if user_id in self.sessions:
             return self.sessions[user_id]
 
@@ -135,17 +204,45 @@ class TelegramBotService:
         api_url = self.config.get("api_url", "http://localhost:8002")
         session = await self.get_http_session()
 
+        user_info = user_info or {}
+        username = user_info.get("username", "")
+        first_name = user_info.get("first_name", "")
+
+        title = f"Telegram: {first_name or username or user_id}"
+        if self.instance_id != "default":
+            title = f"[{self.instance_id}] {title}"
+
         try:
+            # Create chat session
             async with session.post(
                 f"{api_url}/admin/chat/sessions",
-                json={"title": f"Telegram user {user_id}"}
+                json={
+                    "title": title,
+                    "system_prompt": self.config.get("system_prompt"),
+                }
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     session_id = data["session"]["id"]
                     self.sessions[user_id] = session_id
                     self._save_sessions()
-                    logger.info(f"Created new session {session_id} for user {user_id}")
+
+                    # Also store in telegram_sessions table with bot_id
+                    try:
+                        await session.post(
+                            f"{api_url}/admin/telegram/instances/{self.instance_id}/sessions",
+                            json={
+                                "user_id": user_id,
+                                "chat_session_id": session_id,
+                                "username": username,
+                                "first_name": first_name,
+                                "last_name": user_info.get("last_name", ""),
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to register telegram session: {e}")
+
+                    logger.info(f"Created new session {session_id} for user {user_id} in bot {self.instance_id}")
                     return session_id
                 else:
                     error_text = await resp.text()
@@ -155,9 +252,9 @@ class TelegramBotService:
             logger.error(f"Error creating session: {e}")
             raise
 
-    async def send_message_to_ai(self, user_id: int, message: str) -> str:
+    async def send_message_to_ai(self, user_id: int, message: str, user_info: Dict = None) -> str:
         """Send message to AI and get response"""
-        session_id = await self.get_or_create_session(user_id)
+        session_id = await self.get_or_create_session(user_id, user_info=user_info)
         api_url = self.config.get("api_url", "http://localhost:8002")
         session = await self.get_http_session()
 
@@ -276,7 +373,7 @@ class TelegramBotService:
             logger.warning(f"Unauthorized message from {user_id}")
             return
 
-        logger.info(f"Message from {user_id} ({user.username}): {message_text[:50]}...")
+        logger.info(f"[{self.instance_id}] Message from {user_id} ({user.username}): {message_text[:50]}...")
 
         # Show typing indicator
         if self.config.get("typing_enabled", True):
@@ -285,8 +382,15 @@ class TelegramBotService:
                 action=ChatAction.TYPING
             )
 
+        # Prepare user info for session creation
+        user_info = {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        }
+
         # Get AI response
-        response = await self.send_message_to_ai(user_id, message_text)
+        response = await self.send_message_to_ai(user_id, message_text, user_info=user_info)
 
         # Split long messages
         max_length = self.config.get("max_message_length", 4096)
@@ -313,12 +417,19 @@ class TelegramBotService:
 
     async def start(self):
         """Start the bot"""
+        # Load config if not already loaded
+        if not self._config_loaded:
+            await self.load_config()
+
+        # Load sessions from file (legacy, for default instance)
+        self.sessions = self._load_sessions()
+
         if not self.config.get("bot_token"):
-            logger.error("Bot token not configured")
+            logger.error(f"Bot token not configured for instance {self.instance_id}")
             return False
 
         if not self.config.get("enabled", False):
-            logger.warning("Bot is disabled in config")
+            logger.warning(f"Bot is disabled in config for instance {self.instance_id}")
             return False
 
         try:
@@ -370,6 +481,7 @@ class TelegramBotService:
     def get_status(self) -> Dict:
         """Get bot status"""
         return {
+            "instance_id": self.instance_id,
             "running": self.running,
             "enabled": self.config.get("enabled", False),
             "has_token": bool(self.config.get("bot_token")),
@@ -379,27 +491,31 @@ class TelegramBotService:
         }
 
 
-# Global instance
-_bot_service: Optional[TelegramBotService] = None
+# Global instances (one per instance_id)
+_bot_services: Dict[str, TelegramBotService] = {}
 
 
-def get_telegram_service() -> TelegramBotService:
+def get_telegram_service(instance_id: str = None) -> TelegramBotService:
     """Get or create Telegram bot service instance"""
-    global _bot_service
-    if _bot_service is None:
-        _bot_service = TelegramBotService()
-    return _bot_service
+    instance_id = instance_id or BOT_INSTANCE_ID
+
+    if instance_id not in _bot_services:
+        _bot_services[instance_id] = TelegramBotService(instance_id=instance_id)
+    return _bot_services[instance_id]
 
 
 async def main():
     """Main entry point for standalone execution"""
-    service = get_telegram_service()
+    instance_id = BOT_INSTANCE_ID
+    logger.info(f"Starting Telegram bot service for instance: {instance_id}")
+
+    service = get_telegram_service(instance_id)
 
     # Handle shutdown gracefully
     loop = asyncio.get_event_loop()
 
     def shutdown_handler():
-        logger.info("Shutdown signal received")
+        logger.info(f"Shutdown signal received for instance {instance_id}")
         asyncio.create_task(service.stop())
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -407,6 +523,7 @@ async def main():
 
     if await service.start():
         # Keep running
+        logger.info(f"Bot instance {instance_id} started successfully")
         try:
             while service.running:
                 await asyncio.sleep(1)
@@ -415,7 +532,7 @@ async def main():
         finally:
             await service.stop()
     else:
-        logger.error("Failed to start bot")
+        logger.error(f"Failed to start bot instance {instance_id}")
         sys.exit(1)
 
 
