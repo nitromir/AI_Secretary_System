@@ -10,7 +10,11 @@ import {
   RotateCw,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Cpu,
+  Sparkles,
+  Code,
+  Languages
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
 import { useToastStore } from '@/stores/toast'
@@ -28,6 +32,11 @@ const stopUnusedVllm = ref(false)
 const { data: backendData, isLoading: backendLoading } = useQuery({
   queryKey: ['llm-backend'],
   queryFn: () => llmApi.getBackend(),
+})
+
+const { data: modelsData } = useQuery({
+  queryKey: ['llm-models'],
+  queryFn: () => llmApi.getModels(),
 })
 
 const { data: personasData } = useQuery({
@@ -197,6 +206,88 @@ function saveParams() {
             {{ setBackendMutation.error.value?.message || 'Ошибка переключения' }}
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Available Models (vLLM) -->
+    <div v-if="isVllm" class="bg-card rounded-lg border border-border">
+      <div class="p-4 border-b border-border">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <Cpu class="w-5 h-5" />
+          vLLM Models
+        </h2>
+      </div>
+
+      <div class="p-4">
+        <!-- Current Model -->
+        <div v-if="modelsData?.current_model" class="mb-4 p-4 bg-primary/10 rounded-lg border border-primary/30">
+          <div class="flex items-center gap-2 mb-2">
+            <CheckCircle2 class="w-5 h-5 text-green-500" />
+            <span class="font-semibold">Текущая модель:</span>
+            <span>{{ modelsData.current_model.name }}</span>
+            <span v-if="modelsData.current_model.lora" class="px-2 py-0.5 bg-primary/20 rounded text-xs">
+              + {{ modelsData.current_model.lora }} LoRA
+            </span>
+          </div>
+          <p v-if="modelsData.current_model.description" class="text-sm text-muted-foreground">
+            {{ modelsData.current_model.description }}
+          </p>
+        </div>
+
+        <!-- Available Models Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            v-for="(model, id) in modelsData?.available_models"
+            :key="id"
+            :class="[
+              'p-4 rounded-lg border transition-all',
+              modelsData?.current_model?.id === id
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/50'
+            ]"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold">{{ model.name }}</h3>
+              <span v-if="modelsData?.current_model?.id === id" class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded text-xs">
+                Active
+              </span>
+            </div>
+
+            <p class="text-sm text-muted-foreground mb-3">{{ model.description }}</p>
+
+            <div class="flex flex-wrap gap-1 mb-3">
+              <span
+                v-for="feature in model.features"
+                :key="feature"
+                class="px-2 py-0.5 bg-secondary rounded-full text-xs"
+              >
+                {{ feature }}
+              </span>
+            </div>
+
+            <div class="text-xs text-muted-foreground space-y-1">
+              <div class="flex justify-between">
+                <span>VRAM:</span>
+                <span>{{ model.size }}</span>
+              </div>
+              <div v-if="model.lora_support" class="flex justify-between">
+                <span>LoRA:</span>
+                <span class="text-green-500">Поддерживается</span>
+              </div>
+            </div>
+
+            <div class="mt-3 pt-3 border-t border-border">
+              <code class="text-xs bg-secondary px-2 py-1 rounded block">
+                ./start_gpu.sh {{ model.start_flag || '' }}
+              </code>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-sm text-muted-foreground mt-4">
+          <AlertCircle class="w-4 h-4 inline mr-1" />
+          Для смены модели перезапустите систему с нужным флагом. Hot-swap требует рестарта vLLM.
+        </p>
       </div>
     </div>
 

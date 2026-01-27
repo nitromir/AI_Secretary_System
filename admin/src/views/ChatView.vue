@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { chatApi, ttsApi, type ChatSession, type ChatMessage, type ChatSessionSummary } from '@/api'
+import { chatApi, ttsApi, llmApi, sttApi, type ChatSession, type ChatMessage, type ChatSessionSummary } from '@/api'
 import {
   MessageSquare,
   Plus,
@@ -20,7 +20,12 @@ import {
   MoreVertical,
   Volume2,
   VolumeX,
-  Square
+  Square,
+  RotateCw,
+  FileText,
+  Sparkles,
+  Mic,
+  MicOff
 } from 'lucide-vue-next'
 
 const queryClient = useQueryClient()
@@ -33,7 +38,10 @@ const streamingContent = ref('')
 const editingMessageId = ref<string | null>(null)
 const editingContent = ref('')
 const showSettings = ref(false)
+const settingsTab = ref<'session' | 'default'>('session')
 const customPrompt = ref('')
+const editingDefaultPrompt = ref('')
+const isEditingDefault = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
 const showSidebar = ref(true)
 
@@ -43,6 +51,21 @@ const audioUrl = ref<string | null>(null)
 const speakingMessageId = ref<string | null>(null)
 const isSpeaking = ref(false)
 const ttsLoading = ref<string | null>(null)
+
+// Voice mode - auto-play TTS for assistant responses
+const voiceMode = ref(localStorage.getItem('chat-voice-mode') === 'true')
+const pendingTtsMessageId = ref<string | null>(null)
+
+// Voice input (STT) state
+const isRecording = ref(false)
+const isTranscribing = ref(false)
+const mediaRecorder = ref<MediaRecorder | null>(null)
+const audioChunks = ref<Blob[]>([])
+
+// Save voice mode preference
+watch(voiceMode, (val) => {
+  localStorage.setItem('chat-voice-mode', val ? 'true' : 'false')
+})
 
 // Queries
 const { data: sessionsData, refetch: refetchSessions } = useQuery({
@@ -141,6 +164,23 @@ const deleteMessageMutation = useMutation({
   },
 })
 
+const saveDefaultPromptMutation = useMutation({
+  mutationFn: ({ persona, prompt }: { persona: string; prompt: string }) =>
+    llmApi.setPrompt(persona, prompt),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['default-prompt'] })
+    isEditingDefault.value = false
+  },
+})
+
+const resetDefaultPromptMutation = useMutation({
+  mutationFn: (persona: string) => llmApi.resetPrompt(persona),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['default-prompt'] })
+    isEditingDefault.value = false
+  },
+})
+
 // Methods
 function scrollToBottom() {
   nextTick(() => {
@@ -175,16 +215,28 @@ function sendMessage() {
   isStreaming.value = true
   streamingContent.value = ''
 
+  let fullContent = ''
   const stream = chatApi.streamMessage(currentSessionId.value, content, (data) => {
     if (data.type === 'chunk' && data.content) {
       streamingContent.value += data.content
+      fullContent += data.content
       scrollToBottom()
     } else if (data.type === 'done' || data.type === 'assistant_message') {
       isStreaming.value = false
+      const responseText = fullContent || streamingContent.value
       streamingContent.value = ''
       refetchSession()
       refetchSessions()
       scrollToBottom()
+
+      // Voice mode: auto-play TTS for the response
+      const messageId = data.message?.id
+      if (voiceMode.value && responseText && messageId) {
+        // Small delay to ensure session is refetched
+        setTimeout(() => {
+          speakMessage(messageId, responseText)
+        }, 100)
+      }
     } else if (data.type === 'error') {
       isStreaming.value = false
       streamingContent.value = ''
@@ -237,6 +289,33 @@ function saveSettings() {
     data: { system_prompt: customPrompt.value || undefined },
   })
   showSettings.value = false
+}
+
+function startEditingDefault() {
+  editingDefaultPrompt.value = defaultPrompt.value
+  isEditingDefault.value = true
+}
+
+function cancelEditingDefault() {
+  isEditingDefault.value = false
+  editingDefaultPrompt.value = ''
+}
+
+function saveDefaultPrompt() {
+  const persona = defaultPromptData.value?.persona
+  if (!persona) return
+  saveDefaultPromptMutation.mutate({
+    persona,
+    prompt: editingDefaultPrompt.value,
+  })
+}
+
+function resetDefaultPrompt() {
+  const persona = defaultPromptData.value?.persona
+  if (!persona) return
+  if (confirm('Reset to original prompt? This cannot be undone.')) {
+    resetDefaultPromptMutation.mutate(persona)
+  }
 }
 
 function copyToClipboard(text: string) {
@@ -294,9 +373,74 @@ function onAudioEnded() {
   speakingMessageId.value = null
 }
 
+// Voice input (STT) functions
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+
+    mediaRecorder.value = new MediaRecorder(stream, {
+      mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+    })
+    audioChunks.value = []
+
+    mediaRecorder.value.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.value.push(event.data)
+      }
+    }
+
+    mediaRecorder.value.onstop = async () => {
+      // Stop all tracks
+      stream.getTracks().forEach(track => track.stop())
+
+      if (audioChunks.value.length === 0) return
+
+      const audioBlob = new Blob(audioChunks.value, { type: mediaRecorder.value?.mimeType || 'audio/webm' })
+
+      // Transcribe
+      isTranscribing.value = true
+      try {
+        const result = await sttApi.transcribe(audioBlob)
+        if (result.text) {
+          // Append to input or replace
+          inputMessage.value = inputMessage.value
+            ? inputMessage.value + ' ' + result.text
+            : result.text
+        }
+      } catch (e) {
+        console.error('Transcription failed:', e)
+      } finally {
+        isTranscribing.value = false
+      }
+    }
+
+    mediaRecorder.value.start()
+    isRecording.value = true
+  } catch (e) {
+    console.error('Failed to start recording:', e)
+    alert('Could not access microphone. Please check permissions.')
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder.value && isRecording.value) {
+    mediaRecorder.value.stop()
+    isRecording.value = false
+  }
+}
+
+function toggleRecording() {
+  if (isRecording.value) {
+    stopRecording()
+  } else {
+    startRecording()
+  }
+}
+
 // Cleanup on unmount
 onUnmounted(() => {
   stopSpeaking()
+  stopRecording()
   if (audioUrl.value) {
     URL.revokeObjectURL(audioUrl.value)
   }
@@ -407,6 +551,18 @@ watch(sessions, (newSessions) => {
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Voice mode toggle -->
+          <button
+            @click="voiceMode = !voiceMode"
+            :class="[
+              'p-2 rounded-lg transition-colors',
+              voiceMode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
+            ]"
+            :title="voiceMode ? 'Voice mode ON (click to disable)' : 'Voice mode OFF (click to enable)'"
+          >
+            <Volume2 v-if="voiceMode" class="w-4 h-4" />
+            <VolumeX v-else class="w-4 h-4" />
+          </button>
           <button
             @click="showSettings = true"
             class="p-2 rounded-lg hover:bg-secondary transition-colors"
@@ -585,23 +741,45 @@ watch(sessions, (newSessions) => {
 
       <!-- Input Area -->
       <div v-if="currentSession" class="p-4 border-t border-border bg-card">
-        <div class="flex gap-3">
+        <div class="flex gap-3 items-end">
           <textarea
             v-model="inputMessage"
             @keydown.enter.exact.prevent="sendMessage"
             placeholder="Type a message..."
             rows="1"
             class="flex-1 p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-            :disabled="isStreaming"
+            :disabled="isStreaming || isRecording"
           />
+          <!-- Microphone button -->
+          <button
+            @click="toggleRecording"
+            :disabled="isStreaming || isTranscribing"
+            :class="[
+              'p-3 rounded-lg transition-colors',
+              isRecording
+                ? 'bg-red-500 text-white animate-pulse'
+                : 'bg-secondary hover:bg-secondary/80'
+            ]"
+            :title="isRecording ? 'Stop recording' : (isTranscribing ? 'Transcribing...' : 'Start voice input')"
+          >
+            <Loader2 v-if="isTranscribing" class="w-5 h-5 animate-spin" />
+            <MicOff v-else-if="isRecording" class="w-5 h-5" />
+            <Mic v-else class="w-5 h-5" />
+          </button>
+          <!-- Send button -->
           <button
             @click="sendMessage"
-            :disabled="!inputMessage.trim() || isStreaming"
-            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            :disabled="!inputMessage.trim() || isStreaming || isRecording"
+            class="p-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             <Send v-if="!isStreaming" class="w-5 h-5" />
             <Loader2 v-else class="w-5 h-5 animate-spin" />
           </button>
+        </div>
+        <!-- Recording indicator -->
+        <div v-if="isRecording" class="mt-2 flex items-center gap-2 text-sm text-red-500">
+          <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+          Recording... Click mic to stop
         </div>
       </div>
     </div>
@@ -612,48 +790,152 @@ watch(sessions, (newSessions) => {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       @click.self="showSettings = false"
     >
-      <div class="bg-card border border-border rounded-lg w-full max-w-lg p-6 m-4">
+      <div class="bg-card border border-border rounded-lg w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto">
         <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
           <Settings2 class="w-5 h-5" />
           Chat Settings
         </h3>
 
-        <div class="space-y-4">
+        <!-- Tabs -->
+        <div class="flex gap-2 mb-4 border-b border-border">
+          <button
+            @click="settingsTab = 'session'"
+            :class="[
+              'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+              settingsTab === 'session'
+                ? 'border-primary text-primary'
+                : 'border-transparent hover:text-foreground text-muted-foreground'
+            ]"
+          >
+            <FileText class="w-4 h-4 inline mr-2" />
+            Session Prompt
+          </button>
+          <button
+            @click="settingsTab = 'default'"
+            :class="[
+              'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+              settingsTab === 'default'
+                ? 'border-primary text-primary'
+                : 'border-transparent hover:text-foreground text-muted-foreground'
+            ]"
+          >
+            <Sparkles class="w-4 h-4 inline mr-2" />
+            Default Prompt
+          </button>
+        </div>
+
+        <!-- Session Prompt Tab -->
+        <div v-if="settingsTab === 'session'" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium mb-2">Custom System Prompt</label>
+            <label class="block text-sm font-medium mb-2">Custom System Prompt for This Chat</label>
             <p class="text-xs text-muted-foreground mb-2">
               Leave empty to use the default persona prompt
             </p>
             <textarea
               v-model="customPrompt"
-              rows="6"
+              rows="8"
               class="w-full p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
               placeholder="Enter custom system prompt..."
             />
           </div>
 
-          <div class="p-3 bg-secondary rounded-lg">
-            <p class="text-xs font-medium mb-1">Default prompt ({{ defaultPromptData?.persona }}):</p>
-            <p class="text-xs text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto">
+          <div class="p-3 bg-secondary/50 rounded-lg">
+            <p class="text-xs font-medium mb-1">Current default ({{ defaultPromptData?.persona }}):</p>
+            <p class="text-xs text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto">
               {{ defaultPrompt || 'Loading...' }}
             </p>
           </div>
+
+          <div class="flex justify-end gap-2">
+            <button
+              @click="showSettings = false"
+              class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              @click="saveSettings"
+              :disabled="updateSessionMutation.isPending.value"
+              class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              Save Session Prompt
+            </button>
+          </div>
         </div>
 
-        <div class="flex justify-end gap-2 mt-6">
-          <button
-            @click="showSettings = false"
-            class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            @click="saveSettings"
-            :disabled="updateSessionMutation.isPending.value"
-            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            Save
-          </button>
+        <!-- Default Prompt Tab -->
+        <div v-if="settingsTab === 'default'" class="space-y-4">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium">
+                Default Persona Prompt ({{ defaultPromptData?.persona }})
+              </label>
+              <div class="flex gap-2">
+                <button
+                  v-if="!isEditingDefault"
+                  @click="startEditingDefault"
+                  class="px-3 py-1 text-xs bg-secondary rounded hover:bg-secondary/80 transition-colors"
+                >
+                  <Edit3 class="w-3 h-3 inline mr-1" />
+                  Edit
+                </button>
+                <button
+                  v-if="!isEditingDefault"
+                  @click="resetDefaultPrompt"
+                  :disabled="resetDefaultPromptMutation.isPending.value"
+                  class="px-3 py-1 text-xs bg-secondary rounded hover:bg-secondary/80 transition-colors text-orange-500"
+                >
+                  <RotateCw class="w-3 h-3 inline mr-1" />
+                  Reset
+                </button>
+              </div>
+            </div>
+            <p class="text-xs text-muted-foreground mb-2">
+              This prompt is used for all chats that don't have a custom prompt
+            </p>
+
+            <!-- View mode -->
+            <div v-if="!isEditingDefault" class="p-3 bg-secondary rounded-lg">
+              <p class="text-sm whitespace-pre-wrap max-h-64 overflow-y-auto">
+                {{ defaultPrompt || 'Loading...' }}
+              </p>
+            </div>
+
+            <!-- Edit mode -->
+            <div v-else class="space-y-3">
+              <textarea
+                v-model="editingDefaultPrompt"
+                rows="12"
+                class="w-full p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none font-mono text-sm"
+                placeholder="Enter default system prompt..."
+              />
+              <div class="flex justify-end gap-2">
+                <button
+                  @click="cancelEditingDefault"
+                  class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  @click="saveDefaultPrompt"
+                  :disabled="saveDefaultPromptMutation.isPending.value"
+                  class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  <Loader2 v-if="saveDefaultPromptMutation.isPending.value" class="w-4 h-4 inline mr-1 animate-spin" />
+                  Save Default Prompt
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!isEditingDefault" class="flex justify-end">
+            <button
+              @click="showSettings = false"
+              class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

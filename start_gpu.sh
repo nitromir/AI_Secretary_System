@@ -2,8 +2,10 @@
 # Запуск AI Secretary System на RTX 3060 (GPU 1)
 # XTTS (Лидия) + vLLM работают вместе на одном GPU
 #
-# По умолчанию используется Qwen2.5-7B + Lydia LoRA
-# Для запуска с Llama: ./start_gpu.sh --llama
+# Доступные модели:
+#   ./start_gpu.sh           # Qwen2.5-7B + Lydia LoRA (default)
+#   ./start_gpu.sh --llama   # Llama-3.1-8B GPTQ
+#   ./start_gpu.sh --deepseek # DeepSeek-V2-Lite или DeepSeek-LLM-7B
 #
 # Распределение памяти RTX 3060 (12GB):
 #   vLLM:  50% = ~6GB
@@ -20,9 +22,24 @@ MODEL="qwen"
 # LoRA adapter path (symlink to /home/shaerware/qwen-finetune/qwen2.5-7b-lydia-lora)
 LORA_PATH="$(dirname "$0")/finetune/adapters/qwen2.5-7b-lydia-lora/final"
 
-if [[ "$1" == "--llama" ]]; then
-    MODEL="llama"
-fi
+# Парсинг аргументов
+case "$1" in
+    --llama)
+        MODEL="llama"
+        ;;
+    --deepseek)
+        MODEL="deepseek"
+        ;;
+    --help|-h)
+        echo "Usage: $0 [--qwen|--llama|--deepseek]"
+        echo ""
+        echo "Models:"
+        echo "  (default)   Qwen2.5-7B-AWQ + Lydia LoRA"
+        echo "  --llama     Llama-3.1-8B-Instruct GPTQ"
+        echo "  --deepseek  DeepSeek-LLM-7B-Chat"
+        exit 0
+        ;;
+esac
 
 echo "=========================================="
 echo "  AI Secretary System - GPU Mode"
@@ -30,12 +47,18 @@ echo "  RTX 3060 (12GB)"
 echo "=========================================="
 echo ""
 
-if [[ "$MODEL" == "qwen" ]]; then
-    echo "  LLM: Qwen2.5-7B-AWQ + Lydia LoRA (default)"
-    echo "  LoRA: $LORA_PATH"
-else
-    echo "  LLM: Llama-3.1-8B GPTQ"
-fi
+case "$MODEL" in
+    qwen)
+        echo "  LLM: Qwen2.5-7B-AWQ + Lydia LoRA (default)"
+        echo "  LoRA: $LORA_PATH"
+        ;;
+    llama)
+        echo "  LLM: Llama-3.1-8B-Instruct GPTQ"
+        ;;
+    deepseek)
+        echo "  LLM: DeepSeek-LLM-7B-Chat"
+        ;;
+esac
 
 echo ""
 echo "  Сервисы:"
@@ -68,58 +91,76 @@ export CUDA_VISIBLE_DEVICES=1
 # 1. Запуск vLLM (фоновый процесс)
 echo "[1/2] Запуск vLLM..."
 
-if [[ "$MODEL" == "qwen" ]]; then
-    echo "      Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
-    echo "      Память GPU: 50%"
+case "$MODEL" in
+    qwen)
+        echo "      Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
+        echo "      Память GPU: 50%"
 
-    # Проверка LoRA (не критично - работает и без)
-    if [ ! -f "$LORA_PATH/adapter_config.json" ]; then
-        echo "      ⚠ LoRA adapter not found at $LORA_PATH"
-        echo "      Running Qwen without LoRA..."
-    fi
-fi
+        # Проверка LoRA (не критично - работает и без)
+        LORA_ARGS=""
+        if [ -f "$LORA_PATH/adapter_config.json" ]; then
+            echo "      LoRA: найден"
+            LORA_ARGS="--enable-lora --lora-modules lydia=$LORA_PATH"
+        else
+            echo "      ⚠ LoRA adapter not found at $LORA_PATH"
+            echo "      Running Qwen without LoRA..."
+        fi
 
-if [[ "$MODEL" == "qwen" ]]; then
-    # Qwen AWQ с LoRA
-    LORA_ARGS=""
-    if [ -f "$LORA_PATH/adapter_config.json" ]; then
-        LORA_ARGS="--enable-lora --lora-modules lydia=$LORA_PATH"
-    fi
+        (
+            export CUDA_DEVICE_ORDER=PCI_BUS_ID
+            export CUDA_VISIBLE_DEVICES=1
+            source ~/vllm_env/venv/bin/activate
+            vllm serve "Qwen/Qwen2.5-7B-Instruct-AWQ" \
+                --gpu-memory-utilization 0.50 \
+                --max-model-len 4096 \
+                --dtype float16 \
+                --max-num-seqs 32 \
+                --port 11434 \
+                --enforce-eager \
+                --trust-remote-code \
+                $LORA_ARGS
+        ) > logs/vllm.log 2>&1 &
+        ;;
 
-    (
-        export CUDA_DEVICE_ORDER=PCI_BUS_ID
-        export CUDA_VISIBLE_DEVICES=1
-        source ~/vllm_env/venv/bin/activate
-        vllm serve "Qwen/Qwen2.5-7B-Instruct-AWQ" \
-            --gpu-memory-utilization 0.50 \
-            --max-model-len 4096 \
-            --dtype float16 \
-            --max-num-seqs 32 \
-            --port 11434 \
-            --enforce-eager \
-            --trust-remote-code \
-            $LORA_ARGS
-    ) > logs/vllm.log 2>&1 &
-else
-    # Llama GPTQ
-    echo "      Модель: Llama-3.1-8B-Instruct GPTQ INT4"
-    echo "      Память GPU: 50%"
+    llama)
+        echo "      Модель: Llama-3.1-8B-Instruct GPTQ INT4"
+        echo "      Память GPU: 50%"
 
-    (
-        export CUDA_DEVICE_ORDER=PCI_BUS_ID
-        export CUDA_VISIBLE_DEVICES=1
-        source ~/vllm_env/venv/bin/activate
-        vllm serve "fbaldassarri/meta-llama_Llama-3.1-8B-Instruct-auto_gptq-int4-gs128-sym" \
-            --gpu-memory-utilization 0.50 \
-            --max-model-len 4096 \
-            --quantization gptq \
-            --dtype float16 \
-            --max-num-seqs 32 \
-            --port 11434 \
-            --enforce-eager \
-            --trust-remote-code
-    ) > logs/vllm.log 2>&1 &
-fi
+        (
+            export CUDA_DEVICE_ORDER=PCI_BUS_ID
+            export CUDA_VISIBLE_DEVICES=1
+            source ~/vllm_env/venv/bin/activate
+            vllm serve "fbaldassarri/meta-llama_Llama-3.1-8B-Instruct-auto_gptq-int4-gs128-sym" \
+                --gpu-memory-utilization 0.50 \
+                --max-model-len 4096 \
+                --quantization gptq \
+                --dtype float16 \
+                --max-num-seqs 32 \
+                --port 11434 \
+                --enforce-eager \
+                --trust-remote-code
+        ) > logs/vllm.log 2>&1 &
+        ;;
+
+    deepseek)
+        echo "      Модель: DeepSeek-LLM-7B-Chat"
+        echo "      Память GPU: 50%"
+
+        (
+            export CUDA_DEVICE_ORDER=PCI_BUS_ID
+            export CUDA_VISIBLE_DEVICES=1
+            source ~/vllm_env/venv/bin/activate
+            vllm serve "deepseek-ai/deepseek-llm-7b-chat" \
+                --gpu-memory-utilization 0.50 \
+                --max-model-len 4096 \
+                --dtype float16 \
+                --max-num-seqs 32 \
+                --port 11434 \
+                --enforce-eager \
+                --trust-remote-code
+        ) > logs/vllm.log 2>&1 &
+        ;;
+esac
 
 VLLM_PID=$!
 echo "      PID: $VLLM_PID, лог: logs/vllm.log"
@@ -154,11 +195,17 @@ export LLM_BACKEND=vllm  # Указываем использовать vLLM вм
 export VLLM_API_URL=http://localhost:11434
 
 # Передаём информацию о модели для правильного выбора имени
-if [[ "$MODEL" == "qwen" ]]; then
-    export VLLM_MODEL_NAME="lydia"  # LoRA adapter name
-else
-    export VLLM_MODEL_NAME=""  # Auto-detect
-fi
+case "$MODEL" in
+    qwen)
+        export VLLM_MODEL_NAME="lydia"  # LoRA adapter name
+        ;;
+    llama)
+        export VLLM_MODEL_NAME=""  # Auto-detect
+        ;;
+    deepseek)
+        export VLLM_MODEL_NAME=""  # Auto-detect
+        ;;
+esac
 
 ./venv/bin/python orchestrator.py > logs/orchestrator.log 2>&1 &
 ORCHESTRATOR_PID=$!
@@ -183,11 +230,17 @@ echo ""
 echo "=========================================="
 echo "  ✓ Все сервисы запущены!"
 echo ""
-if [[ "$MODEL" == "qwen" ]]; then
-    echo "  Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
-else
-    echo "  Модель: Llama-3.1-8B GPTQ"
-fi
+case "$MODEL" in
+    qwen)
+        echo "  Модель: Qwen2.5-7B-AWQ + Lydia LoRA"
+        ;;
+    llama)
+        echo "  Модель: Llama-3.1-8B-Instruct GPTQ"
+        ;;
+    deepseek)
+        echo "  Модель: DeepSeek-LLM-7B-Chat"
+        ;;
+esac
 echo ""
 echo "  Логи: tail -f logs/*.log"
 echo "  Admin: http://localhost:8002/admin"

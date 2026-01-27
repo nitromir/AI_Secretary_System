@@ -51,7 +51,12 @@ from db.integration import (
     async_config_manager,
     async_telegram_manager,
     async_audit_logger,
+    async_bot_instance_manager,
+    async_widget_instance_manager,
 )
+
+# Multi-bot manager
+from multi_bot_manager import multi_bot_manager
 
 # vLLM импорт (опциональный - локальная Llama через vLLM)
 try:
@@ -2150,6 +2155,40 @@ async def admin_get_llm_backend():
     return {"backend": "none", "error": "LLM service not initialized"}
 
 
+@app.get("/admin/llm/models")
+async def admin_get_llm_models():
+    """
+    Получить список доступных моделей vLLM и текущую модель.
+    Возвращает информацию о Qwen, Llama, DeepSeek и других моделях.
+    """
+    from vllm_llm_service import AVAILABLE_MODELS, VLLMLLMService
+
+    result = {
+        "available_models": AVAILABLE_MODELS,
+        "current_model": None,
+        "loaded_models": [],
+        "backend": "none",
+    }
+
+    if llm_service:
+        is_vllm = hasattr(llm_service, 'api_url')
+        result["backend"] = "vllm" if is_vllm else "gemini"
+
+        if is_vllm and hasattr(llm_service, 'get_current_model_info'):
+            result["current_model"] = llm_service.get_current_model_info()
+            result["loaded_models"] = llm_service.get_loaded_models()
+        elif not is_vllm:
+            # Gemini backend
+            result["current_model"] = {
+                "id": "gemini",
+                "name": getattr(llm_service, 'model_name', 'gemini-2.0-flash'),
+                "description": "Google Gemini API",
+                "available": True,
+            }
+
+    return result
+
+
 @app.post("/admin/llm/backend")
 async def admin_set_llm_backend(request: AdminBackendRequest, user: User = Depends(get_current_user)):
     """Переключить LLM backend с горячей перезагрузкой сервиса"""
@@ -3488,14 +3527,30 @@ def save_widget_config(config: dict):
 
 @app.get("/admin/widget/config")
 async def admin_get_widget_config():
-    """Получить конфигурацию виджета"""
-    config = await async_config_manager.get_widget()
+    """Получить конфигурацию виджета (legacy endpoint - uses 'default' instance)"""
+    # Try to get from default instance first
+    instance = await async_widget_instance_manager.get_instance("default")
+    if instance:
+        # Convert instance format to legacy config format
+        config = {
+            "enabled": instance.get("enabled", False),
+            "title": instance.get("title", ""),
+            "greeting": instance.get("greeting", ""),
+            "placeholder": instance.get("placeholder", ""),
+            "primary_color": instance.get("primary_color", "#6366f1"),
+            "position": instance.get("position", "right"),
+            "allowed_domains": instance.get("allowed_domains", []),
+            "tunnel_url": instance.get("tunnel_url", ""),
+        }
+    else:
+        # Fallback to legacy config
+        config = await async_config_manager.get_widget()
     return {"config": config}
 
 
 @app.post("/admin/widget/config")
 async def admin_save_widget_config(request: AdminWidgetConfigRequest, user: User = Depends(get_current_user)):
-    """Сохранить конфигурацию виджета"""
+    """Сохранить конфигурацию виджета (legacy endpoint - saves to 'default' instance)"""
     config = {
         "enabled": request.enabled,
         "title": request.title,
@@ -3506,7 +3561,22 @@ async def admin_save_widget_config(request: AdminWidgetConfigRequest, user: User
         "allowed_domains": request.allowed_domains,
         "tunnel_url": request.tunnel_url
     }
+
+    # Save to legacy config (backward compatibility)
     await async_config_manager.set_widget(config)
+
+    # Also save to 'default' widget instance
+    existing_instance = await async_widget_instance_manager.get_instance("default")
+    if existing_instance:
+        await async_widget_instance_manager.update_instance("default", **config)
+    else:
+        # Create default instance if it doesn't exist
+        await async_widget_instance_manager.create_instance(
+            name="Default Widget",
+            description="Default widget (legacy)",
+            id="default",
+            **config
+        )
 
     # Audit log
     await async_audit_logger.log(
@@ -3521,9 +3591,33 @@ async def admin_save_widget_config(request: AdminWidgetConfigRequest, user: User
 
 
 @app.get("/widget.js")
-async def get_widget_script(request: Request):
-    """Динамически генерируемый скрипт виджета"""
-    config = await async_config_manager.get_widget()
+async def get_widget_script(request: Request, instance: Optional[str] = None):
+    """Динамически генерируемый скрипт виджета.
+
+    Args:
+        instance: Optional widget instance ID. If not provided, uses legacy config or 'default' instance.
+    """
+    config = None
+
+    # Try to load from widget instance if specified
+    if instance:
+        instance_data = await async_widget_instance_manager.get_instance(instance)
+        if instance_data:
+            config = instance_data
+        else:
+            return Response(
+                content=f"// Widget instance '{instance}' not found",
+                media_type="application/javascript",
+                status_code=404
+            )
+    else:
+        # Try default instance first, fallback to legacy config
+        instance_data = await async_widget_instance_manager.get_instance("default")
+        if instance_data:
+            config = instance_data
+        else:
+            # Fallback to legacy config
+            config = await async_config_manager.get_widget()
 
     # Проверяем включен ли виджет
     if not config.get("enabled", False):
@@ -3561,13 +3655,16 @@ async def get_widget_script(request: Request):
     widget_js = widget_path.read_text(encoding='utf-8')
 
     # Генерируем скрипт с настройками
+    instance_id = instance or config.get("id", "default")
     settings_js = f"""
 // Auto-generated widget settings
+// Instance: {instance_id}
 window.aiChatSettings = {{
   apiUrl: '{api_url}',
+  instanceId: '{instance_id}',
   title: '{config.get("title", "AI Ассистент")}',
-  greeting: '{config.get("greeting", "").replace("'", "\\'")}',
-  placeholder: '{config.get("placeholder", "").replace("'", "\\'")}',
+  greeting: '{(config.get("greeting") or "").replace("'", "\\'")}',
+  placeholder: '{(config.get("placeholder") or "").replace("'", "\\'")}',
   primaryColor: '{config.get("primary_color", "#6366f1")}',
   position: '{config.get("position", "right")}'
 }};
@@ -3622,8 +3719,26 @@ def save_telegram_config(config: dict):
 
 @app.get("/admin/telegram/config")
 async def admin_get_telegram_config():
-    """Получить конфигурацию Telegram бота"""
-    config = await async_config_manager.get_telegram()
+    """Получить конфигурацию Telegram бота (legacy endpoint - uses 'default' instance)"""
+    # Try to get from default bot instance first (with token for internal use)
+    instance = await async_bot_instance_manager.get_instance_with_token("default")
+    if instance:
+        # Convert instance format to legacy config format
+        config = {
+            "enabled": instance.get("enabled", False),
+            "bot_token": instance.get("bot_token", ""),
+            "api_url": f"http://localhost:{os.getenv('ORCHESTRATOR_PORT', '8002')}",
+            "allowed_users": instance.get("allowed_users", []),
+            "admin_users": instance.get("admin_users", []),
+            "welcome_message": instance.get("welcome_message", ""),
+            "unauthorized_message": instance.get("unauthorized_message", ""),
+            "error_message": instance.get("error_message", ""),
+            "typing_enabled": instance.get("typing_enabled", True),
+        }
+    else:
+        # Fallback to legacy config
+        config = await async_config_manager.get_telegram()
+
     # Маскируем токен для безопасности
     if config.get("bot_token"):
         token = config["bot_token"]
@@ -3638,13 +3753,21 @@ async def admin_get_telegram_config():
 
 @app.post("/admin/telegram/config")
 async def admin_save_telegram_config(request: AdminTelegramConfigRequest, user: User = Depends(get_current_user)):
-    """Сохранить конфигурацию Telegram бота"""
-    # Load existing config to preserve token if not provided
-    existing = await async_config_manager.get_telegram()
+    """Сохранить конфигурацию Telegram бота (legacy endpoint - saves to 'default' instance)"""
+    # Load existing to preserve token if not provided
+    existing_instance = await async_bot_instance_manager.get_instance_with_token("default")
+    existing_legacy = await async_config_manager.get_telegram()
+
+    # Use token from instance first, then legacy, then request
+    existing_token = ""
+    if existing_instance and existing_instance.get("bot_token"):
+        existing_token = existing_instance["bot_token"]
+    elif existing_legacy.get("bot_token"):
+        existing_token = existing_legacy["bot_token"]
 
     config = {
         "enabled": request.enabled,
-        "bot_token": request.bot_token if request.bot_token else existing.get("bot_token", ""),
+        "bot_token": request.bot_token if request.bot_token else existing_token,
         "api_url": request.api_url,
         "allowed_users": request.allowed_users,
         "admin_users": request.admin_users,
@@ -3653,7 +3776,32 @@ async def admin_save_telegram_config(request: AdminTelegramConfigRequest, user: 
         "error_message": request.error_message,
         "typing_enabled": request.typing_enabled
     }
+
+    # Save to legacy config (backward compatibility)
     await async_config_manager.set_telegram(config)
+
+    # Also save to 'default' bot instance
+    instance_data = {
+        "enabled": config["enabled"],
+        "bot_token": config["bot_token"],
+        "allowed_users": config["allowed_users"],
+        "admin_users": config["admin_users"],
+        "welcome_message": config["welcome_message"],
+        "unauthorized_message": config["unauthorized_message"],
+        "error_message": config["error_message"],
+        "typing_enabled": config["typing_enabled"],
+    }
+
+    if existing_instance:
+        await async_bot_instance_manager.update_instance("default", **instance_data)
+    else:
+        # Create default instance if it doesn't exist
+        await async_bot_instance_manager.create_instance(
+            name="Default Bot",
+            description="Default Telegram bot (legacy)",
+            id="default",
+            **instance_data
+        )
 
     # Audit log
     await async_audit_logger.log(
@@ -3669,10 +3817,16 @@ async def admin_save_telegram_config(request: AdminTelegramConfigRequest, user: 
 
 @app.get("/admin/telegram/status")
 async def admin_get_telegram_status():
-    """Получить статус Telegram бота"""
+    """Получить статус Telegram бота (legacy endpoint - uses 'default' instance)"""
     global _telegram_bot_process
 
-    config = await async_config_manager.get_telegram()
+    # Try to get config from default instance first
+    instance = await async_bot_instance_manager.get_instance_with_token("default")
+    if instance:
+        config = instance
+    else:
+        config = await async_config_manager.get_telegram()
+
     running = False
 
     if _telegram_bot_process is not None:
@@ -3681,8 +3835,8 @@ async def admin_get_telegram_status():
         else:
             _telegram_bot_process = None
 
-    # Count sessions from database
-    sessions = await async_telegram_manager.get_all_sessions()
+    # Count sessions from database (for default bot)
+    sessions = await async_telegram_manager.get_sessions_for_bot("default")
     sessions_count = len(sessions)
 
     return {
@@ -3784,9 +3938,372 @@ async def admin_clear_telegram_sessions():
 
 @app.get("/admin/telegram/sessions")
 async def admin_get_telegram_sessions():
-    """Получить список сессий Telegram"""
+    """Получить список сессий Telegram (legacy, for default bot)"""
     sessions = await async_telegram_manager.get_sessions_dict()
     return {"sessions": sessions}
+
+
+# ============== Telegram Bot Instances API ==============
+
+class BotInstanceCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    enabled: bool = True
+    bot_token: Optional[str] = None
+    allowed_users: List[int] = []
+    admin_users: List[int] = []
+    welcome_message: str = "Здравствуйте! Я AI-ассистент. Чем могу помочь?"
+    unauthorized_message: str = "Извините, у вас нет доступа к этому боту."
+    error_message: str = "Произошла ошибка. Попробуйте позже."
+    typing_enabled: bool = True
+    llm_backend: str = "vllm"
+    llm_persona: str = "gulya"
+    system_prompt: Optional[str] = None
+    llm_params: Optional[dict] = None
+    tts_engine: str = "xtts"
+    tts_voice: str = "gulya"
+    tts_preset: Optional[str] = None
+
+
+class BotInstanceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    enabled: Optional[bool] = None
+    bot_token: Optional[str] = None
+    allowed_users: Optional[List[int]] = None
+    admin_users: Optional[List[int]] = None
+    welcome_message: Optional[str] = None
+    unauthorized_message: Optional[str] = None
+    error_message: Optional[str] = None
+    typing_enabled: Optional[bool] = None
+    llm_backend: Optional[str] = None
+    llm_persona: Optional[str] = None
+    system_prompt: Optional[str] = None
+    llm_params: Optional[dict] = None
+    tts_engine: Optional[str] = None
+    tts_voice: Optional[str] = None
+    tts_preset: Optional[str] = None
+
+
+@app.get("/admin/telegram/instances")
+async def admin_list_bot_instances(enabled_only: bool = False):
+    """List all Telegram bot instances"""
+    instances = await async_bot_instance_manager.list_instances(enabled_only=enabled_only)
+
+    # Add running status from multi_bot_manager
+    statuses = await multi_bot_manager.get_all_statuses()
+    for instance in instances:
+        instance["running"] = statuses.get(instance["id"], {}).get("running", False)
+
+    return {"instances": instances}
+
+
+@app.post("/admin/telegram/instances")
+async def admin_create_bot_instance(request: BotInstanceCreateRequest, user: User = Depends(get_current_user)):
+    """Create a new Telegram bot instance"""
+    # Convert request to dict, removing None values
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+
+    instance = await async_bot_instance_manager.create_instance(**kwargs)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="create",
+        resource="bot_instance",
+        resource_id=instance["id"],
+        user_id=user.username,
+        details={"name": instance["name"]}
+    )
+
+    return {"instance": instance}
+
+
+@app.get("/admin/telegram/instances/{instance_id}")
+async def admin_get_bot_instance(instance_id: str, include_token: bool = False):
+    """Get a specific bot instance"""
+    if include_token:
+        instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
+    else:
+        instance = await async_bot_instance_manager.get_instance(instance_id)
+
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    # Add running status
+    status = await multi_bot_manager.get_bot_status(instance_id)
+    instance["running"] = status.get("running", False)
+    instance["pid"] = status.get("pid")
+
+    return {"instance": instance}
+
+
+@app.put("/admin/telegram/instances/{instance_id}")
+async def admin_update_bot_instance(
+    instance_id: str,
+    request: BotInstanceUpdateRequest,
+    user: User = Depends(get_current_user)
+):
+    """Update a bot instance"""
+    # Check if exists
+    existing = await async_bot_instance_manager.get_instance(instance_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    # Convert request to dict, removing None values
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+
+    instance = await async_bot_instance_manager.update_instance(instance_id, **kwargs)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="bot_instance",
+        resource_id=instance_id,
+        user_id=user.username,
+        details={"name": instance.get("name")}
+    )
+
+    return {"instance": instance}
+
+
+@app.delete("/admin/telegram/instances/{instance_id}")
+async def admin_delete_bot_instance(instance_id: str, user: User = Depends(get_current_user)):
+    """Delete a bot instance"""
+    # Stop bot if running
+    await multi_bot_manager.stop_bot(instance_id)
+
+    success = await async_bot_instance_manager.delete_instance(instance_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="delete",
+        resource="bot_instance",
+        resource_id=instance_id,
+        user_id=user.username
+    )
+
+    return {"status": "ok", "message": f"Bot instance {instance_id} deleted"}
+
+
+@app.post("/admin/telegram/instances/{instance_id}/start")
+async def admin_start_bot_instance(instance_id: str):
+    """Start a specific bot instance"""
+    # Check if instance exists
+    instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    if not instance.get("bot_token"):
+        raise HTTPException(status_code=400, detail="Bot token not configured")
+
+    if not instance.get("enabled"):
+        raise HTTPException(status_code=400, detail="Bot instance is disabled")
+
+    result = await multi_bot_manager.start_bot(instance_id)
+    return result
+
+
+@app.post("/admin/telegram/instances/{instance_id}/stop")
+async def admin_stop_bot_instance(instance_id: str):
+    """Stop a specific bot instance"""
+    result = await multi_bot_manager.stop_bot(instance_id)
+    return result
+
+
+@app.post("/admin/telegram/instances/{instance_id}/restart")
+async def admin_restart_bot_instance(instance_id: str):
+    """Restart a specific bot instance"""
+    result = await multi_bot_manager.restart_bot(instance_id)
+    return result
+
+
+@app.get("/admin/telegram/instances/{instance_id}/status")
+async def admin_get_bot_instance_status(instance_id: str):
+    """Get status of a specific bot instance"""
+    instance = await async_bot_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    status = await multi_bot_manager.get_bot_status(instance_id)
+
+    # Add session count
+    sessions = await async_telegram_manager.get_sessions_for_bot(instance_id)
+
+    return {
+        "status": {
+            **status,
+            "enabled": instance.get("enabled", False),
+            "has_token": bool(instance.get("bot_token_masked")),
+            "active_sessions": len(sessions),
+        }
+    }
+
+
+@app.get("/admin/telegram/instances/{instance_id}/sessions")
+async def admin_get_bot_instance_sessions(instance_id: str):
+    """Get sessions for a specific bot instance"""
+    sessions = await async_telegram_manager.get_sessions_for_bot(instance_id)
+    return {"sessions": sessions}
+
+
+@app.post("/admin/telegram/instances/{instance_id}/sessions")
+async def admin_create_bot_instance_session(instance_id: str, request: dict):
+    """Create/register a session for a bot instance (used by telegram_bot_service)"""
+    user_id = request.get("user_id")
+    chat_session_id = request.get("chat_session_id")
+
+    if not user_id or not chat_session_id:
+        raise HTTPException(status_code=400, detail="user_id and chat_session_id required")
+
+    await async_telegram_manager.set_session(
+        user_id=user_id,
+        chat_session_id=chat_session_id,
+        username=request.get("username"),
+        first_name=request.get("first_name"),
+        last_name=request.get("last_name"),
+        bot_id=instance_id,
+    )
+
+    return {"status": "ok"}
+
+
+@app.delete("/admin/telegram/instances/{instance_id}/sessions")
+async def admin_clear_bot_instance_sessions(instance_id: str):
+    """Clear all sessions for a specific bot instance"""
+    count = await async_telegram_manager.clear_sessions_for_bot(instance_id)
+    return {"status": "ok", "message": f"Cleared {count} sessions"}
+
+
+@app.get("/admin/telegram/instances/{instance_id}/logs")
+async def admin_get_bot_instance_logs(instance_id: str, lines: int = 100):
+    """Get recent logs for a bot instance"""
+    logs = await multi_bot_manager.get_recent_logs(instance_id, lines)
+    return {"logs": logs}
+
+
+# ============== Widget Instances API ==============
+
+class WidgetInstanceCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    enabled: bool = True
+    title: str = "AI Ассистент"
+    greeting: str = "Здравствуйте! Чем могу помочь?"
+    placeholder: str = "Введите сообщение..."
+    primary_color: str = "#6366f1"
+    position: str = "right"
+    allowed_domains: List[str] = []
+    tunnel_url: Optional[str] = None
+    llm_backend: str = "vllm"
+    llm_persona: str = "gulya"
+    system_prompt: Optional[str] = None
+    llm_params: Optional[dict] = None
+    tts_engine: str = "xtts"
+    tts_voice: str = "gulya"
+    tts_preset: Optional[str] = None
+
+
+class WidgetInstanceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    enabled: Optional[bool] = None
+    title: Optional[str] = None
+    greeting: Optional[str] = None
+    placeholder: Optional[str] = None
+    primary_color: Optional[str] = None
+    position: Optional[str] = None
+    allowed_domains: Optional[List[str]] = None
+    tunnel_url: Optional[str] = None
+    llm_backend: Optional[str] = None
+    llm_persona: Optional[str] = None
+    system_prompt: Optional[str] = None
+    llm_params: Optional[dict] = None
+    tts_engine: Optional[str] = None
+    tts_voice: Optional[str] = None
+    tts_preset: Optional[str] = None
+
+
+@app.get("/admin/widget/instances")
+async def admin_list_widget_instances(enabled_only: bool = False):
+    """List all widget instances"""
+    instances = await async_widget_instance_manager.list_instances(enabled_only=enabled_only)
+    return {"instances": instances}
+
+
+@app.post("/admin/widget/instances")
+async def admin_create_widget_instance(request: WidgetInstanceCreateRequest, user: User = Depends(get_current_user)):
+    """Create a new widget instance"""
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+
+    instance = await async_widget_instance_manager.create_instance(**kwargs)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="create",
+        resource="widget_instance",
+        resource_id=instance["id"],
+        user_id=user.username,
+        details={"name": instance["name"]}
+    )
+
+    return {"instance": instance}
+
+
+@app.get("/admin/widget/instances/{instance_id}")
+async def admin_get_widget_instance(instance_id: str):
+    """Get a specific widget instance"""
+    instance = await async_widget_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Widget instance not found")
+
+    return {"instance": instance}
+
+
+@app.put("/admin/widget/instances/{instance_id}")
+async def admin_update_widget_instance(
+    instance_id: str,
+    request: WidgetInstanceUpdateRequest,
+    user: User = Depends(get_current_user)
+):
+    """Update a widget instance"""
+    existing = await async_widget_instance_manager.get_instance(instance_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Widget instance not found")
+
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+
+    instance = await async_widget_instance_manager.update_instance(instance_id, **kwargs)
+
+    # Audit log
+    await async_audit_logger.log(
+        action="update",
+        resource="widget_instance",
+        resource_id=instance_id,
+        user_id=user.username,
+        details={"name": instance.get("name")}
+    )
+
+    return {"instance": instance}
+
+
+@app.delete("/admin/widget/instances/{instance_id}")
+async def admin_delete_widget_instance(instance_id: str, user: User = Depends(get_current_user)):
+    """Delete a widget instance"""
+    success = await async_widget_instance_manager.delete_instance(instance_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Widget instance not found")
+
+    # Audit log
+    await async_audit_logger.log(
+        action="delete",
+        resource="widget_instance",
+        resource_id=instance_id,
+        user_id=user.username
+    )
+
+    return {"status": "ok", "message": f"Widget instance {instance_id} deleted"}
 
 
 # ============== Audit Log API ==============

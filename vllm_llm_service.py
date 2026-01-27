@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Сервис интеграции с vLLM (OpenAI-compatible API) для генерации ответов секретаря.
-Поддерживает Qwen2.5-7B с LoRA и Llama-3.1-8B через vLLM.
+Поддерживает Qwen2.5-7B с LoRA, Llama-3.1-8B и DeepSeek-LLM-7B через vLLM.
 Поддерживает несколько персон (Гуля, Лидия и др.)
 """
 import os
@@ -14,6 +14,41 @@ from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ============== Доступные модели vLLM ==============
+AVAILABLE_MODELS = {
+    "qwen": {
+        "id": "qwen",
+        "name": "Qwen2.5-7B-AWQ",
+        "full_name": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+        "description": "Китайская модель от Alibaba. Отличное качество для русского языка.",
+        "size": "~4GB VRAM",
+        "features": ["Русский", "Китайский", "Английский", "Код", "LoRA поддержка"],
+        "start_flag": "",  # default
+        "lora_support": True,
+    },
+    "llama": {
+        "id": "llama",
+        "name": "Llama-3.1-8B-GPTQ",
+        "full_name": "meta-llama/Llama-3.1-8B-Instruct (GPTQ INT4)",
+        "description": "Модель от Meta. Хорошее качество для английского.",
+        "size": "~5GB VRAM",
+        "features": ["Английский", "Код", "Инструкции"],
+        "start_flag": "--llama",
+        "lora_support": False,
+    },
+    "deepseek": {
+        "id": "deepseek",
+        "name": "DeepSeek-LLM-7B",
+        "full_name": "deepseek-ai/deepseek-llm-7b-chat",
+        "description": "Китайская модель от DeepSeek AI. Сильная в reasoning и коде.",
+        "size": "~5GB VRAM",
+        "features": ["Русский", "Китайский", "Английский", "Код", "Reasoning"],
+        "start_flag": "--deepseek",
+        "lora_support": False,
+    },
+}
 
 
 # ============== Персоны секретарей ==============
@@ -80,6 +115,7 @@ class VLLMLLMService:
     Поддерживает:
     - Qwen2.5-7B-Instruct + LoRA
     - Llama-3.1-8B-Instruct GPTQ
+    - DeepSeek-LLM-7B-Chat
     - Несколько персон секретарей (Гуля, Лидия)
     """
 
@@ -586,6 +622,61 @@ class VLLMLLMService:
             return response.status_code == 200
         except:
             return False
+
+    @staticmethod
+    def get_available_models() -> Dict[str, Dict]:
+        """Возвращает список доступных моделей для vLLM"""
+        return AVAILABLE_MODELS
+
+    def get_current_model_info(self) -> Dict:
+        """
+        Возвращает информацию о текущей загруженной модели.
+        Пытается определить модель по имени из vLLM.
+        """
+        model_id = self.model_name.lower() if self.model_name else "unknown"
+
+        # Пытаемся определить по имени модели
+        for key, info in AVAILABLE_MODELS.items():
+            if key in model_id or info["name"].lower() in model_id:
+                return {
+                    "id": key,
+                    "name": info["name"],
+                    "full_name": info["full_name"],
+                    "description": info["description"],
+                    "vllm_model_name": self.model_name,
+                    "available": self.is_available(),
+                }
+
+        # LoRA адаптер (lydia)
+        if "lydia" in model_id:
+            qwen_info = AVAILABLE_MODELS.get("qwen", {})
+            return {
+                "id": "qwen",
+                "name": f"{qwen_info.get('name', 'Qwen')} + Lydia LoRA",
+                "full_name": qwen_info.get("full_name", ""),
+                "description": qwen_info.get("description", ""),
+                "vllm_model_name": self.model_name,
+                "lora": "lydia",
+                "available": self.is_available(),
+            }
+
+        # Неизвестная модель
+        return {
+            "id": "unknown",
+            "name": self.model_name or "Unknown",
+            "vllm_model_name": self.model_name,
+            "available": self.is_available(),
+        }
+
+    def get_loaded_models(self) -> List[str]:
+        """Возвращает список моделей, загруженных в vLLM"""
+        try:
+            response = self.client.get(f"{self.api_url}/v1/models")
+            response.raise_for_status()
+            models = response.json()
+            return [m["id"] for m in models.get("data", [])]
+        except:
+            return []
 
 
 if __name__ == "__main__":
