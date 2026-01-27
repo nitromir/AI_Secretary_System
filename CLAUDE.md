@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and Gemini fallback. Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~80 API endpoints, website chat widget, and Telegram bot integration.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~100 API endpoints, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
 
 ## Architecture
 
@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (13 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (13 tabs, PWA)   │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -188,7 +188,7 @@ python quantize_awq.py      # W4A16 quantization
 |------|---------|
 | `orchestrator.py` | FastAPI server, ~100 endpoints, serves admin panel |
 | `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots |
-| `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek) |
+| `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) |
 | `auth_manager.py` | JWT authentication |
 | `service_manager.py` | Process control (vLLM) |
 | `finetune_manager.py` | LoRA training pipeline |
@@ -375,13 +375,12 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - ✅ Prompt Editor — редактирование дефолтного промпта из чата
 - ✅ DeepSeek LLM — третья модель (./start_gpu.sh --deepseek)
 - ✅ LLM Models UI — отображение доступных моделей в админке
-- ✅ Cloud LLM Providers — подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek)
+- ✅ Cloud LLM Providers — подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter)
 - ✅ Multi-Instance Bots — несколько Telegram ботов с независимыми настройками
 - ✅ Multi-Instance Widgets — несколько виджетов с независимыми настройками
 
 **Ближайшие задачи (Фаза 1):**
 1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
 2. Backup & Restore — полный бэкап системы
-3. Docker Compose — one-command deployment
 
 **Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии

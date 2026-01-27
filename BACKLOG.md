@@ -27,7 +27,7 @@ Roadmap и план работ для AI Secretary System. Этот файл и�
 - [x] **Prompt Editor** — редактирование дефолтного промпта из настроек чата
 - [x] **DeepSeek LLM** — третья модель для vLLM (--deepseek flag)
 - [x] **LLM Models UI** — отображение доступных моделей с характеристиками
-- [x] **Cloud LLM Providers** — универсальное подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, custom)
+- [x] **Cloud LLM Providers** — универсальное подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter, custom)
 - [ ] **Телефония SIM7600** — в планах
 - [ ] **Enterprise-функции** — в планах
 
@@ -1053,7 +1053,7 @@ pip install zipfile36  # или стандартный zipfile
 
 ### 2026-01-27 (update 8) — Cloud LLM Providers
 - **Cloud LLM Providers** — универсальная система управления облачными LLM
-  - Поддержка 6 типов провайдеров: Gemini, Kimi, OpenAI, Claude, DeepSeek, Custom
+  - Поддержка 7 типов провайдеров: Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter, Custom
   - CRUD операции из админ-панели
   - Хранение credentials (API keys, URLs) в SQLite
   - Factory pattern для унифицированного интерфейса

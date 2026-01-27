@@ -480,6 +480,7 @@ curl -X POST http://localhost:8002/admin/llm/backend \
 | **OpenAI** | `openai` | gpt-4o, gpt-4o-mini | api.openai.com |
 | **Anthropic Claude** | `claude` | claude-opus-4, claude-sonnet-4 | api.anthropic.com |
 | **DeepSeek** | `deepseek` | deepseek-chat, deepseek-reasoner | api.deepseek.com |
+| **OpenRouter** | `openrouter` | gemma-2-9b:free, llama-3.2-3b:free, qwen-2-7b:free | openrouter.ai |
 | **Custom** | `custom` | (user-defined) | (user-defined) |
 
 ### Управление провайдерами
