@@ -5,7 +5,6 @@ Config repository for system configuration key-value store.
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, Dict, Any
 
 from sqlalchemy import select, delete
@@ -20,11 +19,6 @@ from db.redis_client import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Legacy JSON file paths for backward compatibility
-BASE_DIR = Path(__file__).parent.parent.parent
-LEGACY_TELEGRAM_CONFIG = BASE_DIR / "telegram_config.json"
-LEGACY_WIDGET_CONFIG = BASE_DIR / "widget_config.json"
 
 
 # Default configurations
@@ -152,28 +146,6 @@ class ConfigRepository(BaseRepository[SystemConfig]):
         await self.set_config(key, current)
         return current
 
-    # ============== Legacy File Sync ==============
-
-    async def _sync_telegram_to_legacy_file(self, config: dict):
-        """Write telegram config to legacy JSON file for backward compatibility."""
-        try:
-            LEGACY_TELEGRAM_CONFIG.write_text(
-                json.dumps(config, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-        except Exception as e:
-            logger.warning(f"Failed to sync telegram config to legacy file: {e}")
-
-    async def _sync_widget_to_legacy_file(self, config: dict):
-        """Write widget config to legacy JSON file for backward compatibility."""
-        try:
-            LEGACY_WIDGET_CONFIG.write_text(
-                json.dumps(config, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-        except Exception as e:
-            logger.warning(f"Failed to sync widget config to legacy file: {e}")
-
     # ============== Telegram Config ==============
 
     async def get_telegram_config(self) -> dict:
@@ -184,9 +156,7 @@ class ConfigRepository(BaseRepository[SystemConfig]):
         """Set Telegram bot configuration."""
         current = await self.get_telegram_config()
         current.update(config)
-        result = await self.set_config("telegram", current)
-        await self._sync_telegram_to_legacy_file(current)
-        return result
+        return await self.set_config("telegram", current)
 
     # ============== Widget Config ==============
 
@@ -198,9 +168,7 @@ class ConfigRepository(BaseRepository[SystemConfig]):
         """Set widget configuration."""
         current = await self.get_widget_config()
         current.update(config)
-        result = await self.set_config("widget", current)
-        await self._sync_widget_to_legacy_file(current)
-        return result
+        return await self.set_config("widget", current)
 
     # ============== LLM Config ==============
 

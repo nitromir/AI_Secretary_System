@@ -322,9 +322,8 @@ class VoiceCloneService:
             logger.error(f"❌ Ошибка загрузки модели: {e}")
             raise
 
-        # Пользовательские пресеты
-        self.custom_presets_file = Path("custom_presets.json")
-        self.custom_presets = self._load_custom_presets()
+        # Пользовательские пресеты (загружаются через reload_presets из БД)
+        self.custom_presets: dict = {}
 
         # Загружаем ВСЕ образцы голоса
         self.voice_samples = self._get_voice_samples()
@@ -342,36 +341,40 @@ class VoiceCloneService:
         self._latents_cache_hash = None
         self._precompute_latents()
 
-    def _load_custom_presets(self) -> dict:
-        """Загружает пользовательские пресеты из файла"""
-        if self.custom_presets_file.exists():
-            try:
-                import json
-                return json.loads(self.custom_presets_file.read_text())
-            except Exception as e:
-                logger.warning(f"⚠️ Ошибка загрузки пользовательских пресетов: {e}")
-        return {}
+    def reload_presets(self, presets_dict: dict = None):
+        """
+        Перезагружает пользовательские пресеты (hot reload).
+
+        Args:
+            presets_dict: Словарь пресетов из БД {name: params}.
+                         Если не передан, пресеты очищаются.
+        """
+        if presets_dict:
+            self.custom_presets = presets_dict.copy()
+        else:
+            self.custom_presets = {}
+        logger.info(f"🔄 Пресеты перезагружены: {len(self.custom_presets)} записей")
 
     def save_custom_preset(self, name: str, params: dict):
         """
-        Сохраняет пользовательский пресет.
+        Сохраняет пользовательский пресет в память.
+        Сохранение в БД выполняется через orchestrator.
 
         Args:
             name: Имя пресета
             params: Параметры пресета (temperature, speed, top_k, top_p, etc.)
         """
-        import json
         self.custom_presets[name] = params
-        self.custom_presets_file.write_text(json.dumps(self.custom_presets, indent=2, ensure_ascii=False))
-        logger.info(f"💾 Пресет '{name}' сохранён")
+        logger.info(f"💾 Пресет '{name}' сохранён в память")
 
     def delete_custom_preset(self, name: str):
-        """Удаляет пользовательский пресет"""
-        import json
+        """
+        Удаляет пользовательский пресет из памяти.
+        Удаление из БД выполняется через orchestrator.
+        """
         if name in self.custom_presets:
             del self.custom_presets[name]
-            self.custom_presets_file.write_text(json.dumps(self.custom_presets, indent=2, ensure_ascii=False))
-            logger.info(f"🗑️ Пресет '{name}' удалён")
+            logger.info(f"🗑️ Пресет '{name}' удалён из памяти")
 
     def get_all_presets(self) -> dict:
         """Возвращает все пресеты (встроенные + пользовательские)"""

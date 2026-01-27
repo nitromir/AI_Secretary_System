@@ -9,7 +9,6 @@ import logging
 from typing import List, Dict, Optional, Generator
 import httpx
 import json
-from pathlib import Path
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -164,13 +163,11 @@ class VLLMLLMService:
         # Системный промпт (явный промпт > персона)
         self.system_prompt = system_prompt or self.persona["prompt"]
 
-        # FAQ
-        self.faq_path = Path("typical_responses.json")
-        self.faq: Dict[str, str] = self._load_faq()
+        # FAQ (загружается через reload_faq из БД)
+        self.faq: Dict[str, str] = {}
 
         logger.info(f"🤖 Инициализация vLLM Service: {self.api_url}")
         logger.info(f"👤 Персона: {self.persona['name']} ({self.persona_id})")
-        logger.info(f"📚 Загружено типовых ответов: {len(self.faq)}")
 
         # Проверяем подключение и получаем/проверяем имя модели
         self._check_connection()
@@ -215,19 +212,9 @@ class VLLMLLMService:
             if not self.model_name:
                 self.model_name = "error"
 
-    def _load_faq(self) -> Dict[str, str]:
-        """Загружает типовые вопросы-ответы из JSON"""
-        if not self.faq_path.exists():
-            logger.warning("Файл типовых ответов не найден: %s → FAQ отключён", self.faq_path)
-            return {}
-
-        try:
-            with self.faq_path.open(encoding="utf-8") as f:
-                raw_data = json.load(f)
-            return {k.lower().strip(): v for k, v in raw_data.items()}
-        except Exception as e:
-            logger.error("Ошибка загрузки типовых ответов %s: %s", self.faq_path, e)
-            return {}
+    def _normalize_faq(self, faq_dict: Dict[str, str]) -> Dict[str, str]:
+        """Нормализует ключи FAQ (lowercase, strip)"""
+        return {k.lower().strip(): v for k, v in faq_dict.items()}
 
     def _check_faq(self, user_message: str) -> Optional[str]:
         """Проверяет сообщение на совпадение с FAQ"""
@@ -264,9 +251,17 @@ class VLLMLLMService:
 
         return response
 
-    def reload_faq(self):
-        """Перезагружает FAQ из файла (hot reload)"""
-        self.faq = self._load_faq()
+    def reload_faq(self, faq_dict: Dict[str, str] = None):
+        """
+        Перезагружает FAQ (hot reload).
+
+        Args:
+            faq_dict: FAQ словарь из БД. Если не передан, FAQ очищается.
+        """
+        if faq_dict:
+            self.faq = self._normalize_faq(faq_dict)
+        else:
+            self.faq = {}
         logger.info(f"🔄 FAQ перезагружен: {len(self.faq)} записей")
 
     def _default_system_prompt(self) -> str:

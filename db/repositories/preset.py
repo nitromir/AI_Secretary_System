@@ -4,7 +4,6 @@ TTS Preset repository for managing voice presets.
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, List, Dict
 
 from sqlalchemy import select, delete
@@ -13,9 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import TTSPreset
 from db.repositories.base import BaseRepository
 from db.redis_client import cache_set, cache_get, cache_delete, CacheKey
-
-# Legacy JSON file path for backward compatibility with voice_clone_service
-LEGACY_PRESETS_FILE = Path(__file__).parent.parent.parent / "custom_presets.json"
 
 
 class PresetRepository(BaseRepository[TTSPreset]):
@@ -34,27 +30,6 @@ class PresetRepository(BaseRepository[TTSPreset]):
     async def _invalidate_cache(self):
         """Invalidate all preset caches."""
         await cache_delete(self._cache_key())
-
-    async def _sync_to_legacy_file(self):
-        """
-        Write custom presets to legacy JSON file for backward compatibility
-        with voice_clone_service that reads from the file directly.
-        """
-        try:
-            custom = await self.get_custom_presets()
-            # Remove 'builtin' key from exported data
-            clean_presets = {}
-            for name, data in custom.items():
-                clean_data = {k: v for k, v in data.items() if k != "builtin"}
-                clean_presets[name] = clean_data
-            LEGACY_PRESETS_FILE.write_text(
-                json.dumps(clean_presets, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-        except Exception as e:
-            # Don't fail operations if legacy sync fails
-            import logging
-            logging.getLogger(__name__).warning(f"Failed to sync presets to legacy file: {e}")
 
     async def get_all_presets(self, include_builtin: bool = True) -> Dict[str, dict]:
         """
@@ -117,7 +92,6 @@ class PresetRepository(BaseRepository[TTSPreset]):
         await self.session.commit()
         await self.session.refresh(preset)
         await self._invalidate_cache()
-        await self._sync_to_legacy_file()
 
         return preset.to_dict()
 
@@ -140,7 +114,6 @@ class PresetRepository(BaseRepository[TTSPreset]):
 
         await self.session.commit()
         await self._invalidate_cache()
-        await self._sync_to_legacy_file()
 
         return preset.to_dict()
 
@@ -153,7 +126,6 @@ class PresetRepository(BaseRepository[TTSPreset]):
         )
         await self.session.commit()
         await self._invalidate_cache()
-        await self._sync_to_legacy_file()
         return result.rowcount > 0
 
     async def import_from_dict(self, presets: Dict[str, dict]) -> int:

@@ -930,44 +930,39 @@ volumes:
 
 ---
 
-### 5.7 Legacy JSON Removal
-**Статус:** `planned`
+### 5.7 Legacy JSON Removal ✅
+**Статус:** `done`
 **Приоритет:** P1 (технический долг)
 **Сложность:** 4/10
 **Оценка:** 1 неделя
 **Влияние:** ★★★★☆
 
-**Проблема:**
-В коде присутствует двойная система хранения: SQLite + Redis + JSON-файлы с "backward compatibility". Это:
-- Усложняет поддержку кода
-- Создаёт риск рассинхронизации данных
-- Увеличивает когнитивную нагрузку на разработчиков
+**Проблема (решена):**
+В коде присутствовала двойная система хранения: SQLite + Redis + JSON-файлы с "backward compatibility". Это:
+- Усложняло поддержку кода
+- Создавало риск рассинхронизации данных
+- Увеличивало когнитивную нагрузку на разработчиков
 
-**Текущее состояние:**
-```
-Запись в БД → sync → JSON файл (для совместимости)
-Чтение: приоритет БД, fallback на JSON
-```
+**Выполнено:**
+- [x] Аудит всех мест использования JSON файлов
+- [x] Удаление `_sync_to_legacy_file()` из репозиториев (faq, preset, config, telegram)
+- [x] Обновление LLM сервисов для загрузки FAQ из БД через `reload_faq(dict)`
+- [x] Обновление voice_clone_service для загрузки пресетов из БД через `reload_presets(dict)`
+- [x] Удаление legacy ChatManager класса из orchestrator.py
+- [x] Удаление legacy функций get/save_widget_config, get/save_telegram_config
+- [x] Добавление startup warning при обнаружении deprecated JSON файлов
+- [x] Добавление автоматической загрузки FAQ и пресетов из БД при старте
 
-**Задачи:**
-- [ ] Аудит всех мест использования JSON файлов
-- [ ] Миграция всех существующих JSON данных в БД (скрипт уже есть)
-- [ ] Удаление `sync_to_json()` вызовов из репозиториев
-- [ ] Удаление `_load_from_json_if_needed()` fallback логики
-- [ ] Обновление документации
-- [ ] Deprecated warning при обнаружении JSON файлов на старте
-- [ ] Удаление legacy JSON файлов из .gitignore
-
-**Файлы для удаления/очистки:**
+**Deprecated файлы (можно удалить после миграции):**
 ```
-typical_responses.json      # → только в БД
-custom_presets.json         # → только в БД
-widget_config.json          # → только в БД
-telegram_config.json        # → только в БД
-chat_sessions.json          # → только в БД
+typical_responses.json      # → data/secretary.db (faq_entries)
+custom_presets.json         # → data/secretary.db (tts_presets)
+widget_config.json          # → data/secretary.db (system_config)
+telegram_config.json        # → data/secretary.db (system_config)
+chat_sessions.json          # → data/secretary.db (chat_sessions + chat_messages)
 ```
 
-**Примечание:** Сначала убедиться, что миграция `scripts/migrate_json_to_db.py` запущена на всех инсталляциях.
+**Миграция:** Запустить `python scripts/migrate_json_to_db.py` перед удалением JSON файлов.
 
 ---
 
@@ -1025,6 +1020,29 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-01-27 (update 9) — Legacy JSON Removal
+- **Полная миграция на SQLite + Redis** — удалён весь legacy JSON код
+  - Удалены `_sync_to_legacy_file()` из всех репозиториев
+  - LLM сервисы загружают FAQ из БД через `reload_faq(dict)`
+  - voice_clone_service загружает пресеты из БД через `reload_presets(dict)`
+  - Удалён legacy ChatManager класс (175+ строк)
+  - Удалены legacy функции get/save_widget_config, get/save_telegram_config
+- **Startup improvements:**
+  - Автоматическая загрузка FAQ и пресетов из БД при старте
+  - Warning при обнаружении deprecated JSON файлов
+- **Затронутые файлы:**
+  ```
+  db/repositories/faq.py        # Удалён sync
+  db/repositories/preset.py     # Удалён sync
+  db/repositories/config.py     # Удалён sync
+  db/repositories/telegram.py   # Удалён sync
+  llm_service.py               # reload_faq(dict)
+  vllm_llm_service.py          # reload_faq(dict)
+  cloud_llm_service.py         # reload_faq(dict)
+  voice_clone_service.py       # reload_presets(dict)
+  orchestrator.py              # Удалён ChatManager, добавлены helper функции
+  ```
 
 ### 2026-01-27 (update 8) — Cloud LLM Providers
 - **Cloud LLM Providers** — универсальная система управления облачными LLM

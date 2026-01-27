@@ -17,7 +17,6 @@ import json
 from typing import List, Dict, Optional, Generator, Union
 from abc import ABC, abstractmethod
 from datetime import datetime
-from pathlib import Path
 
 import httpx
 
@@ -441,9 +440,8 @@ class CloudLLMService:
         self.model_name = provider_config.get('model_name', '')
         self.api_url = provider_config.get('base_url', '')
 
-        # FAQ support (same as LLMService/VLLMLLMService)
-        self.faq_path = Path("typical_responses.json")
-        self.faq: Dict[str, str] = self._load_faq()
+        # FAQ (загружается через reload_faq из БД)
+        self.faq: Dict[str, str] = {}
 
         # Conversation history
         self.conversation_history: List[Dict[str, str]] = []
@@ -453,15 +451,9 @@ class CloudLLMService:
 
         logger.info(f"CloudLLMService initialized: {self.provider_id} ({self.provider_type})")
 
-    def _load_faq(self) -> Dict[str, str]:
-        if not self.faq_path.exists():
-            return {}
-        try:
-            with self.faq_path.open(encoding="utf-8") as f:
-                raw_data = json.load(f)
-            return {k.lower().strip(): v for k, v in raw_data.items()}
-        except Exception:
-            return {}
+    def _normalize_faq(self, faq_dict: Dict[str, str]) -> Dict[str, str]:
+        """Нормализует ключи FAQ (lowercase, strip)"""
+        return {k.lower().strip(): v for k, v in faq_dict.items()}
 
     def _check_faq(self, user_message: str) -> Optional[str]:
         if not self.faq:
@@ -486,9 +478,18 @@ class CloudLLMService:
             response = response.replace(placeholder, value)
         return response
 
-    def reload_faq(self):
-        """Reload FAQ from file."""
-        self.faq = self._load_faq()
+    def reload_faq(self, faq_dict: Dict[str, str] = None):
+        """
+        Перезагружает FAQ (hot reload).
+
+        Args:
+            faq_dict: FAQ словарь из БД. Если не передан, FAQ очищается.
+        """
+        if faq_dict:
+            self.faq = self._normalize_faq(faq_dict)
+        else:
+            self.faq = {}
+        logger.info(f"🔄 FAQ перезагружен: {len(self.faq)} записей")
 
     def is_available(self) -> bool:
         """Check if provider is available."""

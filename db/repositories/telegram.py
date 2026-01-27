@@ -2,11 +2,9 @@
 Telegram repository for managing Telegram user sessions (per bot instance).
 """
 
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
 from sqlalchemy import select, delete, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +14,6 @@ from db.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
-# Legacy JSON file path for backward compatibility
-LEGACY_SESSIONS_FILE = Path(__file__).parent.parent.parent / "telegram_sessions.json"
-
 
 class TelegramRepository(BaseRepository[TelegramSession]):
     """Repository for Telegram user sessions (supports multi-bot)."""
@@ -26,18 +21,6 @@ class TelegramRepository(BaseRepository[TelegramSession]):
     def __init__(self, session: AsyncSession, bot_id: str = "default"):
         super().__init__(session, TelegramSession)
         self.bot_id = bot_id
-
-    async def _sync_to_legacy_file(self):
-        """Write sessions to legacy JSON file for backward compatibility."""
-        try:
-            # Only sync default bot sessions to legacy file
-            sessions = await self.get_sessions_as_dict(bot_id="default")
-            LEGACY_SESSIONS_FILE.write_text(
-                json.dumps(sessions, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-        except Exception as e:
-            logger.warning(f"Failed to sync telegram sessions to legacy file: {e}")
 
     async def get_session(self, user_id: int, bot_id: str = None) -> Optional[str]:
         """Get chat session ID for Telegram user in specific bot."""
@@ -78,7 +61,6 @@ class TelegramRepository(BaseRepository[TelegramSession]):
             self.session.add(telegram_session)
 
         await self.session.commit()
-        await self._sync_to_legacy_file()
         return telegram_session
 
     async def delete_session(self, user_id: int, bot_id: str = None) -> bool:
@@ -93,7 +75,6 @@ class TelegramRepository(BaseRepository[TelegramSession]):
             )
         )
         await self.session.commit()
-        await self._sync_to_legacy_file()
         return result.rowcount > 0
 
     async def get_all_sessions(self, bot_id: str = None) -> List[dict]:
@@ -126,7 +107,6 @@ class TelegramRepository(BaseRepository[TelegramSession]):
             result = await self.session.execute(delete(TelegramSession))
 
         await self.session.commit()
-        await self._sync_to_legacy_file()
         return result.rowcount
 
     async def clear_sessions_for_bot(self, bot_id: str) -> int:
