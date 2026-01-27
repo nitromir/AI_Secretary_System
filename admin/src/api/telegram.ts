@@ -1,5 +1,6 @@
 import { api } from './client'
 
+// Legacy config (for backward compatibility)
 export interface TelegramConfig {
   enabled: boolean
   bot_token: string
@@ -23,6 +24,50 @@ export interface TelegramStatus {
   pid: number | null
 }
 
+// Bot instance types
+export interface BotInstance {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  // Telegram
+  bot_token?: string
+  bot_token_masked?: string
+  allowed_users: number[]
+  admin_users: number[]
+  welcome_message?: string
+  unauthorized_message?: string
+  error_message?: string
+  typing_enabled: boolean
+  // AI
+  llm_backend: string
+  llm_persona: string
+  system_prompt?: string
+  llm_params?: Record<string, unknown>
+  // TTS
+  tts_engine: string
+  tts_voice: string
+  tts_preset?: string
+  // Status (added by API)
+  running?: boolean
+  pid?: number
+  // Timestamps
+  created?: string
+  updated?: string
+}
+
+export interface BotInstanceSession {
+  bot_id: string
+  user_id: number
+  chat_session_id: string
+  username?: string
+  first_name?: string
+  last_name?: string
+  created?: string
+  updated?: string
+}
+
+// Legacy API (kept for backward compatibility)
 export const telegramApi = {
   getConfig: () =>
     api.get<{ config: TelegramConfig }>('/admin/telegram/config'),
@@ -47,4 +92,55 @@ export const telegramApi = {
 
   clearSessions: () =>
     api.delete<{ status: string; message: string }>('/admin/telegram/sessions'),
+}
+
+// Bot instances API
+export const botInstancesApi = {
+  // List instances
+  list: (enabledOnly = false) =>
+    api.get<{ instances: BotInstance[] }>(`/admin/telegram/instances?enabled_only=${enabledOnly}`),
+
+  // Get instance
+  get: (instanceId: string, includeToken = false) =>
+    api.get<{ instance: BotInstance }>(`/admin/telegram/instances/${instanceId}?include_token=${includeToken}`),
+
+  // Create instance
+  create: (data: Partial<BotInstance>) =>
+    api.post<{ instance: BotInstance }>('/admin/telegram/instances', data),
+
+  // Update instance
+  update: (instanceId: string, data: Partial<BotInstance>) =>
+    api.put<{ instance: BotInstance }>(`/admin/telegram/instances/${instanceId}`, data),
+
+  // Delete instance
+  delete: (instanceId: string) =>
+    api.delete<{ status: string; message: string }>(`/admin/telegram/instances/${instanceId}`),
+
+  // Start bot
+  start: (instanceId: string) =>
+    api.post<{ status: string; pid?: number; instance_id: string }>(`/admin/telegram/instances/${instanceId}/start`),
+
+  // Stop bot
+  stop: (instanceId: string) =>
+    api.post<{ status: string; instance_id: string }>(`/admin/telegram/instances/${instanceId}/stop`),
+
+  // Restart bot
+  restart: (instanceId: string) =>
+    api.post<{ status: string; pid?: number; instance_id: string }>(`/admin/telegram/instances/${instanceId}/restart`),
+
+  // Get status
+  getStatus: (instanceId: string) =>
+    api.get<{ status: TelegramStatus }>(`/admin/telegram/instances/${instanceId}/status`),
+
+  // Get sessions
+  getSessions: (instanceId: string) =>
+    api.get<{ sessions: BotInstanceSession[] }>(`/admin/telegram/instances/${instanceId}/sessions`),
+
+  // Clear sessions
+  clearSessions: (instanceId: string) =>
+    api.delete<{ status: string; message: string }>(`/admin/telegram/instances/${instanceId}/sessions`),
+
+  // Get logs
+  getLogs: (instanceId: string, lines = 100) =>
+    api.get<{ logs: string }>(`/admin/telegram/instances/${instanceId}/logs?lines=${lines}`),
 }

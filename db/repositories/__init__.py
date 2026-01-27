@@ -12,6 +12,8 @@ from db.repositories.preset import PresetRepository
 from db.repositories.config import ConfigRepository
 from db.repositories.telegram import TelegramRepository
 from db.repositories.audit import AuditRepository
+from db.repositories.bot_instance import BotInstanceRepository
+from db.repositories.widget_instance import WidgetInstanceRepository
 
 __all__ = [
     "BaseRepository",
@@ -21,4 +23,6 @@ __all__ = [
     "ConfigRepository",
     "TelegramRepository",
     "AuditRepository",
+    "BotInstanceRepository",
+    "WidgetInstanceRepository",
 ]
