@@ -195,11 +195,6 @@ python quantize_awq.py      # W4A16 quantization
 | File | Purpose |
 |------|---------|
 | `data/secretary.db` | SQLite database (primary storage) |
-| `typical_responses.json` | FAQ (legacy, synced from DB) |
-| `custom_presets.json` | TTS presets (legacy, synced from DB) |
-| `chat_sessions.json` | Chat history (legacy, synced from DB) |
-| `widget_config.json` | Widget settings (legacy, synced from DB) |
-| `telegram_config.json` | Telegram settings (legacy, synced from DB) |
 | `./Гуля/`, `./Лидия/` | Voice sample WAV files |
 | `web-widget/` | Embeddable chat widget source |
 | `finetune/datasets/` | Training data symlinks (not in git) |

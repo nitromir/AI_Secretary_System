@@ -470,6 +470,38 @@ async def startup_event():
         logger.info("⏭️ STT отключён (для текстового чата не нужен)")
         stt_service = None
 
+        # Load FAQ and presets from database into services
+        logger.info("📦 Загрузка FAQ и пресетов из БД...")
+        try:
+            await _reload_llm_faq()
+            await _reload_voice_presets()
+            logger.info("✅ FAQ и пресеты загружены из БД")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка загрузки данных из БД: {e}")
+
+        # Check for deprecated legacy JSON files
+        legacy_files = [
+            ("typical_responses.json", "FAQ"),
+            ("custom_presets.json", "TTS presets"),
+            ("chat_sessions.json", "chat sessions"),
+            ("widget_config.json", "widget config"),
+            ("telegram_config.json", "telegram config"),
+        ]
+        found_legacy = []
+        for filename, description in legacy_files:
+            if Path(filename).exists():
+                found_legacy.append(f"{filename} ({description})")
+
+        if found_legacy:
+            logger.warning("=" * 60)
+            logger.warning("⚠️  DEPRECATED: Найдены legacy JSON файлы:")
+            for f in found_legacy:
+                logger.warning(f"    • {f}")
+            logger.warning("    Данные теперь хранятся в SQLite (data/secretary.db).")
+            logger.warning("    Legacy файлы можно удалить после проверки миграции:")
+            logger.warning("    python scripts/migrate_json_to_db.py")
+            logger.warning("=" * 60)
+
         logger.info("✅ Основные сервисы загружены успешно")
 
     except Exception as e:
@@ -1900,180 +1932,6 @@ class EditMessageRequest(BaseModel):
     content: str
 
 
-class ChatManager:
-    """Менеджер чат-сессий с сохранением в файл"""
-
-    def __init__(self, storage_path: Path = None):
-        self.storage_path = storage_path or Path(__file__).parent / "chat_sessions.json"
-        self.sessions: Dict[str, dict] = {}
-        self._load()
-
-    def _load(self):
-        """Загрузить сессии из файла"""
-        if self.storage_path.exists():
-            try:
-                with open(self.storage_path, 'r', encoding='utf-8') as f:
-                    self.sessions = json.load(f)
-                logger.info(f"💬 Загружено {len(self.sessions)} чат-сессий")
-            except Exception as e:
-                logger.error(f"❌ Ошибка загрузки чатов: {e}")
-                self.sessions = {}
-        else:
-            self.sessions = {}
-
-    def _save(self):
-        """Сохранить сессии в файл"""
-        try:
-            with open(self.storage_path, 'w', encoding='utf-8') as f:
-                json.dump(self.sessions, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения чатов: {e}")
-
-    def _generate_id(self) -> str:
-        return f"chat_{int(time.time() * 1000)}"
-
-    def _generate_message_id(self) -> str:
-        return f"msg_{int(time.time() * 1000)}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
-
-    def list_sessions(self) -> List[dict]:
-        """Список всех сессий (краткая информация)"""
-        summaries = []
-        for sid, session in sorted(
-            self.sessions.items(),
-            key=lambda x: x[1].get('updated', ''),
-            reverse=True
-        ):
-            messages = session.get('messages', [])
-            last_msg = messages[-1]['content'][:100] if messages else None
-            summaries.append({
-                'id': sid,
-                'title': session.get('title', 'Новый чат'),
-                'message_count': len(messages),
-                'last_message': last_msg,
-                'created': session.get('created'),
-                'updated': session.get('updated'),
-            })
-        return summaries
-
-    def get_session(self, session_id: str) -> Optional[dict]:
-        """Получить полную сессию"""
-        return self.sessions.get(session_id)
-
-    def create_session(self, title: str = None, system_prompt: str = None) -> dict:
-        """Создать новую сессию"""
-        session_id = self._generate_id()
-        now = datetime.now().isoformat()
-        session = {
-            'id': session_id,
-            'title': title or 'Новый чат',
-            'messages': [],
-            'system_prompt': system_prompt,
-            'created': now,
-            'updated': now,
-        }
-        self.sessions[session_id] = session
-        self._save()
-        return session
-
-    def update_session(self, session_id: str, title: str = None, system_prompt: str = None) -> Optional[dict]:
-        """Обновить сессию"""
-        if session_id not in self.sessions:
-            return None
-        session = self.sessions[session_id]
-        if title is not None:
-            session['title'] = title
-        if system_prompt is not None:
-            session['system_prompt'] = system_prompt
-        session['updated'] = datetime.now().isoformat()
-        self._save()
-        return session
-
-    def delete_session(self, session_id: str) -> bool:
-        """Удалить сессию"""
-        if session_id in self.sessions:
-            del self.sessions[session_id]
-            self._save()
-            return True
-        return False
-
-    def add_message(self, session_id: str, role: str, content: str) -> Optional[dict]:
-        """Добавить сообщение в сессию"""
-        if session_id not in self.sessions:
-            return None
-        msg = {
-            'id': self._generate_message_id(),
-            'role': role,
-            'content': content,
-            'timestamp': datetime.now().isoformat(),
-            'edited': False,
-        }
-        self.sessions[session_id]['messages'].append(msg)
-        self.sessions[session_id]['updated'] = datetime.now().isoformat()
-
-        # Авто-генерация заголовка из первого сообщения
-        if len(self.sessions[session_id]['messages']) == 1 and self.sessions[session_id]['title'] == 'Новый чат':
-            self.sessions[session_id]['title'] = content[:50] + ('...' if len(content) > 50 else '')
-
-        self._save()
-        return msg
-
-    def edit_message(self, session_id: str, message_id: str, content: str) -> Optional[dict]:
-        """Редактировать сообщение"""
-        if session_id not in self.sessions:
-            return None
-        for msg in self.sessions[session_id]['messages']:
-            if msg['id'] == message_id:
-                msg['content'] = content
-                msg['edited'] = True
-                msg['timestamp'] = datetime.now().isoformat()
-                self.sessions[session_id]['updated'] = datetime.now().isoformat()
-                self._save()
-                return msg
-        return None
-
-    def delete_message(self, session_id: str, message_id: str) -> bool:
-        """Удалить сообщение и все последующие"""
-        if session_id not in self.sessions:
-            return False
-        messages = self.sessions[session_id]['messages']
-        for i, msg in enumerate(messages):
-            if msg['id'] == message_id:
-                self.sessions[session_id]['messages'] = messages[:i]
-                self.sessions[session_id]['updated'] = datetime.now().isoformat()
-                self._save()
-                return True
-        return False
-
-    def get_messages_for_llm(self, session_id: str, system_prompt: str = None) -> List[dict]:
-        """Получить сообщения в формате для LLM"""
-        if session_id not in self.sessions:
-            return []
-        session = self.sessions[session_id]
-        messages = []
-
-        # Добавляем системный промпт
-        prompt = session.get('system_prompt') or system_prompt
-        if prompt:
-            messages.append({'role': 'system', 'content': prompt})
-
-        # Добавляем историю
-        for msg in session['messages']:
-            messages.append({'role': msg['role'], 'content': msg['content']})
-
-        return messages
-
-
-# Глобальный менеджер чатов
-chat_manager: Optional[ChatManager] = None
-
-
-def get_chat_manager() -> ChatManager:
-    global chat_manager
-    if chat_manager is None:
-        chat_manager = ChatManager()
-    return chat_manager
-
-
 # ============== Services Endpoints ==============
 
 @app.get("/admin/services/status")
@@ -2775,6 +2633,15 @@ async def admin_set_piper_params(request: AdminPiperParamsRequest):
     return {"status": "ok", "speed": request.speed}
 
 
+async def _reload_voice_presets():
+    """Загружает пресеты из БД и обновляет voice сервисы."""
+    presets_dict = await async_preset_manager.get_custom()
+    # Reload for all XTTS voice services
+    for svc in [voice_service, gulya_voice_service]:
+        if svc and hasattr(svc, 'reload_presets'):
+            svc.reload_presets(presets_dict)
+
+
 @app.get("/admin/tts/presets/custom")
 async def admin_get_custom_presets():
     """Получить пользовательские пресеты TTS"""
@@ -2786,6 +2653,7 @@ async def admin_get_custom_presets():
 async def admin_create_custom_preset(request: AdminCustomPresetRequest):
     """Создать пользовательский пресет TTS"""
     await async_preset_manager.create(request.name, request.params)
+    await _reload_voice_presets()
     return {"status": "ok", "preset": request.name}
 
 
@@ -2796,6 +2664,7 @@ async def admin_update_custom_preset(name: str, request: AdminCustomPresetReques
     if not result:
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
+    await _reload_voice_presets()
     return {"status": "ok", "preset": name}
 
 
@@ -2805,10 +2674,18 @@ async def admin_delete_custom_preset(name: str):
     if not await async_preset_manager.delete(name):
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
+    await _reload_voice_presets()
     return {"status": "ok", "deleted": name}
 
 
 # ============== FAQ Endpoints ==============
+
+async def _reload_llm_faq():
+    """Загружает FAQ из БД и обновляет LLM сервис."""
+    if llm_service and hasattr(llm_service, 'reload_faq'):
+        faq_dict = await async_faq_manager.get_all()
+        llm_service.reload_faq(faq_dict)
+
 
 @app.get("/admin/faq")
 async def admin_get_faq():
@@ -2831,9 +2708,8 @@ async def admin_add_faq(request: AdminFAQRequest, user: User = Depends(get_curre
         details={"response": request.response[:100]}
     )
 
-    # Перезагружаем FAQ в LLM сервисе
-    if llm_service and hasattr(llm_service, 'reload_faq'):
-        llm_service.reload_faq()
+    # Перезагружаем FAQ в LLM сервисе из БД
+    await _reload_llm_faq()
 
     return {"status": "ok", "trigger": request.trigger}
 
@@ -2854,8 +2730,7 @@ async def admin_update_faq(trigger: str, request: AdminFAQRequest, user: User = 
         details={"old_trigger": trigger, "response": request.response[:100]}
     )
 
-    if llm_service and hasattr(llm_service, 'reload_faq'):
-        llm_service.reload_faq()
+    await _reload_llm_faq()
 
     return {"status": "ok", "trigger": request.trigger}
 
@@ -2874,19 +2749,17 @@ async def admin_delete_faq(trigger: str, user: User = Depends(get_current_user))
         user_id=user.username
     )
 
-    if llm_service and hasattr(llm_service, 'reload_faq'):
-        llm_service.reload_faq()
+    await _reload_llm_faq()
 
     return {"status": "ok", "deleted": trigger}
 
 
 @app.post("/admin/faq/reload")
 async def admin_reload_faq():
-    """Перезагрузить FAQ из файла"""
-    if llm_service and hasattr(llm_service, 'reload_faq'):
-        llm_service.reload_faq()
-        return {"status": "ok", "count": len(llm_service.faq)}
-    raise HTTPException(status_code=503, detail="LLM service not initialized")
+    """Перезагрузить FAQ из БД"""
+    await _reload_llm_faq()
+    faq_count = len(llm_service.faq) if llm_service and hasattr(llm_service, 'faq') else 0
+    return {"status": "ok", "count": faq_count}
 
 
 @app.post("/admin/faq/save")
@@ -3772,34 +3645,6 @@ async def admin_get_model_details(repo_id: str):
 
 # ============== Widget Config Endpoints ==============
 
-WIDGET_CONFIG_FILE = Path("widget_config.json")
-
-def get_widget_config() -> dict:
-    """Загрузить конфигурацию виджета"""
-    default_config = {
-        "enabled": False,
-        "title": "AI Ассистент",
-        "greeting": "Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?",
-        "placeholder": "Введите сообщение...",
-        "primary_color": "#6366f1",
-        "position": "right",
-        "allowed_domains": ["shaerware.digital", "shaerware.github.io", "localhost"],
-        "tunnel_url": ""
-    }
-    if WIDGET_CONFIG_FILE.exists():
-        try:
-            config = json.loads(WIDGET_CONFIG_FILE.read_text(encoding='utf-8'))
-            return {**default_config, **config}
-        except Exception:
-            pass
-    return default_config
-
-
-def save_widget_config(config: dict):
-    """Сохранить конфигурацию виджета"""
-    WIDGET_CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
-
-
 @app.get("/admin/widget/config")
 async def admin_get_widget_config():
     """Получить конфигурацию виджета (legacy endpoint - uses 'default' instance)"""
@@ -3959,37 +3804,9 @@ window.aiChatSettings = {{
 
 # ============== Telegram Bot Endpoints ==============
 
-TELEGRAM_CONFIG_FILE = Path("telegram_config.json")
-
 # Telegram bot process management
 _telegram_bot_process = None
 _telegram_bot_task = None
-
-def get_telegram_config() -> dict:
-    """Загрузить конфигурацию Telegram бота"""
-    default_config = {
-        "enabled": False,
-        "bot_token": "",
-        "api_url": "http://localhost:8002",
-        "allowed_users": [],
-        "admin_users": [],
-        "welcome_message": "Здравствуйте! Я AI-ассистент компании Шаервэй. Чем могу помочь?",
-        "unauthorized_message": "Извините, у вас нет доступа к этому боту.",
-        "error_message": "Произошла ошибка. Попробуйте позже.",
-        "typing_enabled": True
-    }
-    if TELEGRAM_CONFIG_FILE.exists():
-        try:
-            config = json.loads(TELEGRAM_CONFIG_FILE.read_text(encoding='utf-8'))
-            return {**default_config, **config}
-        except Exception:
-            pass
-    return default_config
-
-
-def save_telegram_config(config: dict):
-    """Сохранить конфигурацию Telegram бота"""
-    TELEGRAM_CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
 @app.get("/admin/telegram/config")
