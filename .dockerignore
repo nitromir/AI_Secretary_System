@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# Node
+node_modules/
+admin/node_modules/
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Logs and data (mounted as volumes)
+logs/
+data/
+*.log
+
+# Cache
+.cache/
+*.pkl
+.pytest_cache/
+.mypy_cache/
+
+# Development files
+.env
+.env.local
+tests/
+*.md
+!requirements.txt
+
+# Finetune data (too large, mount as volume)
+finetune/datasets/
+finetune/adapters/
+finetune/*.jsonl
+
+# Models (mount as volume)
+models/
+
+# Docker files (not needed inside container)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp/
+*.tmp
+*.bak
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Jupyter
+.ipynb_checkpoints/

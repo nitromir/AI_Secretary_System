@@ -38,6 +38,37 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ## Commands
 
+### Docker Deployment (Recommended)
+
+```bash
+# Quick start (GPU mode)
+cp .env.docker .env
+# Edit .env with your settings (GEMINI_API_KEY, etc.)
+docker compose up -d
+
+# CPU-only mode (no GPU required, uses Gemini API)
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+
+# View logs
+docker compose logs -f orchestrator
+
+# Rebuild after code changes
+docker compose build --no-cache orchestrator && docker compose up -d
+
+# Stop
+docker compose down
+
+# Stop and remove data (WARNING: deletes database)
+docker compose down -v
+```
+
+**Requirements:**
+- Docker & Docker Compose v2
+- NVIDIA Container Toolkit (for GPU mode)
+- 12GB+ VRAM (GPU mode) or Gemini API key (CPU mode)
+
+### Local Development
+
 ```bash
 # Start system
 ./start_gpu.sh              # GPU: XTTS + Qwen2.5-7B + LoRA (recommended)

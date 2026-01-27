@@ -859,73 +859,54 @@ admin/.prettierrc
 
 ---
 
-### 5.6 Docker Compose Deployment
-**Статус:** `planned`
+### 5.6 Docker Compose Deployment ✅
+**Статус:** `done`
 **Приоритет:** P0 (критичный для adoption)
 **Сложность:** 6/10
-**Оценка:** 1.5-2 недели
+**Завершено:** 2026-01-27
 **Влияние:** ★★★★★
 
-**Проблема:**
-Текущий процесс установки требует: GPU с 12GB VRAM, CUDA, Python 3.11+, Node.js, ручной setup БД, ngrok для внешнего доступа. Это создаёт высокий барьер для новых пользователей.
+**Проблема (решена):**
+Текущий процесс установки требовал: GPU с 12GB VRAM, CUDA, Python 3.11+, Node.js, ручной setup БД, ngrok для внешнего доступа. Создавал высокий барьер для новых пользователей.
 
-**Задачи:**
-- [ ] Создать `Dockerfile` для основного приложения
-- [ ] Создать `docker-compose.yml` с сервисами:
-  - `orchestrator` — основной сервер
-  - `redis` — кэширование (опционально)
+**Выполнено:**
+- [x] Создан `Dockerfile` с multi-stage build (GPU и CPU варианты)
+- [x] Создан `docker-compose.yml` с сервисами:
+  - `orchestrator` — основной сервер (FastAPI + Vue admin)
+  - `redis` — кэширование
   - `vllm` — LLM inference (GPU)
-- [ ] Поддержка NVIDIA Container Toolkit
-- [ ] Multi-stage build для минимизации размера образа
-- [ ] Health checks для всех сервисов
-- [ ] Volumes для persistence (data/, models/, logs/)
-- [ ] Environment файл `.env.docker`
-- [ ] Документация по быстрому запуску
+- [x] Поддержка NVIDIA Container Toolkit
+- [x] Multi-stage build: admin-builder → runtime (GPU) / cpu (CPU-only)
+- [x] Health checks для всех сервисов
+- [x] Volumes для persistence (data/, models/, logs/, tts_cache, hf_cache)
+- [x] Environment файл `.env.docker`
+- [x] CPU-only режим: `docker-compose.cpu.yml` (Piper + Gemini)
+- [x] Entrypoint script с инициализацией БД
 
-**Целевой UX:**
+**Использование:**
 ```bash
-# Один клон и одна команда
-git clone https://github.com/ShaerWare/AI_Secretary_System
-cd AI_Secretary_System
-docker compose up -d  # Всё работает!
+# GPU режим (vLLM + XTTS)
+cp .env.docker .env
+docker compose up -d
+
+# CPU режим (Piper + Gemini)
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+
+# Просмотр логов
+docker compose logs -f orchestrator
+
+# Остановка
+docker compose down
 ```
 
-**docker-compose.yml (draft):**
-```yaml
-version: '3.8'
-services:
-  orchestrator:
-    build: .
-    ports:
-      - "8002:8002"
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-    environment:
-      - LLM_BACKEND=vllm
-      - VLLM_API_URL=http://vllm:8000
-    depends_on:
-      - vllm
-      - redis
-
-  vllm:
-    image: vllm/vllm-openai:latest
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    command: --model Qwen/Qwen2.5-7B-Instruct-AWQ --gpu-memory-utilization 0.5
-
-  redis:
-    image: redis:alpine
-    volumes:
-      - redis_data:/data
-
-volumes:
-  redis_data:
+**Созданные файлы:**
+```
+Dockerfile              # Multi-stage build (runtime + cpu targets)
+docker-compose.yml      # GPU mode (orchestrator + vllm + redis)
+docker-compose.cpu.yml  # CPU override (disables vLLM)
+.dockerignore           # Build exclusions
+.env.docker             # Environment template
+scripts/docker-entrypoint.sh  # Container initialization
 ```
 
 ---
@@ -1020,6 +1001,32 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-01-27 (update 10) — Docker Compose Deployment
+- **Docker Compose для production deployment** — one-command запуск всей системы
+  - Multi-stage Dockerfile (admin-builder → runtime/cpu)
+  - GPU режим: orchestrator + vLLM + Redis
+  - CPU режим: orchestrator + Redis (Piper + Gemini)
+  - NVIDIA Container Toolkit support
+  - Health checks для всех сервисов
+  - Volumes: data/, logs/, models/, tts_cache, hf_cache
+- **Новые файлы:**
+  ```
+  Dockerfile              # Multi-stage build
+  docker-compose.yml      # GPU mode
+  docker-compose.cpu.yml  # CPU override
+  .dockerignore           # Build exclusions
+  .env.docker             # Environment template
+  scripts/docker-entrypoint.sh  # Container init
+  ```
+- **Использование:**
+  ```bash
+  # GPU mode
+  docker compose up -d
+
+  # CPU mode
+  docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+  ```
 
 ### 2026-01-27 (update 9) — Legacy JSON Removal
 - **Полная миграция на SQLite + Redis** — удалён весь legacy JSON код

@@ -49,7 +49,42 @@ XTTS v2 voice cloning   →  ~5GB (remaining)
 Total                   →  ~11GB
 ```
 
-## Quick Start
+## Quick Start (Docker)
+
+```bash
+# Clone repository
+git clone https://github.com/ShaerWare/AI_Secretary_System
+cd AI_Secretary_System
+
+# Configure environment
+cp .env.docker .env
+# Edit .env: set GEMINI_API_KEY for cloud fallback
+
+# GPU Mode (XTTS + vLLM) - requires NVIDIA GPU 12GB+
+docker compose up -d
+
+# CPU Mode (Piper + Gemini) - no GPU required
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+
+# Check status
+docker compose ps
+curl http://localhost:8002/health
+
+# Admin Panel: http://localhost:8002/admin (login: admin / admin)
+
+# View logs
+docker compose logs -f orchestrator
+
+# Stop
+docker compose down
+```
+
+**Requirements (Docker):**
+- Docker & Docker Compose v2
+- NVIDIA Container Toolkit (GPU mode only)
+- 12GB+ VRAM (GPU) or Gemini API key (CPU)
+
+## Quick Start (Local Development)
 
 ```bash
 # First-time setup
@@ -887,11 +922,11 @@ npm run build
 - [x] Telegram Bot интеграция
 - [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
 - [x] **Cloud LLM Providers** — подключение облачных LLM (Kimi, OpenAI, Claude, DeepSeek)
+- [x] **Docker Compose** — one-command deployment (GPU + CPU режимы)
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)
 - [ ] Backup & Restore
-- [ ] Docker Compose (one-command deployment)
 
 ## License
 
@@ -900,3 +935,5 @@ MIT
 ## Support
 
 Issues: https://github.com/ShaerWare/AI_Secretary_System/issues
+
+🇷🇺 Russian Voice AI
