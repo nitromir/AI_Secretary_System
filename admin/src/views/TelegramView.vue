@@ -125,7 +125,7 @@ const deleteMutation = useMutation({
   onSuccess: () => {
     queryClient.invalidateQueries({ queryKey: ['bot-instances'] })
     toast.success(t('telegram.instanceDeleted'))
-    if (selectedInstanceId.value === deleteMutation.variables) {
+    if (selectedInstanceId.value === deleteMutation.variables.value) {
       selectedInstanceId.value = null
     }
   },
@@ -855,7 +855,7 @@ watch(instances, (newInstances) => {
             <h2 class="text-lg font-semibold">{{ t('telegram.logs') }} - {{ selectedInstance?.name }}</h2>
             <div class="flex items-center gap-2">
               <button
-                @click="refetchLogs"
+                @click="() => refetchLogs()"
                 class="p-2 hover:bg-secondary rounded-lg transition-colors"
               >
                 <RefreshCw class="w-4 h-4" />

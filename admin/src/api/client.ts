@@ -7,6 +7,15 @@ export interface ApiResponse<T> {
   status: 'ok' | 'error'
 }
 
+// Get auth headers from localStorage
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('admin_token')
+  if (token) {
+    return { 'Authorization': `Bearer ${token}` }
+  }
+  return {}
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -17,6 +26,7 @@ async function request<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
       ...options.headers,
     },
   })
