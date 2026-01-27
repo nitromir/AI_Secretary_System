@@ -7,9 +7,9 @@
 - **Multi-Voice TTS**: 5 голосов (2 клонированных XTTS, 1 OpenVoice, 2 Piper)
 - **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
-- **Local LLM**: vLLM с Qwen2.5-7B + LoRA fine-tuning
+- **Local LLM**: vLLM с Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Vue 3 PWA с 11 вкладками, i18n, темами, аудитом
+- **Admin Panel**: Vue 3 PWA с 13 вкладками, i18n, темами, аудитом
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
 - **Telegram Bot**: Общение с ассистентом через Telegram
 - **Chat with TTS**: Озвучивание ответов ассистента в чате
@@ -26,7 +26,7 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (11 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (13 tabs, PWA)  │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -76,22 +76,23 @@ open http://localhost:8002/admin
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 PWA админ-панель с 11 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 13 вкладками:
 
 | Tab | Description |
 |-----|-------------|
 | **Dashboard** | Статусы сервисов, GPU спарклайны, health индикаторы |
-| **Chat** | Чат с ИИ, TTS playback ответов, перегенерация сообщений |
+| **Chat** | Чат с ИИ, Voice Mode (auto-TTS), голосовой ввод (STT), редактирование промптов |
 | **Services** | Запуск/остановка vLLM, SSE логи в реальном времени |
-| **LLM** | Переключение backend, персоны, параметры генерации |
+| **LLM** | Выбор модели (Qwen/Llama/DeepSeek), персоны, параметры генерации |
 | **TTS** | Выбор голоса, пресеты XTTS, тестирование синтеза |
 | **FAQ** | Редактирование типичных ответов (CRUD) |
 | **Finetune** | Загрузка датасета, обучение, управление адаптерами |
 | **Monitoring** | GPU/CPU графики Chart.js, логи ошибок |
-| **Models** | Управление скачанными моделями |
+| **Models** | Управление скачанными моделями HuggingFace |
 | **Widget** | Настройка чат-виджета для сайтов |
 | **Telegram** | Настройка Telegram бота |
-| **Settings** | Язык, тема, экспорт/импорт, аудит лог |
+| **Audit** | Логирование действий, фильтрация, экспорт |
+| **Settings** | Язык, тема, экспорт/импорт конфигураций |
 
 ### Admin Panel Features
 
@@ -104,6 +105,9 @@ open http://localhost:8002/admin
 | **PWA** | Установка как приложение, offline кэширование |
 | **Real-time** | SSE метрики GPU с fallback на polling |
 | **Chat TTS** | Озвучивание ответов ассистента (Volume2 button) |
+| **Voice Mode** | Auto-play TTS при получении ответа |
+| **Voice Input** | Голосовой ввод через микрофон (STT) |
+| **Prompt Editor** | Редактирование дефолтного промпта из чата |
 | **Charts** | Спарклайны и графики на Chart.js |
 | **Command Palette** | Быстрый поиск ⌘K / Ctrl+K |
 | **Audit Log** | Логирование всех действий пользователей |
