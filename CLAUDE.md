@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~100 API endpoints, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~100 API endpoints, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
 
 ## Architecture
 
@@ -169,14 +169,21 @@ curl -X POST http://localhost:8002/admin/telegram/instances/sales-bot/start
 
 ```bash
 cd finetune
-source /home/shaerware/qwen-finetune/train_venv/bin/activate
 
+# Create and activate training venv (if needed)
+python -m venv train_venv
+source train_venv/bin/activate
+pip install -r requirements.txt
+
+# Training workflow
 python prepare_dataset.py   # Convert Telegram export to JSONL
 python train.py             # Train LoRA adapters
 python merge_lora.py        # Merge LoRA with base (needs ~30GB RAM)
 
-# For quantization (different venv)
-source /home/shaerware/qwen-finetune/quant_venv/bin/activate
+# For quantization (different venv due to dependency conflicts)
+python -m venv quant_venv
+source quant_venv/bin/activate
+pip install auto-gptq autoawq
 python quantize_awq.py      # W4A16 quantization
 ```
 
@@ -356,31 +363,57 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost` for API URL
 5. **Model quality** — Lydia LoRA may produce repetitive responses; adjust `repetition_penalty` in LLM tab
 
-## Roadmap & Backlog
+## Code Quality
 
-См. [BACKLOG.md](./BACKLOG.md) для полного плана разработки.
+The project uses automated code quality tools:
 
-**Текущий фокус:** Офлайн-first + телефония через SIM7600G-H Waveshare
+```bash
+# Activate venv for Python tools
+source .venv/bin/activate
 
-**Выполнено:**
-- ✅ Local STT (Vosk) — VoskSTTService + UnifiedSTTService для realtime распознавания
-- ✅ Chat TTS playback — озвучивание ответов ассистента
-- ✅ Website Widget — встраиваемый чат-виджет для сайтов (web-widget/)
-- ✅ Telegram Bot — интеграция с Telegram (telegram_bot_service.py)
-- ✅ Database Integration — SQLite + Redis для надёжного хранения (db/)
-- ✅ Hot-switching LLM — переключение vLLM/Gemini без перезапуска
-- ✅ Audit Log UI — просмотр и фильтрация логов действий (AuditView.vue)
-- ✅ Voice Mode — auto-play TTS при получении ответа
-- ✅ Voice Input (STT) — голосовой ввод через микрофон в чате
-- ✅ Prompt Editor — редактирование дефолтного промпта из чата
-- ✅ DeepSeek LLM — третья модель (./start_gpu.sh --deepseek)
-- ✅ LLM Models UI — отображение доступных моделей в админке
-- ✅ Cloud LLM Providers — подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter)
-- ✅ Multi-Instance Bots — несколько Telegram ботов с независимыми настройками
-- ✅ Multi-Instance Widgets — несколько виджетов с независимыми настройками
+# Python linting (ruff)
+ruff check .              # Check for issues
+ruff check . --fix        # Auto-fix issues
+ruff format .             # Format code
 
-**Ближайшие задачи (Фаза 1):**
-1. Telephony Gateway — интеграция с SIM7600 (AT-команды)
-2. Backup & Restore — полный бэкап системы
+# Vue/TypeScript linting (eslint)
+cd admin && npm run lint
 
-**Hardware:** Raspberry Pi + SIM7600G-H для GSM-телефонии
+# Pre-commit hooks (all checks)
+pre-commit run --all-files
+
+# Install pre-commit hooks
+pre-commit install
+```
+
+**Configuration files:**
+| File | Purpose |
+|------|---------|
+| `pyproject.toml` | ruff, mypy, pytest, coverage config |
+| `.pre-commit-config.yaml` | Pre-commit hooks |
+| `admin/.eslintrc.cjs` | ESLint config |
+| `admin/.prettierrc` | Prettier config |
+
+## Testing
+
+```bash
+# System integration test (requires running orchestrator)
+./test_system.sh
+
+# Backend unit tests
+source .venv/bin/activate
+pytest tests/
+
+# Frontend tests
+cd admin && npm test
+```
+
+## Roadmap
+
+See [BACKLOG.md](./BACKLOG.md) for full development roadmap.
+
+**Current focus:** Offline-first + GSM telephony via SIM7600G-H Waveshare
+
+**Next planned:**
+1. Telephony Gateway — SIM7600 integration (AT commands)
+2. Backup & Restore — full system backup

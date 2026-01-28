@@ -1,127 +1,163 @@
 # Быстрый старт AI Secretary
 
-## За 5 минут
+## Docker (рекомендуется)
+
+### 1. Клонирование и настройка
+
+```bash
+git clone https://github.com/ShaerWare/AI_Secretary_System
+cd AI_Secretary_System
+
+# Настройка переменных окружения
+cp .env.docker .env
+nano .env  # Добавьте GEMINI_API_KEY (опционально для CPU режима)
+```
+
+### 2. Запуск
+
+```bash
+# GPU режим (XTTS + vLLM) - требуется NVIDIA GPU 12GB+
+docker compose up -d
+
+# CPU режим (Piper + Gemini API) - без GPU
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+```
+
+### 3. Проверка
+
+```bash
+# Проверка состояния
+docker compose ps
+curl http://localhost:8002/health
+
+# Админ-панель
+open http://localhost:8002/admin
+# Логин: admin / admin
+```
+
+## Локальная разработка
 
 ### 1. Установка зависимостей
 
 ```bash
 ./setup.sh
+cp .env.example .env
+nano .env  # Добавьте GEMINI_API_KEY если нужен fallback
 ```
 
-### 2. Настройка API ключа
+### 2. База данных (первый запуск)
 
 ```bash
-cp .env.example .env
-nano .env
+pip install aiosqlite "sqlalchemy[asyncio]" alembic redis
+python scripts/migrate_json_to_db.py
 ```
-
-Добавьте ваш Gemini API ключ:
-```
-GEMINI_API_KEY=ваш_ключ_здесь
-```
-
-Получить ключ: https://makersuite.google.com/app/apikey
 
 ### 3. Запуск
 
 ```bash
-./run.sh
+# GPU режим: XTTS + Qwen + LoRA
+./start_gpu.sh
+
+# CPU режим: Piper + Gemini
+./start_cpu.sh
+
+# Проверка
+curl http://localhost:8002/health
 ```
 
-Система запустится на:
-- Orchestrator: http://localhost:8000
-- Phone Service: http://localhost:8001
+### 4. Админ-панель
 
-### 4. Тест
-
-```bash
-# В новом терминале
-./test_system.sh
-```
+Откройте http://localhost:8002/admin (логин: admin / admin)
 
 ## Быстрые тесты
 
-### Синтез речи голосом Лидии
+### Синтез речи
 
 ```bash
-curl -X POST http://localhost:8000/tts \
+curl -X POST http://localhost:8002/admin/tts/test \
   -H "Content-Type: application/json" \
-  -d '{"text": "Здравствуйте! Это виртуальный секретарь Лидия."}' \
+  -d '{"text": "Здравствуйте! Это виртуальный секретарь."}' \
   -o test.wav
 
-# Проиграть
-ffplay test.wav
+ffplay test.wav  # или aplay test.wav
 ```
 
 ### Чат с секретарем
 
 ```bash
-curl -X POST http://localhost:8000/chat \
+# Создать сессию
+SESSION=$(curl -s -X POST http://localhost:8002/admin/chat/sessions \
   -H "Content-Type: application/json" \
-  -d '{"text": "Какой у вас график работы?"}' | jq -r '.response'
+  -d '{"title": "Test"}' | jq -r '.id')
+
+# Отправить сообщение (streaming)
+curl -N http://localhost:8002/admin/chat/sessions/$SESSION/stream \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Привет! Как дела?"}'
 ```
 
-### Обработка голосового сообщения
-
-Запишите голосовое сообщение в файл `question.wav`, затем:
+### Распознавание речи (STT)
 
 ```bash
-curl -X POST http://localhost:8000/process_call \
-  -F "audio=@question.wav" \
-  -o answer.wav
+# Статус STT
+curl http://localhost:8002/admin/stt/status
 
-# Проиграть ответ
-ffplay answer.wav
+# Транскрибация файла
+curl -X POST http://localhost:8002/admin/stt/transcribe \
+  -F "audio=@recording.wav"
 ```
 
-## Архитектура (упрощенно)
+## Архитектура
 
 ```
-Звонок → Twilio → Phone Service → Orchestrator
-                                      ↓
-                           STT → LLM → TTS
-                           ↓     ↓     ↓
-                        Whisper Gemini XTTS
-                                      ↓
-                                  Голос Лидии
+                    ┌─────────────────────────────────┐
+                    │  Orchestrator (port 8002)       │
+                    │  ┌───────────────────────────┐  │
+                    │  │ Vue 3 Admin Panel (PWA)   │  │
+                    │  └───────────────────────────┘  │
+                    └───────────────┬─────────────────┘
+                                    │
+    ┌───────────┬───────────┬───────┼───────┬───────────┬───────────┐
+    ↓           ↓           ↓       ↓       ↓           ↓           ↓
+  vLLM      Gemini       XTTS    Piper    Vosk      Widget    Telegram
+  (GPU)     (Cloud)      (GPU)   (CPU)    (STT)     (Chat)     (Bot)
 ```
-
-## Настройка голоса
-
-Образцы голоса находятся в папке `Лидия/`:
-- Уже есть ~54 WAV файла
-- Система автоматически использует первые 3 для клонирования
-- Чем больше качественных образцов, тем лучше результат
 
 ## Что дальше?
 
-1. **Настройте системный промпт** - отредактируйте `llm_service.py`
-2. **Добавьте Twilio** - для реальных звонков (опционально)
-3. **Деплой в Docker** - `docker-compose up -d`
-4. **Прочитайте README.md** - полная документация
+1. **Настройте персону** - Admin → LLM → выберите Gulya или Lidia
+2. **Добавьте облачный LLM** - Admin → LLM → Cloud Providers
+3. **Настройте виджет** - Admin → Widget → включите и скопируйте код
+4. **Настройте Telegram бота** - Admin → Telegram → добавьте токен
+5. **Прочитайте [README.md](./README.md)** - полная документация
 
 ## Troubleshooting
 
 ### "CUDA out of memory"
-- Система пытается использовать GPU
-- Если памяти не хватает, измените в `stt_service.py`: `model_size = "small"`
-- Или отключите GPU: `device = "cpu"`
+```bash
+# Уменьшите использование GPU в start_qwen.sh:
+--gpu-memory-utilization 0.5  # вместо 0.7
+```
 
-### "GEMINI_API_KEY not found"
-- Проверьте что `.env` файл создан
-- Проверьте что ключ добавлен без пробелов
-- Перезапустите систему
+### "vLLM connection refused"
+```bash
+# Проверьте vLLM
+curl http://localhost:11434/health
+tail -f logs/vllm.log
+```
 
-### Плохое качество голоса
-- Система использует первые 3 WAV из папки `Лидия/`
-- Проверьте качество этих файлов
-- Убедитесь что это чистые записи без шумов
+### "Database error"
+```bash
+# Пересоздать базу данных
+rm data/secretary.db
+python scripts/migrate_json_to_db.py
+```
 
-### Медленная работа
-- Первый запуск медленный - модели загружаются
+### Медленный первый запуск
+- Модели загружаются при первом запуске
 - Следующие запросы будут быстрее
-- Используйте GPU для ускорения
+- Используйте GPU для ускорения TTS и LLM
 
 ## Контакты
 
-Вопросы? Проблемы? Создайте Issue в репозитории.
+Вопросы? Создайте Issue: https://github.com/ShaerWare/AI_Secretary_System/issues
