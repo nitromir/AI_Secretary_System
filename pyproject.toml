@@ -39,7 +39,7 @@ select = [
     "I",      # isort
     "B",      # flake8-bugbear
     "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
+    # "UP",   # pyupgrade - disabled (too many Optional[X] -> X | None warnings)
     "ARG",    # flake8-unused-arguments
     "SIM",    # flake8-simplify
     "TCH",    # flake8-type-checking
@@ -60,6 +60,8 @@ ignore = [
     "ARG002", # unused method argument
     "SIM108", # ternary operator (not always clearer)
     "UP007",  # Use X | Y for type annotations (Python 3.10+)
+    "UP037",  # Remove quotes from type annotation
+    "UP040",  # Non-PEP 695 type alias
     # Russian language support
     "RUF001", # ambiguous unicode character in string (Cyrillic)
     "RUF002", # ambiguous unicode character in docstring
@@ -71,7 +73,6 @@ ignore = [
     # Type annotation style (keep backward compat)
     "UP006",  # non-pep585-annotation (use list[] instead of List[])
     "UP035",  # deprecated import from typing
-    "UP045",  # non-pep604-annotation-optional
     # Implicit optional (for FastAPI defaults)
     "RUF013", # implicit-optional
     # Pathlib migration (do gradually)
@@ -109,8 +110,6 @@ ignore = [
     "ERA001",
     # Asyncio task reference (handled properly)
     "RUF006",
-    # Unused unpacked variable
-    "RUF059",
     # Unnecessary dict() call
     "C408",
 ]
@@ -119,6 +118,7 @@ ignore = [
 "__init__.py" = ["F401"]  # unused imports in __init__
 "tests/*" = ["ARG", "PLR"]  # allow unused args and complexity in tests
 "finetune/*" = ["ERA"]  # allow commented code in finetune scripts
+"app/*" = ["UP"]  # allow Optional[X] style in routers (compatibility)
 
 [tool.ruff.lint.isort]
 known-first-party = ["db", "admin"]
