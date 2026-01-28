@@ -8,7 +8,9 @@
 - **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
 - **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
 - **Local LLM**: vLLM с Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
-- **Cloud LLM Providers**: Подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek) с хранением credentials в БД
+- **Cloud LLM Providers**: Подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) с хранением credentials в БД
+- **Multi-Instance Bots**: Несколько Telegram ботов с независимыми настройками (LLM, TTS, промпт)
+- **Multi-Instance Widgets**: Несколько чат-виджетов для разных сайтов/отделов
 - **FAQ System**: Мгновенные ответы на типичные вопросы
 - **Admin Panel**: Vue 3 PWA с 13 вкладками, i18n, темами, аудитом
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
@@ -305,14 +307,6 @@ db/
     └── audit.py          # AuditRepository
 ```
 
-### Обратная совместимость
-
-При сохранении данных они автоматически синхронизируются в JSON файлы:
-- `typical_responses.json` ← FAQ
-- `custom_presets.json` ← TTS пресеты
-- `telegram_config.json` ← Telegram настройки
-- `widget_config.json` ← Widget настройки
-
 ## External Access (ngrok)
 
 Для работы виджета на внешних сайтах и Telegram бота требуется внешний доступ к серверу:
@@ -368,19 +362,30 @@ cloudflared tunnel --url http://localhost:8002
 
 ## Website Widget
 
-Встраиваемый чат-виджет для любого сайта:
+Встраиваемый чат-виджет для любого сайта с поддержкой нескольких инстансов.
 
 **Настройка:**
 1. Откройте Admin → Widget
-2. Включите виджет
+2. Создайте новый виджет или используйте default
 3. Укажите API URL (ngrok URL для внешних сайтов)
-4. Настройте цвета и тексты
+4. Настройте цвета, тексты, LLM и TTS
 5. Скопируйте код виджета
+
+**Multi-Instance Widgets:**
+Каждый инстанс виджета имеет независимые настройки:
+- Внешний вид (цвета, тексты, позиция)
+- LLM backend, персона, системный промпт
+- TTS голос и пресет
+- Whitelist доменов
 
 **Интеграция:**
 ```html
-<!-- Добавьте перед </body> -->
-<script src="https://your-ngrok-url.ngrok.io/widget.js"></script>
+<!-- Default виджет -->
+<script src="https://your-server.com/widget.js"></script>
+
+<!-- Конкретный инстанс -->
+<script src="https://your-server.com/widget.js?instance=sales"></script>
+<script src="https://your-server.com/widget.js?instance=support"></script>
 ```
 
 **Функции:**
@@ -392,19 +397,31 @@ cloudflared tunnel --url http://localhost:8002
 
 ## Telegram Bot
 
-Общение с ассистентом через Telegram:
+Общение с ассистентом через Telegram с поддержкой нескольких независимых ботов.
 
-**Настройка:**
+**Настройка (single bot):**
 1. Создайте бота через [@BotFather](https://t.me/BotFather)
 2. Скопируйте токен бота
 3. Откройте Admin → Telegram
-4. Вставьте токен
-5. Настройте whitelist пользователей (опционально)
+4. Выберите бота или создайте нового
+5. Вставьте токен, настройте whitelist
 6. Нажмите "Start Bot"
 
-**Запуск через командную строку:**
+**Multi-Instance Bots:**
+Каждый инстанс бота имеет независимые настройки:
+- Telegram токен и whitelist пользователей
+- LLM backend, персона, системный промпт
+- TTS голос и пресет
+- Изоляция сессий (пользователи в разных ботах имеют отдельные истории)
+
 ```bash
-./start_telegram_bot.sh
+# Создать новый инстанс бота
+curl -X POST http://localhost:8002/admin/telegram/instances \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Sales Bot", "bot_token": "...", "api_url": "https://..."}'
+
+# Запустить конкретный бот
+curl -X POST http://localhost:8002/admin/telegram/instances/{id}/start
 ```
 
 **Команды бота:**
@@ -415,16 +432,9 @@ cloudflared tunnel --url http://localhost:8002
 | `/help` | Показать помощь |
 | `/status` | Статус системы (только админы) |
 
-**API управления:**
+**Запуск через командную строку:**
 ```bash
-# Статус бота
-curl http://localhost:8002/admin/telegram/status
-
-# Запустить бота
-curl -X POST http://localhost:8002/admin/telegram/start
-
-# Остановить бота
-curl -X POST http://localhost:8002/admin/telegram/stop
+./start_telegram_bot.sh
 ```
 
 ## Personas
@@ -767,11 +777,9 @@ AI_Secretary_System/
 │   └── vosk/                # Vosk models (STT)
 ├── logs/                    # Service logs
 │
-├── # Legacy JSON (synced from DB)
-├── typical_responses.json   # FAQ (synced)
-├── custom_presets.json      # TTS presets (synced)
-├── widget_config.json       # Widget settings (synced)
-├── telegram_config.json     # Telegram settings (synced)
+├── # Configuration files
+├── pyproject.toml           # Python project config (ruff, mypy, pytest)
+├── .pre-commit-config.yaml  # Pre-commit hooks
 │
 ├── start_gpu.sh             # Launch GPU mode
 ├── start_cpu.sh             # Launch CPU mode
@@ -866,10 +874,42 @@ tail -f logs/vllm.log
 
 ## Development
 
+### Code Quality
+
+Проект использует инструменты для обеспечения качества кода:
+
+| Tool | Purpose | Config |
+|------|---------|--------|
+| **ruff** | Python linter + formatter | `pyproject.toml` |
+| **mypy** | Static type checking | `pyproject.toml` |
+| **eslint** | Vue/TypeScript linting | `admin/.eslintrc.cjs` |
+| **prettier** | Code formatting | `admin/.prettierrc` |
+| **pre-commit** | Git hooks | `.pre-commit-config.yaml` |
+
+```bash
+# Активировать venv для lint tools
+source .venv/bin/activate
+
+# Python linting
+ruff check .              # Проверка
+ruff check . --fix        # Автоисправление
+ruff format .             # Форматирование
+
+# Vue linting
+cd admin && npm run lint
+
+# Pre-commit (все проверки)
+pre-commit run --all-files
+
+# Установить pre-commit hooks
+pre-commit install
+```
+
 ### Running Tests
 ```bash
 # Backend
-./venv/bin/pytest tests/
+source .venv/bin/activate
+pytest tests/
 
 # Frontend
 cd admin && npm test
@@ -922,12 +962,15 @@ npm run build
 - [x] Website Widget (чат для сайтов)
 - [x] Telegram Bot интеграция
 - [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
-- [x] **Cloud LLM Providers** — подключение облачных LLM (Kimi, OpenAI, Claude, DeepSeek)
+- [x] **Cloud LLM Providers** — Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter
+- [x] **Multi-Instance Bots/Widgets** — несколько ботов и виджетов с независимыми настройками
 - [x] **Docker Compose** — one-command deployment (GPU + CPU режимы)
+- [x] **Code Quality** — ruff, mypy, eslint, pre-commit hooks
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)
 - [ ] Backup & Restore
+- [ ] Automated Testing (unit, integration, e2e)
 
 ## License
 

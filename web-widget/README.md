@@ -1,6 +1,6 @@
-# AI Chat Widget для shaerware.digital
+# AI Chat Widget
 
-Замена Replain на собственного AI-ассистента (Лидия/Гуля).
+Встраиваемый чат-виджет для любого сайта с поддержкой нескольких независимых инстансов.
 
 ## Архитектура
 
@@ -98,6 +98,46 @@ cp /path/to/AI_Secretary_System/web-widget/ai-chat-widget.js cdn/
 git add cdn/ai-chat-widget.js
 git commit -m "feat: add AI chat widget"
 git push
+```
+
+## Multi-Instance Support
+
+Можно создавать несколько виджетов с разными настройками (LLM, TTS, персона):
+
+### Настройка через Admin Panel
+
+1. Admin → Widget → Create New Widget
+2. Настройте название, цвета, LLM, TTS
+3. Получите код интеграции
+
+### Интеграция разных инстансов
+
+```html
+<!-- Инстанс для продаж -->
+<script src="https://api.example.com/widget.js?instance=sales"></script>
+
+<!-- Инстанс для поддержки -->
+<script src="https://api.example.com/widget.js?instance=support"></script>
+
+<!-- Default инстанс (без параметра) -->
+<script src="https://api.example.com/widget.js"></script>
+```
+
+### API управления инстансами
+
+```bash
+# Список инстансов
+curl http://localhost:8002/admin/widget/instances
+
+# Создать инстанс
+curl -X POST http://localhost:8002/admin/widget/instances \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Sales Widget", "title": "Sales Assistant", "primary_color": "#10b981"}'
+
+# Обновить инстанс
+curl -X PUT http://localhost:8002/admin/widget/instances/{id} \
+  -H "Content-Type: application/json" \
+  -d '{"llm_backend": "cloud:gemini-id", "tts_voice": "lidia"}'
 ```
 
 ## Настройки виджета
