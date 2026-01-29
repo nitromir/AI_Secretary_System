@@ -2,11 +2,12 @@
 
 ## Что создано
 
-Полноценная система виртуального секретаря с клонированием голоса "Лидия", способная:
-- Принимать телефонные звонки через Twilio
-- Распознавать речь абонента (STT)
-- Генерировать умные ответы (LLM)
-- Отвечать голосом Лидии (TTS voice cloning)
+Полноценная система виртуального секретаря с клонированием голоса (Гуля/Лидия), способная:
+- Принимать телефонные звонки (Twilio, готовится SIM7600G-H GSM)
+- Распознавать речь абонента (STT - Vosk/Whisper)
+- Генерировать умные ответы (LLM - vLLM локальный или Cloud)
+- Отвечать клонированным голосом (XTTS v2 TTS)
+- **Streaming TTS** для real-time телефонии (<500ms latency)
 
 ## Структура проекта
 
@@ -54,19 +55,26 @@ voice-tts/
 ## Технологический стек
 
 ### AI & ML
-- **XTTS v2** (Coqui TTS) - клонирование голоса
-- **Whisper / Faster-Whisper** - распознавание речи
-- **Gemini 2.5 Pro** - генерация ответов
+- **XTTS v2** (Coqui TTS) - клонирование голоса с streaming synthesis
+- **Vosk / Whisper** - распознавание речи (realtime/batch)
+- **vLLM** (Qwen2.5-7B + LoRA) - локальный LLM
+- **Cloud LLM** (Gemini, OpenAI, Claude, DeepSeek, OpenRouter) - fallback
 
 ### Backend
-- **FastAPI** - веб-фреймворк
-- **Python 3.11+** - язык программирования
-- **Twilio** - телефонная интеграция
+- **FastAPI** - веб-фреймворк (~115 endpoints)
+- **Python 3.12+** - язык программирования
+- **Vue 3 PWA** - админ-панель (13 вкладок)
+- **SQLite + Redis** - база данных и кэширование
+
+### Telephony
+- **Twilio** - облачная телефония
+- **SIM7600G-H** - GSM модем (в разработке)
+- **Audio Pipeline** - 8kHz PCM16, G.711 A-law
 
 ### Infrastructure
 - **Docker + Docker Compose** - контейнеризация
-- **CUDA** - GPU ускорение
-- **Ubuntu 24.04** - ОС
+- **CUDA 12.x** - GPU ускорение
+- **GitHub Actions** - CI/CD
 
 ## Архитектура (схема)
 
@@ -162,17 +170,23 @@ curl http://localhost:8000/health
 
 ## Производительность
 
-### Типичная обработка звонка
-1. **STT (Whisper base)**: ~1 сек (10 сек аудио)
-2. **LLM (Gemini Pro)**: ~2 сек
-3. **TTS (XTTS v2)**: ~3 сек (предложение)
-4. **Общее время**: ~6-10 секунд
+### Типичная обработка звонка (batch)
+1. **STT (Vosk/Whisper)**: ~0.5-1 сек
+2. **LLM (vLLM/Cloud)**: ~1-2 сек
+3. **TTS (XTTS v2 batch)**: ~2-3 сек
+4. **Общее время**: ~4-6 секунд
+
+### Streaming TTS для телефонии
+- **Time-to-first-audio (TTFA)**: 300-500ms target
+- **Real-time factor (RTF)**: 0.5-0.9x
+- **Формат**: 8kHz PCM16 для GSM
 
 ### Оптимизации
-- Faster-Whisper вместо обычного Whisper: **2-3x быстрее**
-- Gemini Flash вместо Pro: **2x быстрее**
-- Уменьшение размера моделей: экономия памяти
-- Batch processing: параллельная обработка
+- Streaming TTS: первый звук через <500ms
+- Vosk realtime STT вместо Whisper batch
+- vLLM с LoRA для локального LLM
+- Кэширование speaker latents
+- Audio pipeline с crossfade для плавности
 
 ## Образцы голоса
 
@@ -284,10 +298,16 @@ watch -n 1 nvidia-smi
 
 ## Roadmap
 
+### Недавно реализовано ✅
+- [x] Real-time streaming TTS (<500ms TTFA)
+- [x] WebSocket endpoint для телефонии
+- [x] GSM audio pipeline (8kHz, G.711)
+- [x] Benchmark скрипт для latency
+
 ### Ближайшие улучшения
+- [ ] SIM7600G-H GSM модем интеграция
 - [ ] WebRTC для браузерных звонков
 - [ ] Asterisk/FreeSWITCH интеграция
-- [ ] Real-time streaming TTS
 - [ ] Календарь интеграция
 - [ ] CRM интеграция (Битрикс24)
 

@@ -125,18 +125,20 @@ python prepare_dataset.py && python train.py
 orchestrator.py              # FastAPI entry point, global state, legacy endpoints
 app/
 ├── dependencies.py          # ServiceContainer for DI
-└── routers/                 # 11 modular routers (~112 endpoints)
-    ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
-    ├── audit.py             # 4 endpoints  - Audit log viewing/export
-    ├── services.py          # 6 endpoints  - vLLM start/stop/restart
-    ├── monitor.py           # 7 endpoints  - GPU stats, health, SSE metrics
-    ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
-    ├── stt.py               # 4 endpoints  - STT status, transcribe
-    ├── llm.py               # 24 endpoints - Backend, persona, cloud providers
-    ├── tts.py               # 13 endpoints - Presets, params, test, cache
-    ├── chat.py              # 10 endpoints - Sessions, messages, streaming
-    ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
-    └── widget.py            # 7 endpoints  - Widget instances CRUD
+├── routers/                 # 11 modular routers (~115 endpoints)
+│   ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
+│   ├── audit.py             # 4 endpoints  - Audit log viewing/export
+│   ├── services.py          # 6 endpoints  - vLLM start/stop/restart
+│   ├── monitor.py           # 7 endpoints  - GPU stats, health, SSE metrics
+│   ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
+│   ├── stt.py               # 4 endpoints  - STT status, transcribe
+│   ├── llm.py               # 24 endpoints - Backend, persona, cloud providers
+│   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
+│   ├── chat.py              # 10 endpoints - Sessions, messages, streaming
+│   ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
+│   └── widget.py            # 7 endpoints  - Widget instances CRUD
+└── services/
+    └── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
 ```
 
 **Core Services:**
@@ -144,9 +146,10 @@ app/
 |------|---------|
 | `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
-| `voice_clone_service.py` | XTTS v2 with custom presets |
+| `voice_clone_service.py` | XTTS v2 with custom presets + streaming synthesis |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots |
+| `app/services/audio_pipeline.py` | GSM telephony audio processing (8kHz, PCM16, G.711) |
 
 ### Admin Panel (Vue 3)
 
@@ -223,6 +226,21 @@ REDIS_URL=redis://localhost:6379/0  # Optional, for caching
 - `POST /v1/audio/speech` — TTS with current voice
 - `GET /v1/models` — Available models
 
+**Streaming TTS (for telephony):**
+- `POST /admin/tts/stream` — HTTP chunked streaming (target <500ms TTFA)
+- `WS /admin/tts/ws/stream` — WebSocket real-time TTS for GSM telephony
+
+```bash
+# HTTP streaming example
+curl -X POST http://localhost:8002/admin/tts/stream \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Привет!", "voice":"gulya", "target_sample_rate":8000}' \
+  --output audio.pcm
+
+# Benchmark streaming latency
+python scripts/benchmark_streaming_tts.py --iterations 5
+```
+
 **Admin API (JWT required):** See `app/routers/` for complete endpoint definitions.
 
 Key patterns:
@@ -257,3 +275,9 @@ Key patterns:
 See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](./docs/IMPROVEMENT_PLAN.md) for production readiness plan.
 
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
+
+**Recently completed:**
+- ✅ Streaming TTS with <500ms TTFA target (`synthesize_streaming()`)
+- ✅ HTTP/WebSocket streaming endpoints for telephony
+- ✅ GSM audio pipeline (8kHz, PCM16, G.711 A-law)
+- ✅ Benchmark script for latency testing
