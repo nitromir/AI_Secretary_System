@@ -277,7 +277,27 @@ See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
 
 **Recently completed:**
+- ✅ Cloud LLM provider selection with dropdown UI (OpenRouter, Gemini, OpenAI, etc.)
+- ✅ Updated OpenRouter models list (January 2026 free models)
+- ✅ Improved error messages for cloud API errors (401, 404, 429)
 - ✅ Streaming TTS with <500ms TTFA target (`synthesize_streaming()`)
 - ✅ HTTP/WebSocket streaming endpoints for telephony
 - ✅ GSM audio pipeline (8kHz, PCM16, G.711 A-law)
 - ✅ Benchmark script for latency testing
+
+## Cloud LLM Providers
+
+Supported providers (configured via Admin Panel → LLM → Cloud Providers):
+
+| Provider | Free Models | Paid Models |
+|----------|-------------|-------------|
+| **OpenRouter** | `nvidia/nemotron-3-nano-30b-a3b:free`, `arcee-ai/trinity-large-preview:free`, `upstage/solar-pro-3:free` | `google/gemini-2.0-flash-001`, `openai/gpt-4o-mini` |
+| **Google Gemini** | — | `gemini-2.0-flash`, `gemini-2.5-pro` |
+| **OpenAI** | — | `gpt-4o`, `gpt-4o-mini` |
+| **Anthropic** | — | `claude-opus-4-5-20251101`, `claude-sonnet-4-20250514` |
+| **DeepSeek** | — | `deepseek-chat`, `deepseek-coder` |
+| **Kimi** | — | `kimi-k2`, `moonshot-v1-128k` |
+
+**Usage in Telegram bots:**
+- Set `llm_backend` in bot config: `"vllm"`, `"gemini"`, or `"cloud:{provider_id}"`
+- Action buttons can override LLM per-mode (e.g., creative mode uses different model)

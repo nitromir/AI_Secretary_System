@@ -519,7 +519,7 @@ curl -X POST http://localhost:8002/admin/llm/backend \
 | **OpenAI** | `openai` | gpt-4o, gpt-4o-mini | api.openai.com |
 | **Anthropic Claude** | `claude` | claude-opus-4, claude-sonnet-4 | api.anthropic.com |
 | **DeepSeek** | `deepseek` | deepseek-chat, deepseek-reasoner | api.deepseek.com |
-| **OpenRouter** | `openrouter` | gemma-2-9b:free, llama-3.2-3b:free, qwen-2-7b:free | openrouter.ai |
+| **OpenRouter** | `openrouter` | nemotron-3-nano:free, trinity-large:free, solar-pro-3:free | openrouter.ai |
 | **Custom** | `custom` | (user-defined) | (user-defined) |
 
 ### Управление провайдерами
@@ -1014,7 +1014,7 @@ npm run build
 - [x] Website Widget (чат для сайтов)
 - [x] Telegram Bot интеграция
 - [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
-- [x] **Cloud LLM Providers** — Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter
+- [x] **Cloud LLM Providers** — Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter (dropdown UI, custom models)
 - [x] **Multi-Instance Bots/Widgets** — несколько ботов и виджетов с независимыми настройками
 - [x] **Docker Compose** — one-command deployment (GPU + CPU режимы)
 - [x] **Code Quality** — ruff, mypy, eslint, pre-commit hooks
