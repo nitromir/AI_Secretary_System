@@ -38,6 +38,13 @@ services:
       # Mount LOCAL caches (no re-download)
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.local/share/tts:/root/.local/share/tts
+      # DEV: Mount source code for hot-reload (remove in production)
+      - ./orchestrator.py:/app/orchestrator.py:ro
+      - ./cloud_llm_service.py:/app/cloud_llm_service.py:ro
+      - ./voice_clone_service.py:/app/voice_clone_service.py:ro
+      - ./db:/app/db:ro
+      - ./app:/app/app:ro
+      - ./admin/dist:/app/admin/dist:ro
     environment:
       # LLM - connect to LOCAL vLLM on host
       - LLM_BACKEND=${LLM_BACKEND:-vllm}
@@ -64,7 +71,9 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              # Use GPU 1 (RTX 3060, CC 8.6) instead of GPU 0 (P104-100, CC 6.1)
+              # XTTS requires CC >= 7.0
+              device_ids: ['1']
               capabilities: [gpu]
     restart: unless-stopped
     networks:

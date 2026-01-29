@@ -40,13 +40,15 @@ const showProviderModal = ref(false)
 const editingProvider = ref<CloudProvider | null>(null)
 const providerForm = ref({
   name: '',
-  provider_type: 'kimi',
+  provider_type: 'openrouter',
   api_key: '',
   base_url: '',
   model_name: '',
   description: '',
   enabled: true,
 })
+const useCustomModel = ref(false)
+const customModelName = ref('')
 
 // Queries
 const { data: backendData, isLoading: backendLoading } = useQuery({
@@ -93,6 +95,18 @@ watch(paramsData, (data) => {
     localParams.value = { ...data.params }
   }
 }, { immediate: true })
+
+// Computed для списка моделей текущего провайдера
+const currentProviderModels = computed(() => {
+  return providersData.value?.provider_types?.[providerForm.value.provider_type]?.default_models || []
+})
+
+// Переключение на кастомную модель когда выбрано "Other"
+watch(() => providerForm.value.model_name, (newVal) => {
+  if (newVal === '' && !useCustomModel.value && currentProviderModels.value.length > 0) {
+    useCustomModel.value = true
+  }
+})
 
 // Mutations
 const setBackendMutation = useMutation({
@@ -214,31 +228,39 @@ function saveParams() {
 // Cloud provider methods
 function openCreateProviderModal() {
   editingProvider.value = null
-  const defaultType = 'kimi'
+  const defaultType = 'openrouter'
   const typeConfig = providersData.value?.provider_types?.[defaultType]
   providerForm.value = {
     name: '',
     provider_type: defaultType,
     api_key: '',
-    base_url: typeConfig?.default_base_url || 'https://api.moonshot.ai/v1',
-    model_name: typeConfig?.default_models?.[0] || 'kimi-k2',
+    base_url: typeConfig?.default_base_url || 'https://openrouter.ai/api/v1',
+    model_name: typeConfig?.default_models?.[0] || '',
     description: '',
     enabled: true,
   }
+  useCustomModel.value = false
+  customModelName.value = ''
   showProviderModal.value = true
 }
 
 function openEditProviderModal(provider: CloudProvider) {
   editingProvider.value = provider
+  const typeConfig = providersData.value?.provider_types?.[provider.provider_type]
+  const defaultModels = typeConfig?.default_models || []
+  const isCustomModel = Boolean(provider.model_name && !defaultModels.includes(provider.model_name))
+
   providerForm.value = {
     name: provider.name,
     provider_type: provider.provider_type,
     api_key: '', // Don't prefill key
     base_url: provider.base_url || '',
-    model_name: provider.model_name,
+    model_name: isCustomModel ? '' : provider.model_name,
     description: provider.description || '',
     enabled: provider.enabled,
   }
+  useCustomModel.value = isCustomModel
+  customModelName.value = isCustomModel ? provider.model_name : ''
   showProviderModal.value = true
 }
 
@@ -247,11 +269,19 @@ function onProviderTypeChange() {
   if (typeConfig) {
     providerForm.value.base_url = typeConfig.default_base_url || ''
     providerForm.value.model_name = typeConfig.default_models?.[0] || ''
+    useCustomModel.value = false
+    customModelName.value = ''
   }
 }
 
 function saveProvider() {
   const data = { ...providerForm.value }
+
+  // Используем кастомную модель если выбрана опция "Другая"
+  if (useCustomModel.value && customModelName.value) {
+    data.model_name = customModelName.value
+  }
+
   if (!data.api_key) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (data as any).api_key // Don't update if empty
@@ -287,25 +317,25 @@ function switchToCloudProvider(providerId: string) {
           <div class="flex items-center gap-4">
             <div class="grid grid-cols-2 gap-2 p-1 bg-secondary rounded-lg">
               <button
-                @click="setBackendMutation.mutate('vllm')"
                 :disabled="setBackendMutation.isPending.value"
                 :class="[
                   'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
                   isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80',
                   setBackendMutation.isPending.value && 'opacity-50 cursor-not-allowed'
                 ]"
+                @click="setBackendMutation.mutate('vllm')"
               >
                 <Loader2 v-if="setBackendMutation.isPending.value && !isVllm" class="w-4 h-4 animate-spin" />
                 vLLM (Local)
               </button>
               <button
-                @click="setBackendMutation.mutate('gemini')"
                 :disabled="setBackendMutation.isPending.value"
                 :class="[
                   'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
                   !isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80',
                   setBackendMutation.isPending.value && 'opacity-50 cursor-not-allowed'
                 ]"
+                @click="setBackendMutation.mutate('gemini')"
               >
                 <Loader2 v-if="setBackendMutation.isPending.value && isVllm" class="w-4 h-4 animate-spin" />
                 Gemini (Cloud)
@@ -331,9 +361,9 @@ function switchToCloudProvider(providerId: string) {
           <!-- Stop vLLM checkbox (show when using vLLM) -->
           <div v-if="isVllm" class="flex items-center gap-2">
             <input
-              type="checkbox"
               id="stopVllm"
               v-model="stopUnusedVllm"
+              type="checkbox"
               class="w-4 h-4 rounded border-border"
             />
             <label for="stopVllm" class="text-sm text-muted-foreground">
@@ -359,15 +389,15 @@ function switchToCloudProvider(providerId: string) {
         </h2>
         <div class="flex gap-2">
           <button
-            @click="() => refetchProviders()"
             class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
             title="Refresh"
+            @click="() => refetchProviders()"
           >
             <RefreshCw class="w-4 h-4" />
           </button>
           <button
-            @click="openCreateProviderModal"
             class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            @click="openCreateProviderModal"
           >
             <Plus class="w-4 h-4" />
             Add Provider
@@ -420,31 +450,31 @@ function switchToCloudProvider(providerId: string) {
 
               <div class="flex items-center gap-2">
                 <button
-                  @click="testProviderMutation.mutate(provider.id)"
                   :disabled="testProviderMutation.isPending.value"
                   class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
                   title="Test connection"
+                  @click="testProviderMutation.mutate(provider.id)"
                 >
                   <Loader2 v-if="testProviderMutation.isPending.value" class="w-4 h-4 animate-spin" />
                   <Play v-else class="w-4 h-4" />
                 </button>
                 <button
-                  @click="switchToCloudProvider(provider.id)"
                   :disabled="!provider.enabled || setBackendMutation.isPending.value"
                   class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
+                  @click="switchToCloudProvider(provider.id)"
                 >
                   Use
                 </button>
                 <button
-                  @click="openEditProviderModal(provider)"
                   class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                  @click="openEditProviderModal(provider)"
                 >
                   <Edit2 class="w-4 h-4" />
                 </button>
                 <button
-                  @click="deleteProviderMutation.mutate(provider.id)"
                   :disabled="deleteProviderMutation.isPending.value"
                   class="p-2 bg-red-600/20 text-red-600 rounded-lg hover:bg-red-600/30 transition-colors"
+                  @click="deleteProviderMutation.mutate(provider.id)"
                 >
                   <Trash2 class="w-4 h-4" />
                 </button>
@@ -551,19 +581,19 @@ function switchToCloudProvider(providerId: string) {
           <div
             v-for="(persona, id) in personas"
             :key="id"
-            @click="setPersonaMutation.mutate(id as string)"
             :class="[
               'p-4 rounded-lg border cursor-pointer transition-all',
               currentPersonaData?.id === id
                 ? 'border-primary bg-primary/10'
                 : 'border-border hover:border-primary/50'
             ]"
+            @click="setPersonaMutation.mutate(id as string)"
           >
             <div class="font-medium">{{ persona.name }}</div>
             <div class="text-sm text-muted-foreground">{{ persona.full_name }}</div>
             <button
-              @click.stop="loadPromptForEdit(id as string)"
               class="mt-2 text-xs text-primary hover:underline"
+              @click.stop="loadPromptForEdit(id as string)"
             >
               Edit Prompt
             </button>
@@ -580,9 +610,9 @@ function switchToCloudProvider(providerId: string) {
           Generation Parameters
         </h2>
         <button
-          @click="saveParams"
           :disabled="setParamsMutation.isPending.value"
           class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          @click="saveParams"
         >
           <Save class="w-4 h-4" />
           Save
@@ -671,15 +701,15 @@ function switchToCloudProvider(providerId: string) {
         </h2>
         <div class="flex items-center gap-2">
           <button
-            @click="() => refetchHistory()"
             class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+            @click="() => refetchHistory()"
           >
             <RotateCw class="w-4 h-4" />
           </button>
           <button
-            @click="clearHistoryMutation.mutate()"
             :disabled="clearHistoryMutation.isPending.value || !historyData?.count"
             class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            @click="clearHistoryMutation.mutate()"
           >
             <Trash2 class="w-4 h-4" />
             Clear
@@ -726,15 +756,15 @@ function switchToCloudProvider(providerId: string) {
 
         <div class="flex justify-end gap-2 mt-4">
           <button
-            @click="editingPrompt = false"
             class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="editingPrompt = false"
           >
             Cancel
           </button>
           <button
-            @click="savePromptMutation.mutate({ persona: selectedPersonaForPrompt, prompt: promptText })"
             :disabled="savePromptMutation.isPending.value"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="savePromptMutation.mutate({ persona: selectedPersonaForPrompt, prompt: promptText })"
           >
             Save Prompt
           </button>
@@ -799,21 +829,35 @@ function switchToCloudProvider(providerId: string) {
           </div>
 
           <div>
-            <label class="block text-sm font-medium mb-1">Model Name</label>
-            <input
+            <label class="block text-sm font-medium mb-1">Model</label>
+            <select
+              v-if="!useCustomModel"
               v-model="providerForm.model_name"
-              type="text"
-              list="model-suggestions"
               class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="kimi-k2"
-            />
-            <datalist id="model-suggestions">
+            >
               <option
-                v-for="model in providersData?.provider_types?.[providerForm.provider_type]?.default_models"
+                v-for="model in currentProviderModels"
                 :key="model"
                 :value="model"
-              />
-            </datalist>
+              >
+                {{ model }}
+              </option>
+              <option value="">— Other (custom) —</option>
+            </select>
+            <input
+              v-else
+              v-model="customModelName"
+              type="text"
+              class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="e.g. anthropic/claude-3.5-sonnet"
+            />
+            <button
+              v-if="useCustomModel"
+              class="mt-1 text-xs text-primary hover:underline"
+              @click="useCustomModel = false; customModelName = ''"
+            >
+              ← Back to list
+            </button>
           </div>
 
           <div>
@@ -828,9 +872,9 @@ function switchToCloudProvider(providerId: string) {
 
           <div class="flex items-center gap-2">
             <input
-              type="checkbox"
               id="provider-enabled"
               v-model="providerForm.enabled"
+              type="checkbox"
               class="w-4 h-4 rounded border-border"
             />
             <label for="provider-enabled" class="text-sm">Enabled</label>
@@ -839,15 +883,15 @@ function switchToCloudProvider(providerId: string) {
 
         <div class="flex justify-end gap-2 mt-6">
           <button
-            @click="showProviderModal = false"
             class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="showProviderModal = false"
           >
             Cancel
           </button>
           <button
-            @click="saveProvider"
             :disabled="!providerForm.name || createProviderMutation.isPending.value || updateProviderMutation.isPending.value"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="saveProvider"
           >
             <Loader2 v-if="createProviderMutation.isPending.value || updateProviderMutation.isPending.value" class="w-4 h-4 inline mr-1 animate-spin" />
             {{ editingProvider ? 'Update' : 'Create' }}
