@@ -1,14 +1,16 @@
 # app/routers/tts.py
-"""TTS configuration router - presets, params, test synthesis, cache."""
+"""TTS configuration router - presets, params, test synthesis, cache, streaming."""
 
+import asyncio
 import logging
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.dependencies import get_container
@@ -58,6 +60,18 @@ class AdminPiperParamsRequest(BaseModel):
 class AdminCustomPresetRequest(BaseModel):
     name: str
     params: dict
+
+
+class StreamingTTSRequest(BaseModel):
+    """Запрос на потоковый синтез речи для телефонии"""
+
+    text: str
+    language: str = "ru"
+    preset: str = "natural"
+    voice: str = "gulya"  # gulya, lidia
+    target_sample_rate: Optional[int] = 8000  # 8000 для GSM, None для 24kHz
+    stream_chunk_size: int = 20  # Размер чанка XTTS (меньше = быстрее первый чанк)
+    output_format: str = "pcm16"  # pcm16, float32
 
 
 # XTTS param overrides storage
@@ -350,3 +364,243 @@ async def admin_delete_custom_preset(name: str):
 
     await _reload_voice_presets()
     return {"status": "ok", "deleted": name}
+
+
+# ============== Streaming TTS Endpoints ==============
+
+
+@router.post("/stream")
+async def tts_stream(request: StreamingTTSRequest):
+    """
+    Потоковый синтез речи - выдаёт аудио чанки по мере генерации.
+
+    Оптимизирован для телефонии через SIM7600G-H GSM модем.
+    Target: <500ms до первого аудио чанка.
+
+    Returns:
+        StreamingResponse с audio/octet-stream
+        Headers:
+        - X-Sample-Rate: частота дискретизации
+        - X-First-Chunk-Ms: время до первого чанка в мс
+    """
+    container = get_container()
+
+    # Выбираем XTTS сервис по голосу
+    tts_service = None
+    if request.voice == "gulya" and container.gulya_voice_service:
+        tts_service = container.gulya_voice_service
+    elif request.voice == "lidia" and container.voice_service:
+        tts_service = container.voice_service
+    elif container.gulya_voice_service:
+        tts_service = container.gulya_voice_service
+    elif container.voice_service:
+        tts_service = container.voice_service
+
+    if not tts_service:
+        raise HTTPException(status_code=503, detail="No XTTS voice service available")
+
+    # Проверяем наличие streaming метода
+    if not hasattr(tts_service, "synthesize_streaming"):
+        raise HTTPException(
+            status_code=501,
+            detail="Streaming synthesis not available. Use /test endpoint for batch synthesis.",
+        )
+
+    # Метрики
+    first_chunk_time = None
+    start_time = time.time()
+
+    def on_first_chunk():
+        nonlocal first_chunk_time
+        first_chunk_time = (time.time() - start_time) * 1000  # мс
+
+    async def generate_audio_chunks():
+        """Генератор аудио чанков для StreamingResponse"""
+        nonlocal first_chunk_time
+
+        try:
+            # Запускаем потоковый синтез в thread pool (XTTS синхронный)
+            loop = asyncio.get_event_loop()
+
+            # Создаём итератор в отдельном потоке
+            def run_streaming():
+                return list(
+                    tts_service.synthesize_streaming(
+                        text=request.text,
+                        language=request.language,
+                        preset=request.preset,
+                        stream_chunk_size=request.stream_chunk_size,
+                        target_sample_rate=request.target_sample_rate,
+                        on_first_chunk=on_first_chunk,
+                    )
+                )
+
+            # Выполняем синтез
+            chunks = await loop.run_in_executor(None, run_streaming)
+
+            # Отдаём чанки
+            for audio_chunk, sample_rate in chunks:
+                # Конвертируем в нужный формат
+                if request.output_format == "pcm16":
+                    # float32 -> int16
+                    import numpy as np
+
+                    audio_int16 = (audio_chunk * 32767).astype(np.int16)
+                    yield audio_int16.tobytes()
+                else:
+                    # float32 as-is
+                    yield audio_chunk.tobytes()
+
+        except Exception as e:
+            logger.error(f"❌ Streaming TTS error: {e}")
+            raise
+
+    # Определяем sample rate для заголовка
+    output_rate = request.target_sample_rate or 24000
+
+    headers = {
+        "X-Sample-Rate": str(output_rate),
+        "X-Channels": "1",
+        "X-Format": request.output_format,
+    }
+
+    # Создаём response
+    response = StreamingResponse(
+        generate_audio_chunks(),
+        media_type="application/octet-stream",
+        headers=headers,
+    )
+
+    return response
+
+
+@router.websocket("/ws/stream")
+async def websocket_tts_stream(websocket: WebSocket):
+    """
+    WebSocket endpoint для real-time TTS стриминга.
+
+    Protocol:
+    1. Client sends JSON: {"text": "...", "voice": "gulya", "preset": "natural", ...}
+    2. Server sends binary audio chunks as they're generated
+    3. Server sends JSON: {"done": true, "first_chunk_ms": 123, "total_ms": 456}
+
+    Оптимизирован для двунаправленной связи с GSM модемом.
+    """
+    await websocket.accept()
+    container = get_container()
+
+    try:
+        while True:
+            # Ждём запрос от клиента
+            data = await websocket.receive_json()
+
+            text = data.get("text", "")
+            if not text:
+                await websocket.send_json({"error": "text is required"})
+                continue
+
+            voice = data.get("voice", "gulya")
+            language = data.get("language", "ru")
+            preset = data.get("preset", "natural")
+            target_sample_rate = data.get("target_sample_rate", 8000)
+            stream_chunk_size = data.get("stream_chunk_size", 20)
+            output_format = data.get("output_format", "pcm16")
+
+            # Выбираем TTS сервис
+            tts_service = None
+            if voice == "gulya" and container.gulya_voice_service:
+                tts_service = container.gulya_voice_service
+            elif voice == "lidia" and container.voice_service:
+                tts_service = container.voice_service
+            elif container.gulya_voice_service:
+                tts_service = container.gulya_voice_service
+            elif container.voice_service:
+                tts_service = container.voice_service
+
+            if not tts_service or not hasattr(tts_service, "synthesize_streaming"):
+                await websocket.send_json({"error": "Streaming TTS not available"})
+                continue
+
+            # Отправляем статус начала
+            await websocket.send_json(
+                {"status": "starting", "sample_rate": target_sample_rate or 24000}
+            )
+
+            # Метрики
+            start_time = time.time()
+            first_chunk_time = None
+            chunk_count = 0
+
+            # Capture variables for closure (fix B023)
+            _start_time = start_time
+            _tts_service = tts_service
+            _text = text
+            _language = language
+            _preset = preset
+            _stream_chunk_size = stream_chunk_size
+            _target_sample_rate = target_sample_rate
+
+            def on_first_chunk(_start=_start_time):
+                nonlocal first_chunk_time
+                first_chunk_time = (time.time() - _start) * 1000
+
+            # Запускаем синтез в executor
+            loop = asyncio.get_event_loop()
+
+            def run_streaming(
+                svc=_tts_service,
+                txt=_text,
+                lang=_language,
+                pres=_preset,
+                chunk_sz=_stream_chunk_size,
+                rate=_target_sample_rate,
+                on_first=on_first_chunk,
+            ):
+                return list(
+                    svc.synthesize_streaming(
+                        text=txt,
+                        language=lang,
+                        preset=pres,
+                        stream_chunk_size=chunk_sz,
+                        target_sample_rate=rate,
+                        on_first_chunk=on_first,
+                    )
+                )
+
+            chunks = await loop.run_in_executor(None, run_streaming)
+
+            # Отправляем чанки
+            for audio_chunk, sample_rate in chunks:
+                import numpy as np
+
+                if output_format == "pcm16":
+                    audio_int16 = (audio_chunk * 32767).astype(np.int16)
+                    await websocket.send_bytes(audio_int16.tobytes())
+                else:
+                    await websocket.send_bytes(audio_chunk.tobytes())
+                chunk_count += 1
+
+            # Отправляем статус завершения
+            total_time = (time.time() - start_time) * 1000
+            await websocket.send_json(
+                {
+                    "done": True,
+                    "first_chunk_ms": round(first_chunk_time, 1) if first_chunk_time else None,
+                    "total_ms": round(total_time, 1),
+                    "chunks": chunk_count,
+                }
+            )
+
+            logger.info(
+                f"🔊 WebSocket TTS: {chunk_count} chunks, "
+                f"first={first_chunk_time:.0f}ms, total={total_time:.0f}ms"
+            )
+
+    except WebSocketDisconnect:
+        logger.info("📱 WebSocket TTS client disconnected")
+    except Exception as e:
+        logger.error(f"❌ WebSocket TTS error: {e}")
+        try:
+            await websocket.send_json({"error": str(e)})
+        except Exception:
+            pass

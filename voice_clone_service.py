@@ -9,9 +9,10 @@ import hashlib
 import logging
 import pickle
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Callable, Generator, Literal, Optional
 
 import numpy as np
 import soundfile as sf
@@ -744,6 +745,178 @@ class VoiceCloneService:
         return self.synthesize(
             text=text, output_path=output_path, language=language, preset=emotion
         )
+
+    # ============== Streaming TTS для телефонии ==============
+
+    def synthesize_streaming(
+        self,
+        text: str,
+        language: str = "ru",
+        preset: Optional[str] = None,
+        stream_chunk_size: int = 20,
+        target_sample_rate: Optional[int] = None,
+        overlap_len: int = 256,
+        on_first_chunk: Optional[Callable[[], None]] = None,
+    ) -> Generator[tuple[np.ndarray, int], None, None]:
+        """
+        Потоковый синтез речи - выдаёт аудио чанки по мере генерации.
+
+        Оптимизирован для телефонии с минимальной латентностью (<500ms до первого чанка).
+        Использует XTTS inference_stream() для real-time синтеза.
+
+        Args:
+            text: Текст для синтеза
+            language: Язык (ru, en и т.д.)
+            preset: Пресет интонации
+            stream_chunk_size: Токенов на чанк (меньше = ниже латентность, 20 оптимально)
+            target_sample_rate: Целевая частота (8000 для GSM, None = native 24kHz)
+            overlap_len: Сэмплов для crossfade между чанками
+            on_first_chunk: Callback при готовности первого чанка
+
+        Yields:
+            tuple[np.ndarray, int]: (аудио чанк float32, sample_rate)
+
+        Example:
+            for chunk, sr in service.synthesize_streaming("Привет!", target_sample_rate=8000):
+                telephony.send_audio(chunk)
+        """
+        if not self.voice_samples:
+            raise ValueError("Нет образцов голоса для клонирования")
+
+        if self._cached_latents is None:
+            raise RuntimeError(
+                "Streaming требует предвычисленных speaker latents. "
+                "Дождитесь завершения инициализации сервиса."
+            )
+
+        # Препроцессинг текста
+        text = self.preprocessor.process(text)
+        logger.info(f"🎙️ Streaming синтез: '{text[:50]}...'")
+
+        # Получаем параметры из пресета
+        p = self.get_preset(preset or self.default_preset)
+
+        model = self.tts.synthesizer.tts_model
+        native_sample_rate = self.tts.synthesizer.output_sample_rate
+
+        prev_chunk_tail = None
+        first_chunk_sent = False
+        total_samples = 0
+        start_time = time.time()
+
+        try:
+            # Используем XTTS streaming inference
+            for chunk_output in model.inference_stream(
+                text=text,
+                language=language,
+                gpt_cond_latent=self._cached_latents["gpt_cond_latent"],
+                speaker_embedding=self._cached_latents["speaker_embedding"],
+                temperature=p.temperature,
+                repetition_penalty=p.repetition_penalty,
+                top_k=p.top_k,
+                top_p=p.top_p,
+                speed=p.speed,
+                stream_chunk_size=stream_chunk_size,
+                enable_text_splitting=True,
+            ):
+                # Извлекаем аудио из выхода
+                if isinstance(chunk_output, dict):
+                    wav = chunk_output.get("wav", chunk_output)
+                else:
+                    wav = chunk_output
+
+                # Конвертируем в numpy
+                if hasattr(wav, "cpu"):
+                    wav = wav.cpu().numpy()
+                if wav.ndim > 1:
+                    wav = wav.squeeze()
+
+                wav = wav.astype(np.float32)
+
+                # Применяем crossfade для плавных переходов
+                if prev_chunk_tail is not None and overlap_len > 0 and len(wav) > overlap_len:
+                    wav = self._apply_crossfade(prev_chunk_tail, wav, overlap_len)
+
+                # Сохраняем хвост для следующего чанка
+                if overlap_len > 0 and len(wav) > overlap_len:
+                    prev_chunk_tail = wav[-overlap_len:].copy()
+                    wav = wav[:-overlap_len]
+
+                # Ресэмплинг если нужен (для телефонии 8kHz)
+                if target_sample_rate and target_sample_rate != native_sample_rate:
+                    wav = self._resample_audio(wav, native_sample_rate, target_sample_rate)
+                    output_sr = target_sample_rate
+                else:
+                    output_sr = native_sample_rate
+
+                total_samples += len(wav)
+
+                # Callback на первый чанк
+                if not first_chunk_sent:
+                    first_chunk_sent = True
+                    first_chunk_latency = (time.time() - start_time) * 1000
+                    logger.info(f"⚡ Первый чанк за {first_chunk_latency:.0f}ms")
+                    if on_first_chunk:
+                        on_first_chunk()
+
+                yield wav, output_sr
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка streaming синтеза: {e}")
+            raise
+
+        finally:
+            # Выдаём оставшийся хвост
+            if prev_chunk_tail is not None and len(prev_chunk_tail) > 0:
+                if target_sample_rate and target_sample_rate != native_sample_rate:
+                    prev_chunk_tail = self._resample_audio(
+                        prev_chunk_tail, native_sample_rate, target_sample_rate
+                    )
+                yield prev_chunk_tail, target_sample_rate or native_sample_rate
+
+            # Очищаем GPU память
+            if self.gpu_index is not None:
+                torch.cuda.empty_cache()
+
+            elapsed = time.time() - start_time
+            audio_duration = total_samples / (target_sample_rate or native_sample_rate)
+            logger.info(
+                f"✅ Streaming завершён: {elapsed:.2f}s, аудио: {audio_duration:.2f}s, "
+                f"RTF: {elapsed / audio_duration:.2f}x"
+            )
+
+    def _apply_crossfade(
+        self,
+        prev_tail: np.ndarray,
+        current: np.ndarray,
+        overlap_len: int,
+    ) -> np.ndarray:
+        """Применяет crossfade между чанками для плавных переходов."""
+        if len(prev_tail) < overlap_len or len(current) < overlap_len:
+            return current
+
+        # Линейный crossfade
+        fade_out = np.linspace(1.0, 0.0, overlap_len, dtype=np.float32)
+        fade_in = np.linspace(0.0, 1.0, overlap_len, dtype=np.float32)
+
+        # Применяем к overlap региону
+        crossfaded = prev_tail * fade_out + current[:overlap_len] * fade_in
+
+        # Возвращаем: crossfaded + остаток текущего чанка
+        return np.concatenate([crossfaded, current[overlap_len:]])
+
+    def _resample_audio(
+        self,
+        audio: np.ndarray,
+        orig_sr: int,
+        target_sr: int,
+    ) -> np.ndarray:
+        """Ресэмплинг аудио (24kHz -> 8kHz для телефонии)."""
+        from scipy import signal
+
+        num_samples = int(len(audio) * target_sr / orig_sr)
+        resampled = signal.resample(audio, num_samples)
+        return resampled.astype(np.float32)
 
 
 # ============== Тестирование ==============
