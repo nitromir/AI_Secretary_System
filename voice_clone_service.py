@@ -882,7 +882,7 @@ class VoiceCloneService:
             audio_duration = total_samples / (target_sample_rate or native_sample_rate)
             logger.info(
                 f"✅ Streaming завершён: {elapsed:.2f}s, аудио: {audio_duration:.2f}s, "
-                f"RTF: {elapsed/audio_duration:.2f}x"
+                f"RTF: {elapsed / audio_duration:.2f}x"
             )
 
     def _apply_crossfade(

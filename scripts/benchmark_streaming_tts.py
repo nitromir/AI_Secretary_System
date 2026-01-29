@@ -33,15 +33,15 @@ def benchmark_streaming(
     """Бенчмарк streaming синтеза."""
     from voice_clone_service import VoiceCloneService
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("XTTS v2 Streaming TTS Benchmark")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Text: {text[:50]}{'...' if len(text) > 50 else ''}")
     print(f"Voice: {voice_folder}")
     print(f"Stream chunk size: {stream_chunk_size}")
     print(f"Target sample rate: {target_sample_rate} Hz")
     print(f"Iterations: {iterations}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Инициализируем сервис
     print("Loading XTTS model...")
@@ -64,7 +64,7 @@ def benchmark_streaming(
     audio_durations = []
 
     for i in range(iterations):
-        print(f"Iteration {i+1}/{iterations}...", end=" ", flush=True)
+        print(f"Iteration {i + 1}/{iterations}...", end=" ", flush=True)
 
         first_chunk_time = None
         start_time = time.time()
@@ -101,9 +101,9 @@ def benchmark_streaming(
         )
 
     # Статистика
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     def print_stats(name: str, values: list, unit: str = "ms"):
         mean = statistics.mean(values)
@@ -123,9 +123,9 @@ def benchmark_streaming(
     print(f"{'Chunks per synthesis:':25} mean={statistics.mean(chunk_counts):7.1f}")
 
     # Оценка для телефонии
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("TELEPHONY ASSESSMENT")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     ttfa_mean = statistics.mean(ttfa_times)
     if ttfa_mean < 500:
@@ -160,9 +160,9 @@ def benchmark_batch(
     """Бенчмарк batch синтеза для сравнения."""
     from voice_clone_service import VoiceCloneService
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("XTTS v2 Batch TTS Benchmark (for comparison)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     service = VoiceCloneService(voice_folder=voice_folder)
 
@@ -171,7 +171,7 @@ def benchmark_batch(
 
     times = []
     for i in range(iterations):
-        print(f"Iteration {i+1}/{iterations}...", end=" ", flush=True)
+        print(f"Iteration {i + 1}/{iterations}...", end=" ", flush=True)
         start = time.time()
         audio, sr = service.synthesize(text, language="ru")
         elapsed = (time.time() - start) * 1000
@@ -214,9 +214,9 @@ def main():
             voice_folder=args.voice,
             iterations=args.iterations,
         )
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("COMPARISON")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Streaming TTFA: {streaming_results['ttfa_mean']:.0f}ms")
         print(f"Batch total:    {batch_mean:.0f}ms")
         print(
