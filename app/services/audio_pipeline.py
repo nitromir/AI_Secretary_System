@@ -202,10 +202,7 @@ class TelephonyAudioPipeline:
         def alaw_encode_sample(sample: int) -> int:
             """Encode single sample to A-law"""
             sign = 0x80 if sample >= 0 else 0x00
-            sample = abs(sample)
-
-            if sample > 32635:
-                sample = 32635
+            sample = min(abs(sample), 32635)
 
             if sample < 256:
                 encoded = sample >> 4
