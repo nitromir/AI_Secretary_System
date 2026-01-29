@@ -3,32 +3,75 @@
 ## 1. Базовый запуск
 
 ```bash
-# Установка
-./setup.sh
+# Docker (рекомендуется)
+cp .env.docker .env
+# Отредактируйте .env при необходимости
+docker compose up -d
 
-# Настройка API ключа
-echo "GEMINI_API_KEY=your_key_here" >> .env
+# Локальный запуск с GPU
+./start_gpu.sh
 
-# Запуск
-./run.sh
+# Проверка работы
+curl http://localhost:8002/health | jq
 ```
 
 ## 2. Тестирование компонентов
 
-### Тест клонирования голоса
+### Тест Batch TTS (клонирование голоса)
 
 ```bash
-# Запуск из Python
 python3 << EOF
 from voice_clone_service import VoiceCloneService
 
-service = VoiceCloneService()
+service = VoiceCloneService(voice_folder="./Гуля")
 service.synthesize_to_file(
-    text="Добрый день! Это тест клонированного голоса Лидии.",
-    output_path="test_voice.wav"
+    text="Добрый день! Это тест клонированного голоса.",
+    output_path="test_voice.wav",
+    preset="warm"
 )
 print("✅ Готово: test_voice.wav")
 EOF
+```
+
+### Тест Streaming TTS (для телефонии)
+
+```bash
+python3 << EOF
+import time
+from voice_clone_service import VoiceCloneService
+
+service = VoiceCloneService(voice_folder="./Гуля")
+
+start = time.time()
+first_chunk_time = None
+
+def on_first():
+    global first_chunk_time
+    first_chunk_time = (time.time() - start) * 1000
+
+chunks = []
+for chunk, sr in service.synthesize_streaming(
+    text="Здравствуйте! Чем могу помочь?",
+    target_sample_rate=8000,  # GSM телефония
+    stream_chunk_size=20,
+    on_first_chunk=on_first,
+):
+    chunks.append(chunk)
+
+print(f"✅ TTFA: {first_chunk_time:.0f}ms")
+print(f"✅ Chunks: {len(chunks)}")
+print(f"✅ Total: {(time.time() - start)*1000:.0f}ms")
+EOF
+```
+
+### Benchmark Streaming TTS
+
+```bash
+# Полный бенчмарк
+python scripts/benchmark_streaming_tts.py --iterations 10
+
+# Сравнение с batch режимом
+python scripts/benchmark_streaming_tts.py --compare-batch --iterations 5
 ```
 
 ### Тест распознавания речи
@@ -69,67 +112,73 @@ EOF
 ### Health check
 
 ```bash
-curl http://localhost:8000/health | jq
+curl http://localhost:8002/health | jq
 ```
 
-### Синтез речи
+### Batch TTS (тест синтеза)
 
 ```bash
-curl -X POST http://localhost:8000/tts \
+curl -X POST http://localhost:8002/admin/tts/test \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Здравствуйте! Компания на связи. Чем могу помочь?",
-    "language": "ru"
+    "text": "Здравствуйте! Компания на связи.",
+    "preset": "natural"
   }' \
-  -o secretary_greeting.wav
+  -o greeting.wav
 ```
 
-### Распознавание речи
+### Streaming TTS (для телефонии)
 
 ```bash
-# Запишите голосовое сообщение в voice_input.wav
-curl -X POST http://localhost:8000/stt \
-  -F "audio=@voice_input.wav" | jq
-```
-
-### Чат
-
-```bash
-curl -X POST http://localhost:8000/chat \
+# HTTP chunked streaming
+curl -X POST http://localhost:8002/admin/tts/stream \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Добрый день, я хотел бы записаться на консультацию"
-  }' | jq
+    "text": "Здравствуйте! Чем могу помочь?",
+    "voice": "gulya",
+    "target_sample_rate": 8000,
+    "output_format": "pcm16"
+  }' \
+  -o response.pcm
+
+# Конвертация PCM в WAV
+ffmpeg -f s16le -ar 8000 -ac 1 -i response.pcm response.wav
 ```
 
-### Полный цикл
+### OpenAI-совместимый TTS
 
 ```bash
-# Обработка голосового сообщения с возвратом аудио ответа
-curl -X POST http://localhost:8000/process_call \
-  -F "audio=@customer_question.wav" \
-  -o secretary_answer.wav
+curl -X POST http://localhost:8002/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Привет! Это тест.",
+    "voice": "gulya",
+    "model": "tts-1"
+  }' \
+  -o output.wav
+```
 
-# Проверяем headers с метаданными
-curl -X POST http://localhost:8000/process_call \
-  -F "audio=@customer_question.wav" \
-  -o secretary_answer.wav \
-  -v 2>&1 | grep "^< X-"
+### Chat API (streaming)
+
+```bash
+curl -X POST http://localhost:8002/admin/chat/sessions/1/stream \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Здравствуйте, какой у вас график работы?"}'
 ```
 
 ## 4. Python интеграция
 
-### Простой пример
+### Batch TTS
 
 ```python
 import requests
 
 # Отправка текста на синтез
 response = requests.post(
-    "http://localhost:8000/tts",
+    "http://localhost:8002/admin/tts/test",
     json={
         "text": "Спасибо за звонок. Хорошего дня!",
-        "language": "ru"
+        "preset": "warm"
     }
 )
 
@@ -137,51 +186,88 @@ with open("response.wav", "wb") as f:
     f.write(response.content)
 ```
 
-### Обработка голосового сообщения
+### Streaming TTS (HTTP)
 
 ```python
 import requests
+import numpy as np
 
-# Отправка аудио на обработку
-with open("customer_voice.wav", "rb") as f:
-    response = requests.post(
-        "http://localhost:8000/process_call",
-        files={"audio": f}
-    )
+# Streaming синтез для телефонии
+response = requests.post(
+    "http://localhost:8002/admin/tts/stream",
+    json={
+        "text": "Здравствуйте! Чем могу помочь?",
+        "voice": "gulya",
+        "target_sample_rate": 8000,
+        "output_format": "pcm16"
+    },
+    stream=True
+)
 
-# Сохраняем ответ
-with open("secretary_response.wav", "wb") as f:
-    f.write(response.content)
-
-# Получаем метаданные
-recognized_text = response.headers.get("X-Recognized-Text")
-response_text = response.headers.get("X-Response-Text")
-
-print(f"Клиент сказал: {recognized_text}")
-print(f"Секретарь ответил: {response_text}")
+# Обработка чанков по мере поступления
+for chunk in response.iter_content(chunk_size=640):  # 20ms @ 8kHz * 2 bytes
+    if chunk:
+        # Конвертация в numpy array
+        audio = np.frombuffer(chunk, dtype=np.int16)
+        # Отправка в телефонию...
+        print(f"Received chunk: {len(audio)} samples")
 ```
 
-### Асинхронная обработка
+### Streaming TTS (WebSocket)
 
 ```python
 import asyncio
-import aiohttp
+import websockets
+import json
+import numpy as np
 
-async def process_call(audio_path: str):
-    async with aiohttp.ClientSession() as session:
-        with open(audio_path, "rb") as f:
-            form = aiohttp.FormData()
-            form.add_field("audio", f, filename="audio.wav")
+async def streaming_tts_websocket():
+    uri = "ws://localhost:8002/admin/tts/ws/stream"
 
-            async with session.post(
-                "http://localhost:8000/process_call",
-                data=form
-            ) as response:
-                audio_data = await response.read()
-                return audio_data
+    async with websockets.connect(uri) as ws:
+        # Отправляем запрос
+        await ws.send(json.dumps({
+            "text": "Здравствуйте! Это тест WebSocket streaming.",
+            "voice": "gulya",
+            "target_sample_rate": 8000
+        }))
 
-# Использование
-audio_response = asyncio.run(process_call("input.wav"))
+        # Получаем чанки
+        while True:
+            message = await ws.recv()
+            if isinstance(message, bytes):
+                # Бинарный аудио чанк
+                audio = np.frombuffer(message, dtype=np.int16)
+                print(f"Audio chunk: {len(audio)} samples")
+            else:
+                # JSON статус
+                status = json.loads(message)
+                if status.get("done"):
+                    print(f"Done! TTFA: {status['first_chunk_ms']}ms")
+                    break
+
+asyncio.run(streaming_tts_websocket())
+```
+
+### Прямое использование VoiceCloneService
+
+```python
+from voice_clone_service import VoiceCloneService
+from app.services.audio_pipeline import TelephonyAudioPipeline
+
+# Инициализация
+service = VoiceCloneService(voice_folder="./Гуля")
+pipeline = TelephonyAudioPipeline(target_sample_rate=8000)
+
+# Streaming синтез с обработкой для GSM
+for chunk, sr in service.synthesize_streaming(
+    text="Привет! Это тест.",
+    target_sample_rate=8000,
+    stream_chunk_size=20,
+):
+    # chunk уже в 8kHz, конвертируем в PCM16
+    pcm_data = pipeline.float_to_pcm16(chunk)
+    # Отправка в GSM модем...
 ```
 
 ## 5. Настройка системного промпта

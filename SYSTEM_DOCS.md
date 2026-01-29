@@ -2,13 +2,14 @@
 
 ## Обзор системы
 
-AI Secretary "Лидия" - система синтеза речи с клонированием голоса и GPU-ускорением, интегрированная с LLM для работы виртуального секретаря.
+AI Secretary "Лидия/Гуля" - система синтеза речи с клонированием голоса и GPU-ускорением, интегрированная с LLM для работы виртуального секретаря. Поддерживает streaming TTS для телефонии.
 
-## Текущий статус (2026-01-14)
+## Текущий статус (2026-01-29)
 
 | Компонент | Статус | Производительность |
 |-----------|--------|-------------------|
 | Voice Clone Service | ✅ Работает | RTF 0.95x на GPU |
+| Streaming TTS | ✅ Работает | TTFA <500ms target |
 | GPU RTX 3060 | ✅ Активен | 10 GB / 12 GB |
 | GPU P104-100 | ❌ Не поддерживается | CC 6.1 < 7.0 |
 | Кэш speaker latents | ✅ Включён | `./cache/` |
@@ -16,6 +17,7 @@ AI Secretary "Лидия" - система синтеза речи с клони
 | Препроцессинг текста | ✅ Включён | Е→Ё, паузы |
 | PyTorch | ✅ 2.9.1 | CUDA 12.8 |
 | coqui-tts | ✅ 0.27.3 | XTTS v2 |
+| Telephony Pipeline | ✅ Готов | 8kHz PCM16, G.711 |
 
 ## Архитектура
 
@@ -97,6 +99,7 @@ service = VoiceCloneService(max_samples=20)
 ### Параметры синтеза
 
 ```python
+# Batch синтез (для предзаписи)
 wav, sr = service.synthesize(
     text="Текст для синтеза",
     language="ru",
@@ -112,6 +115,19 @@ wav, sr = service.synthesize(
     preprocess_text=True,       # Е→Ё, паузы
     split_sentences=True,       # Разбивать на предложения
 )
+
+# Streaming синтез (для телефонии, target <500ms TTFA)
+for audio_chunk, sample_rate in service.synthesize_streaming(
+    text="Текст для синтеза",
+    language="ru",
+    preset="natural",
+    stream_chunk_size=20,       # Меньше = быстрее первый чанк
+    target_sample_rate=8000,    # 8kHz для GSM телефонии
+    on_first_chunk=callback,    # Вызывается при первом чанке
+):
+    # audio_chunk: np.ndarray float32
+    # Обрабатывать/отправлять чанки по мере генерации
+    pass
 ```
 
 ### Препроцессинг текста
@@ -246,13 +262,89 @@ AI_Secretary_System/
 4. **Медленный синтез** → GPU + кэширование latents
 5. **Неестественное произношение** → Препроцессинг Е→Ё, паузы
 
+## Streaming TTS для телефонии
+
+### API Endpoints
+
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/admin/tts/stream` | POST | HTTP chunked streaming TTS |
+| `/admin/tts/ws/stream` | WebSocket | Real-time bidirectional TTS |
+
+### Пример HTTP streaming
+
+```bash
+curl -X POST http://localhost:8002/admin/tts/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Здравствуйте!",
+    "voice": "gulya",
+    "target_sample_rate": 8000,
+    "output_format": "pcm16"
+  }' --output audio.pcm
+```
+
+### Пример WebSocket
+
+```javascript
+const ws = new WebSocket('ws://localhost:8002/admin/tts/ws/stream');
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    text: "Привет!",
+    voice: "gulya",
+    target_sample_rate: 8000
+  }));
+};
+
+ws.onmessage = (event) => {
+  if (event.data instanceof Blob) {
+    // Бинарный аудио чанк
+    playAudioChunk(event.data);
+  } else {
+    // JSON статус
+    const status = JSON.parse(event.data);
+    if (status.done) {
+      console.log(`TTFA: ${status.first_chunk_ms}ms`);
+    }
+  }
+};
+```
+
+### Benchmark
+
+```bash
+python scripts/benchmark_streaming_tts.py --iterations 10
+
+# Результаты:
+# TTFA (Time-to-first-audio): ~300-500ms
+# RTF (Real-time factor): ~0.5-0.9x
+```
+
+## Audio Pipeline для GSM
+
+Файл: `app/services/audio_pipeline.py`
+
+| Класс | Описание |
+|-------|----------|
+| `TelephonyAudioPipeline` | Конвертация 24kHz→8kHz, PCM16, 20ms фреймы |
+| `StreamingAudioBuffer` | Кольцевой буфер для jitter smoothing |
+
+GSM спецификации:
+- Sample rate: 8000 Hz
+- Bit depth: 16-bit signed PCM
+- Frame size: 20ms (160 samples)
+- Опционально: G.711 A-law кодирование
+
 ## Следующие шаги (TODO)
 
-- [ ] Интеграция с оркестратором (передать preset через API)
-- [ ] WebSocket для streaming TTS
-- [ ] Настройка Twilio webhooks
+- [x] ~~WebSocket для streaming TTS~~ ✅ Готово
+- [x] ~~HTTP streaming endpoint~~ ✅ Готово
+- [x] ~~GSM audio pipeline~~ ✅ Готово
+- [ ] Интеграция с SIM7600G-H GSM модемом
 - [ ] A/B тестирование пресетов интонаций
 - [ ] Мониторинг GPU памяти в production
+- [ ] Twilio/VoIP интеграция
 
 ---
-*Обновлено: 2026-01-14*
+*Обновлено: 2026-01-29*

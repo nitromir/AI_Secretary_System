@@ -3,17 +3,19 @@
 ## Быстрый старт
 
 ```bash
-# Установка
-./setup.sh
+# Docker (рекомендуется)
+cp .env.docker .env
+docker compose up -d
 
-# Настройка API ключа
-nano .env  # Добавьте GEMINI_API_KEY
+# Локальный запуск с GPU
+./start_gpu.sh
 
-# Запуск
-./run.sh
+# CPU-only (Piper + Gemini)
+./start_cpu.sh
 
 # Тестирование
 ./test_system.sh
+curl http://localhost:8002/health
 ```
 
 ## Основные команды
@@ -41,47 +43,63 @@ docker-compose logs -f phone-service
 
 ```bash
 # Health check
-curl http://localhost:8000/health | jq
+curl http://localhost:8002/health | jq
 
-# Синтез речи
-curl -X POST http://localhost:8000/tts \
+# Batch синтез речи
+curl -X POST http://localhost:8002/admin/tts/test \
   -H "Content-Type: application/json" \
-  -d '{"text": "Привет!", "language": "ru"}' \
+  -d '{"text": "Привет!", "preset": "natural"}' \
   -o output.wav
 
-# Распознавание речи
-curl -X POST http://localhost:8000/stt \
-  -F "audio=@input.wav" | jq
-
-# Чат
-curl -X POST http://localhost:8000/chat \
+# Streaming TTS (для телефонии)
+curl -X POST http://localhost:8002/admin/tts/stream \
   -H "Content-Type: application/json" \
-  -d '{"text": "Здравствуйте"}' | jq
+  -d '{"text": "Привет!", "target_sample_rate": 8000}' \
+  -o output.pcm
 
-# Полный цикл
-curl -X POST http://localhost:8000/process_call \
-  -F "audio=@question.wav" \
-  -o answer.wav
+# Benchmark streaming TTS
+python scripts/benchmark_streaming_tts.py --iterations 5
+
+# OpenAI-совместимый TTS
+curl -X POST http://localhost:8002/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Привет!", "voice": "gulya"}' \
+  -o output.wav
+
+# Чат (streaming)
+curl -X POST http://localhost:8002/admin/chat/sessions/1/stream \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Здравствуйте"}'
 ```
 
 ### Python примеры
 
 ```python
-# Синтез речи
+# Batch синтез речи
 from voice_clone_service import VoiceCloneService
-service = VoiceCloneService()
-service.synthesize_to_file("Привет!", "output.wav")
+service = VoiceCloneService(voice_folder="./Гуля")
+service.synthesize_to_file("Привет!", "output.wav", preset="warm")
 
-# Распознавание
+# Streaming синтез (для телефонии)
+for chunk, sr in service.synthesize_streaming(
+    text="Привет!",
+    target_sample_rate=8000,  # GSM
+    stream_chunk_size=20,     # Меньше = быстрее первый чанк
+):
+    # chunk: np.ndarray float32
+    # Отправлять чанки в телефонию по мере генерации
+    pass
+
+# Распознавание (Vosk realtime)
 from stt_service import STTService
-service = STTService()
+service = STTService(use_vosk=True)
 result = service.transcribe("audio.wav")
 print(result["text"])
 
-# LLM
-from llm_service import LLMService
-service = LLMService()
-response = service.generate_response("Здравствуйте")
+# LLM (vLLM локальный)
+from vllm_llm_service import VLLMLLMService
+service = VLLMLLMService(persona="gulya")
+response = await service.generate_response("Здравствуйте")
 print(response)
 ```
 
@@ -116,18 +134,23 @@ model_name = "gemini-2.5-pro-latest"  # или gemini-flash
 ## Мониторинг
 
 ```bash
-# Логи звонков
-ls -lh calls_log/
-tail -f calls_log/call_*_transcript.txt
+# Health check
+curl http://localhost:8002/health | jq
 
-# GPU
+# GPU usage
 watch -n 1 nvidia-smi
 
+# Streaming TTS benchmark
+python scripts/benchmark_streaming_tts.py --iterations 10
+
+# Логи Docker
+docker compose logs -f orchestrator
+
 # Процессы
-ps aux | grep python
+ps aux | grep -E 'python|vllm'
 
 # Порты
-netstat -tlnp | grep -E '8000|8001'
+ss -tlnp | grep -E '8002|11434'
 ```
 
 ## Отладка
@@ -151,26 +174,26 @@ python3 llm_service.py
 ## Docker команды
 
 ```bash
-# Сборка
-docker-compose build
+# Быстрый старт (локальный vLLM)
+./start_docker.sh          # Запускает vLLM + Docker
+./stop_docker.sh           # Останавливает всё
 
-# Запуск
-docker-compose up -d
+# Ручное управление
+docker compose up -d       # Запуск
+docker compose down        # Остановка
+docker compose logs -f orchestrator  # Логи
 
-# Остановка
-docker-compose down
+# CPU-only режим
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
 
-# Логи
-docker-compose logs -f
+# Полный контейнеризованный (скачивает vLLM образ)
+docker compose -f docker-compose.full.yml up -d
 
-# Перезапуск
-docker-compose restart orchestrator
+# Пересборка после изменений
+docker compose build --no-cache orchestrator && docker compose up -d
 
 # Вход в контейнер
-docker-compose exec orchestrator bash
-
-# Удаление
-docker-compose down -v
+docker compose exec orchestrator bash
 ```
 
 ## Twilio интеграция
@@ -241,26 +264,32 @@ alias ai-health='curl -s http://localhost:8000/health | jq'
 
 ## Производительность
 
-### Benchmark TTS
+### Benchmark Streaming TTS
 ```bash
-time curl -X POST http://localhost:8000/tts \
+# Полный бенчмарк с метриками
+python scripts/benchmark_streaming_tts.py --iterations 10
+
+# Сравнение streaming vs batch
+python scripts/benchmark_streaming_tts.py --compare-batch
+
+# Результаты:
+# TTFA (Time-to-first-audio): 300-500ms
+# RTF (Real-time factor): 0.5-0.9x
+```
+
+### Benchmark Batch TTS
+```bash
+time curl -X POST http://localhost:8002/admin/tts/test \
   -H "Content-Type: application/json" \
-  -d '{"text": "Тест производительности"}' \
+  -d '{"text": "Тест производительности", "preset": "natural"}' \
   -o /dev/null
 ```
 
-### Benchmark STT
+### Benchmark LLM
 ```bash
-time curl -X POST http://localhost:8000/stt \
-  -F "audio=@test_audio.wav" \
-  -o /dev/null
-```
-
-### Benchmark полного цикла
-```bash
-time curl -X POST http://localhost:8000/process_call \
-  -F "audio=@test_audio.wav" \
-  -o /dev/null
+time curl -X POST http://localhost:8002/admin/chat/sessions/1/stream \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Привет"}'
 ```
 
 ## Бэкап
