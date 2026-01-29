@@ -70,11 +70,19 @@ PROVIDER_TYPES = {
         "name": "OpenRouter",
         "default_base_url": "https://openrouter.ai/api/v1",
         "default_models": [
-            "google/gemma-2-9b-it:free",
-            "meta-llama/llama-3.2-3b-instruct:free",
-            "qwen/qwen-2-7b-instruct:free",
-            "mistralai/mistral-7b-instruct:free",
-            "nousresearch/hermes-3-llama-3.1-405b:free",
+            # Free models (январь 2026)
+            "nvidia/nemotron-3-nano-30b-a3b:free",
+            "nvidia/nemotron-nano-12b-v2-vl:free",
+            "arcee-ai/trinity-large-preview:free",
+            "arcee-ai/trinity-mini:free",
+            "upstage/solar-pro-3:free",
+            "liquid/lfm-2.5-1.2b-instruct:free",
+            "allenai/molmo-2-8b:free",
+            "tngtech/tng-r1t-chimera:free",
+            # Paid (дешёвые)
+            "google/gemini-2.0-flash-001",
+            "openai/gpt-4o-mini",
+            "deepseek/deepseek-chat-v3-0324",
         ],
         "requires_base_url": True,
     },
@@ -240,7 +248,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             logger.error(
                 f"[{self.provider_id}] HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            return f"Error: API returned {e.response.status_code}"
+            error_messages = {
+                401: "Invalid API key",
+                403: "Access denied - check API key permissions",
+                404: f"Model '{self.model_name}' not found - check model name",
+                429: "Rate limit exceeded - wait or upgrade plan",
+                500: "Provider server error",
+                502: "Provider gateway error",
+                503: "Provider temporarily unavailable",
+            }
+            msg = error_messages.get(e.response.status_code, f"HTTP {e.response.status_code}")
+            return f"Error: {msg}"
         except Exception as e:
             logger.error(f"[{self.provider_id}] Error: {e}")
             return "Извините, произошла техническая ошибка."
@@ -432,6 +450,7 @@ class CloudLLMService:
         # For compatibility with existing code
         self.model_name = provider_config.get("model_name", "")
         self.api_url = provider_config.get("base_url", "")
+        self.backend_type = "cloud"  # Отличает от vLLM
 
         # FAQ (загружается через reload_faq из БД)
         self.faq: Dict[str, str] = {}

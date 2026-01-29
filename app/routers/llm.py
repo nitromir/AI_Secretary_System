@@ -325,7 +325,17 @@ async def admin_set_llm_backend(
         )
 
     llm_service = container.llm_service
-    current_backend = "vllm" if (llm_service and hasattr(llm_service, "api_url")) else "gemini"
+
+    # Определяем текущий бэкенд правильно (cloud, vllm, gemini)
+    if llm_service and getattr(llm_service, "backend_type", None) == "cloud":
+        current_backend = f"cloud:{getattr(llm_service, 'provider_id', 'unknown')}"
+    elif (
+        llm_service and hasattr(llm_service, "api_url") and not hasattr(llm_service, "backend_type")
+    ):
+        current_backend = "vllm"
+    else:
+        current_backend = "gemini"
+
     if request.backend == current_backend:
         return {
             "status": "ok",
