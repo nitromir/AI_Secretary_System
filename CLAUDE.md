@@ -321,6 +321,7 @@ See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
 
 **Recently completed:**
+- ✅ **Multiple VLESS Proxies** — Configure multiple VLESS URLs with automatic failover when a proxy fails
 - ✅ **Chat LLM Selector** — Per-session LLM override dropdown in chat header (vLLM, Gemini, or any cloud provider)
 - ✅ **Voice Switching Fix** — Fixed reference bug preventing voice changes (Gulya, Lidia) from taking effect
 - ✅ **Piper TTS in Docker** — Dmitri and Irina voices now available in Docker with auto-discovery of models directory
@@ -362,14 +363,20 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 
 ## VLESS Proxy for Gemini
 
-For regions where Google API is restricted, Gemini providers support optional VLESS proxy routing via xray-core.
+For regions where Google API is restricted, Gemini providers support optional VLESS proxy routing via xray-core with **automatic failover** support.
 
 **Setup:**
 1. Install xray-core (included in Docker image, or download to `./bin/xray`)
 2. Create/edit Gemini provider in Admin Panel → LLM → Cloud Providers
-3. In the modal, enter your VLESS URL in the "VLESS Proxy" section
-4. Click "Test Proxy" to verify connection
+3. In the modal, enter VLESS URLs in the "VLESS Proxy" section (one per line for failover)
+4. Click "Test All Proxies" to verify connections
 5. Save — all Gemini API requests will route through the proxy
+
+**Multiple Proxies with Fallback:**
+- Add multiple VLESS URLs (one per line) for automatic failover
+- When current proxy fails, system switches to next available
+- UI shows proxy count badge (e.g., "3 Proxy") on provider cards
+- "Test All Proxies" tests each URL and shows per-proxy results
 
 **VLESS URL format:**
 ```
@@ -382,25 +389,34 @@ vless://uuid@host:port?security=reality&pbk=PUBLIC_KEY&sid=SHORT_ID&type=tcp&flo
 - Flow: `xtls-rprx-vision` (for XTLS)
 
 **API endpoints:**
-- `GET /admin/llm/proxy/status` — xray availability and running state
-- `POST /admin/llm/proxy/test` — Test VLESS URL connection to Google API
+- `GET /admin/llm/proxy/status` — xray availability, proxy list and current proxy
+- `POST /admin/llm/proxy/test` — Test single VLESS URL
+- `POST /admin/llm/proxy/test-multiple` — Test multiple VLESS URLs
+- `POST /admin/llm/proxy/reset` — Reset all proxies to enabled state
+- `POST /admin/llm/proxy/switch-next` — Manually switch to next proxy
 - `GET /admin/llm/proxy/validate` — Validate VLESS URL format
 
 **How it works:**
 ```
-GeminiProvider → XrayProxyManager → xray-core (local SOCKS5/HTTP) → VLESS Server → Google API
+GeminiProvider → XrayProxyManagerWithFallback → xray-core (SOCKS5/HTTP) → VLESS Server → Google API
+                         ↓ (on failure)
+                 Auto-switch to next proxy
 ```
 
-**Storage:** VLESS URL is stored in provider's `config` JSON field:
+**Storage:** VLESS URLs stored in provider's `config` JSON field:
 ```json
 {
   "temperature": 0.7,
-  "vless_url": "vless://uuid@host:port?..."
+  "vless_urls": [
+    "vless://uuid@host1:port?...#proxy1",
+    "vless://uuid@host2:port?...#proxy2"
+  ]
 }
 ```
 
 **Error handling:**
 - xray not found → Warning logged, falls back to direct connection
 - Invalid VLESS URL → Error shown in UI at save time
-- xray fails to start → Warning, fallback to direct
+- Proxy fails → Auto-switch to next proxy (if multiple configured)
+- All proxies fail → Fallback to direct connection
 - VLESS server unreachable → SDK timeout, error returned to user

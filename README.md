@@ -46,7 +46,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ### Modular API Structure
 
-API endpoints organized into 11 routers with ~112 endpoints:
+API endpoints organized into 11 routers with ~118 endpoints:
 
 ```
 app/
@@ -60,7 +60,7 @@ app/
     ├── monitor.py           # 7 endpoints  - GPU stats, health, metrics SSE
     ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
     ├── stt.py               # 4 endpoints  - STT status, transcribe, test
-    ├── llm.py               # 24 endpoints - Backend, persona, params, providers
+    ├── llm.py               # 27 endpoints - Backend, persona, params, providers, VLESS proxy
     ├── tts.py               # 13 endpoints - Presets, params, test, cache
     ├── chat.py              # 10 endpoints - Sessions, messages, streaming
     ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
@@ -577,6 +577,49 @@ curl -X POST http://localhost:8002/admin/llm/backend \
   -d '{"backend": "cloud:my-kimi-id"}'
 ```
 
+## VLESS Proxy for Gemini
+
+Для регионов с ограниченным доступом к Google API, Gemini провайдеры поддерживают маршрутизацию через VLESS прокси с **автоматическим failover**.
+
+**Настройка:**
+1. xray-core уже включён в Docker образ (или скачайте в `./bin/xray`)
+2. Создайте/отредактируйте Gemini провайдер в Admin Panel → LLM → Cloud Providers
+3. В модальном окне введите VLESS URL(s) в секции "VLESS Proxy" (по одному на строку)
+4. Нажмите "Test All Proxies" для проверки
+5. Сохраните — все запросы к Gemini API пойдут через прокси
+
+**Multiple Proxies с Fallback:**
+- Добавьте несколько VLESS URL (по одному на строку)
+- При сбое текущего прокси система переключается на следующий
+- В карточке провайдера отображается количество прокси (напр. "3 Proxy")
+
+**Формат VLESS URL:**
+```
+vless://uuid@host:port?security=reality&pbk=PUBLIC_KEY&sid=SHORT_ID&type=tcp&flow=xtls-rprx-vision#Name
+```
+
+**Поддерживаемые протоколы:**
+- Security: `none`, `tls`, `reality`
+- Transport: `tcp`, `ws` (WebSocket), `grpc`
+
+**API endpoints:**
+```bash
+# Статус прокси
+GET /admin/llm/proxy/status
+
+# Тест одного URL
+POST /admin/llm/proxy/test
+
+# Тест нескольких URL
+POST /admin/llm/proxy/test-multiple
+
+# Сброс всех прокси
+POST /admin/llm/proxy/reset
+
+# Переключиться на следующий прокси
+POST /admin/llm/proxy/switch-next
+```
+
 ## API Reference
 
 ### OpenAI-Compatible (for OpenWebUI)
@@ -597,7 +640,7 @@ curl -X POST http://localhost:8002/v1/audio/speech \
 curl http://localhost:8002/v1/models
 ```
 
-### Admin API (~112 endpoints via 11 routers)
+### Admin API (~118 endpoints via 11 routers)
 
 ```bash
 # Authentication
@@ -629,6 +672,14 @@ PUT    /admin/llm/providers/{id}         # Update provider
 DELETE /admin/llm/providers/{id}         # Delete provider
 POST   /admin/llm/providers/{id}/test    # Test connection
 POST   /admin/llm/providers/{id}/set-default  # Set as default
+
+# VLESS Proxy (for Gemini)
+GET  /admin/llm/proxy/status           # Proxy status, proxy list
+POST /admin/llm/proxy/test             # Test single VLESS URL
+POST /admin/llm/proxy/test-multiple    # Test multiple VLESS URLs
+POST /admin/llm/proxy/reset            # Reset all proxies to enabled
+POST /admin/llm/proxy/switch-next      # Switch to next proxy
+GET  /admin/llm/proxy/validate         # Validate VLESS URL format
 
 # TTS
 GET  /admin/voices                   # List voices
@@ -1043,6 +1094,7 @@ npm run build
 - [x] **Code Quality** — ruff, mypy, eslint, pre-commit hooks
 - [x] **Chat Management** — переименование, групповое удаление, группировка по источнику
 - [x] **Source Tracking** — отслеживание источника чат-сессий (admin/telegram/widget)
+- [x] **VLESS Proxy for Gemini** — маршрутизация через VLESS прокси с multiple proxies и автоматическим failover
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)

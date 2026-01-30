@@ -1,0 +1,34 @@
+## Навигация
+
+### 🏠 Главная
+* [[Home]]
+
+### 📱 Админ-панель
+* [[Dashboard]]
+* [[Chat]]
+* [[Services]]
+* [[LLM]]
+* [[TTS]]
+* [[FAQ]]
+* [[Finetune]]
+* [[Monitoring]]
+* [[Models]]
+* [[Widget]]
+* [[Telegram]]
+* [[Audit]]
+* [[Settings]]
+
+### 🔌 Интеграции
+* [[Cloud-LLM-Providers]]
+* [[VLESS-Proxy]]
+* [[Telegram-Integration]]
+* [[Widget-Integration]]
+
+### 📚 Разработка
+* [[API-Reference]]
+* [[Development-Setup]]
+* [[Docker-Deployment]]
+
+---
+
+📖 [GitHub](https://github.com/ShaerWare/AI_Secretary_System)
