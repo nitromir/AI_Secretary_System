@@ -36,9 +36,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudio2 \
     git \
     curl \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+# Install Piper TTS (CPU-based, fast inference for Dmitri/Irina voices)
+RUN mkdir -p /opt/piper && cd /opt/piper \
+    && wget -q https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+    && tar -xzf piper_linux_x86_64.tar.gz \
+    && rm piper_linux_x86_64.tar.gz \
+    && ln -sf /opt/piper/piper/piper /usr/local/bin/piper
+
+# Install xray-core (for VLESS proxy support with Gemini)
+RUN mkdir -p /tmp/xray && cd /tmp/xray \
+    && wget -q https://github.com/XTLS/Xray-core/releases/download/v1.8.7/Xray-linux-64.zip \
+    && unzip -q Xray-linux-64.zip \
+    && mv xray /usr/local/bin/xray \
+    && chmod +x /usr/local/bin/xray \
+    && rm -rf /tmp/xray
+
+# Download Russian Piper voices (Dmitri + Irina)
+RUN mkdir -p /app/models/piper && cd /app/models/piper \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json
 
 WORKDIR /app
 
@@ -114,7 +138,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudio2 \
     git \
     curl \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Piper TTS (CPU-based, fast inference for Dmitri/Irina voices)
+RUN mkdir -p /opt/piper && cd /opt/piper \
+    && wget -q https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+    && tar -xzf piper_linux_x86_64.tar.gz \
+    && rm piper_linux_x86_64.tar.gz \
+    && ln -sf /opt/piper/piper/piper /usr/local/bin/piper
+
+# Install xray-core (for VLESS proxy support with Gemini)
+RUN mkdir -p /tmp/xray && cd /tmp/xray \
+    && wget -q https://github.com/XTLS/Xray-core/releases/download/v1.8.7/Xray-linux-64.zip \
+    && unzip -q Xray-linux-64.zip \
+    && mv xray /usr/local/bin/xray \
+    && chmod +x /usr/local/bin/xray \
+    && rm -rf /tmp/xray
+
+# Download Russian Piper voices (Dmitri + Irina)
+RUN mkdir -p /app/models/piper && cd /app/models/piper \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx \
+    && wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json
 
 WORKDIR /app
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { llmApi, type LlmParams, type CloudProvider } from '@/api'
+import { llmApi, type LlmParams, type CloudProvider, type ProxyStatus } from '@/api'
 import {
   Brain,
   User,
@@ -21,7 +21,10 @@ import {
   Edit2,
   Play,
   Star,
-  RefreshCw
+  RefreshCw,
+  Shield,
+  Wifi,
+  WifiOff
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -51,6 +54,10 @@ const providerForm = ref({
 })
 const useCustomModel = ref(false)
 const customModelName = ref('')
+
+// VLESS proxy state
+const vlessUrl = ref('')
+const vlessTestResult = ref<{ success?: boolean; message?: string; error?: string } | null>(null)
 
 // Queries
 const { data: backendData, isLoading: backendLoading } = useQuery({
@@ -87,6 +94,12 @@ const { data: historyData, refetch: refetchHistory } = useQuery({
 const { data: providersData, refetch: refetchProviders } = useQuery({
   queryKey: ['llm-providers'],
   queryFn: () => llmApi.getProviders(),
+})
+
+// Proxy status query
+const { data: proxyStatusData, refetch: refetchProxyStatus } = useQuery({
+  queryKey: ['proxy-status'],
+  queryFn: () => llmApi.getProxyStatus(),
 })
 
 // Local state for params
@@ -199,6 +212,23 @@ const savePromptMutation = useMutation({
   },
 })
 
+// VLESS proxy test mutation
+const testProxyMutation = useMutation({
+  mutationFn: (vlessUrl: string) => llmApi.testProxy(vlessUrl),
+  onSuccess: (data) => {
+    vlessTestResult.value = data
+    if (data.success) {
+      toast.success(data.message || 'Proxy connection successful')
+    } else {
+      toast.error(data.error || 'Proxy connection failed')
+    }
+  },
+  onError: (error: Error) => {
+    vlessTestResult.value = { success: false, error: error.message }
+    toast.error(`Proxy test failed: ${error.message}`)
+  },
+})
+
 // Computed
 const personas = computed(() => personasData.value?.personas || {})
 
@@ -210,6 +240,12 @@ const currentCloudProviderId = computed(() => {
   }
   return null
 })
+
+// Check if current provider form is for Gemini
+const isGeminiProvider = computed(() => providerForm.value.provider_type === 'gemini')
+
+// Proxy status
+const proxyStatus = computed(() => proxyStatusData.value?.proxy)
 
 // Methods
 async function loadPromptForEdit(personaId: string) {
@@ -243,6 +279,8 @@ function openCreateProviderModal() {
   }
   useCustomModel.value = false
   customModelName.value = ''
+  vlessUrl.value = ''
+  vlessTestResult.value = null
   showProviderModal.value = true
 }
 
@@ -263,6 +301,11 @@ function openEditProviderModal(provider: CloudProvider) {
   }
   useCustomModel.value = isCustomModel
   customModelName.value = isCustomModel ? provider.model_name : ''
+
+  // Load VLESS URL from config if present (Gemini only)
+  vlessUrl.value = (provider.config?.vless_url as string) || ''
+  vlessTestResult.value = null
+
   showProviderModal.value = true
 }
 
@@ -274,10 +317,16 @@ function onProviderTypeChange() {
     useCustomModel.value = false
     customModelName.value = ''
   }
+  // Reset VLESS when changing provider type
+  if (providerForm.value.provider_type !== 'gemini') {
+    vlessUrl.value = ''
+    vlessTestResult.value = null
+  }
 }
 
 function saveProvider() {
-  const data = { ...providerForm.value }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = { ...providerForm.value }
 
   // Используем кастомную модель если выбрана опция "Другая"
   if (useCustomModel.value && customModelName.value) {
@@ -285,8 +334,23 @@ function saveProvider() {
   }
 
   if (!data.api_key) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (data as any).api_key // Don't update if empty
+    delete data.api_key // Don't update if empty
+  }
+
+  // Add VLESS URL to config for Gemini providers
+  if (providerForm.value.provider_type === 'gemini' && vlessUrl.value) {
+    data.config = {
+      ...(editingProvider.value?.config || {}),
+      vless_url: vlessUrl.value,
+    }
+  } else if (providerForm.value.provider_type === 'gemini') {
+    // Remove vless_url if empty
+    const existingConfig = editingProvider.value?.config || {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { vless_url, ...restConfig } = existingConfig as { vless_url?: string }
+    if (Object.keys(restConfig).length > 0) {
+      data.config = restConfig
+    }
   }
 
   if (editingProvider.value) {
@@ -440,6 +504,13 @@ function switchToCloudProvider(providerId: string) {
                   </span>
                   <span v-if="currentCloudProviderId === provider.id" class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded text-xs">
                     Active
+                  </span>
+                  <span
+                    v-if="provider.provider_type === 'gemini' && provider.config?.vless_url"
+                    class="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-600 rounded text-xs"
+                    title="VLESS proxy configured"
+                  >
+                    <Shield class="w-3 h-3" /> Proxy
                   </span>
                 </div>
                 <p class="text-sm text-muted-foreground">
@@ -870,6 +941,76 @@ function switchToCloudProvider(providerId: string) {
               class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Production Kimi instance"
             />
+          </div>
+
+          <!-- VLESS Proxy Section (Gemini only) -->
+          <div v-if="isGeminiProvider" class="border-t border-border pt-4 mt-2">
+            <div class="flex items-center gap-2 mb-3">
+              <Shield class="w-4 h-4 text-purple-500" />
+              <span class="text-sm font-medium">VLESS Proxy (optional)</span>
+              <span
+                v-if="proxyStatus?.xray_available"
+                class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded text-xs"
+              >
+                xray available
+              </span>
+              <span
+                v-else
+                class="px-2 py-0.5 bg-yellow-500/20 text-yellow-600 rounded text-xs"
+              >
+                xray not found
+              </span>
+            </div>
+
+            <p class="text-xs text-muted-foreground mb-3">
+              Configure a VLESS proxy to route Google Gemini API requests through a proxy server.
+              This is useful in regions where Google API is restricted.
+            </p>
+
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium mb-1">VLESS URL</label>
+                <input
+                  v-model="vlessUrl"
+                  type="text"
+                  class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary font-mono text-xs"
+                  placeholder="vless://uuid@host:port?security=reality&pbk=...#remark"
+                />
+              </div>
+
+              <!-- Test result indicator -->
+              <div v-if="vlessTestResult" class="flex items-center gap-2 text-sm">
+                <CheckCircle2 v-if="vlessTestResult.success" class="w-4 h-4 text-green-500" />
+                <AlertCircle v-else class="w-4 h-4 text-red-500" />
+                <span :class="vlessTestResult.success ? 'text-green-600' : 'text-red-600'">
+                  {{ vlessTestResult.success ? vlessTestResult.message : vlessTestResult.error }}
+                </span>
+              </div>
+
+              <div class="flex gap-2">
+                <button
+                  :disabled="!vlessUrl || testProxyMutation.isPending.value || !proxyStatus?.xray_available"
+                  class="flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors text-sm"
+                  @click="testProxyMutation.mutate(vlessUrl)"
+                >
+                  <Loader2 v-if="testProxyMutation.isPending.value" class="w-4 h-4 animate-spin" />
+                  <Wifi v-else class="w-4 h-4" />
+                  Test Proxy
+                </button>
+                <button
+                  v-if="vlessUrl"
+                  class="px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors text-sm"
+                  @click="vlessUrl = ''; vlessTestResult = null"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <p v-if="!proxyStatus?.xray_available" class="text-xs text-yellow-600">
+                <AlertCircle class="w-3 h-3 inline mr-1" />
+                xray-core binary not found. Install it to use VLESS proxy.
+              </p>
+            </div>
           </div>
 
           <div class="flex items-center gap-2">
