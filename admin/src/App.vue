@@ -136,8 +136,8 @@ function toggleLocale() {
             </div>
             <button
               v-if="isMobile"
-              @click="mobileMenuOpen = false"
               class="p-1 rounded-lg hover:bg-secondary/50 text-muted-foreground"
+              @click="mobileMenuOpen = false"
             >
               <X class="w-5 h-5" />
             </button>
@@ -146,8 +146,8 @@ function toggleLocale() {
           <!-- Search button -->
           <div v-if="sidebarOpen || isMobile" class="p-2">
             <button
-              @click="searchStore.open"
               class="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+              @click="searchStore.open"
             >
               <Search class="w-4 h-4" />
               <span class="flex-1 text-left">{{ t('nav.search') }}</span>
@@ -156,8 +156,8 @@ function toggleLocale() {
           </div>
           <div v-else class="p-2">
             <button
-              @click="searchStore.open"
               class="flex items-center justify-center w-full p-2 text-muted-foreground rounded-lg hover:bg-secondary/50 transition-colors"
+              @click="searchStore.open"
             >
               <Search class="w-5 h-5" />
             </button>
@@ -194,11 +194,11 @@ function toggleLocale() {
 
             <!-- Logout -->
             <button
-              @click="handleLogout"
               :class="[
                 'flex items-center w-full px-3 py-2 rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors',
                 sidebarOpen || isMobile ? 'gap-3' : 'justify-center'
               ]"
+              @click="handleLogout"
             >
               <LogOut class="w-5 h-5" />
               <span v-if="sidebarOpen || isMobile">{{ t('nav.logout') }}</span>
@@ -207,8 +207,8 @@ function toggleLocale() {
             <!-- Toggle Button (desktop only) -->
             <button
               v-if="!isMobile"
-              @click="sidebarOpen = !sidebarOpen"
               class="flex items-center justify-center w-full p-2 rounded-lg text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+              @click="sidebarOpen = !sidebarOpen"
             >
               <Menu v-if="!sidebarOpen" class="w-5 h-5" />
               <X v-else class="w-5 h-5" />
@@ -224,8 +224,8 @@ function toggleLocale() {
               <!-- Mobile Menu Button -->
               <button
                 v-if="isMobile"
-                @click="mobileMenuOpen = true"
                 class="p-2 -ml-2 rounded-lg hover:bg-secondary/50 text-muted-foreground"
+                @click="mobileMenuOpen = true"
               >
                 <Menu class="w-5 h-5" />
               </button>
@@ -234,9 +234,9 @@ function toggleLocale() {
             <div class="flex items-center gap-2 md:gap-4">
               <!-- Language Toggle -->
               <button
-                @click="toggleLocale"
                 class="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
                 :title="getLocale() === 'ru' ? 'Switch to English' : 'Переключить на русский'"
+                @click="toggleLocale"
               >
                 <Languages class="w-5 h-5" />
               </button>
@@ -246,8 +246,8 @@ function toggleLocale() {
 
               <!-- Search shortcut hint (desktop only) -->
               <button
-                @click="searchStore.open"
                 class="hidden lg:flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                @click="searchStore.open"
               >
                 <Search class="w-4 h-4" />
                 <span>{{ t('nav.search') }}</span>

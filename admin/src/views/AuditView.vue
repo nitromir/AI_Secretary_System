@@ -221,20 +221,20 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
     <!-- Toolbar -->
     <div class="flex items-center gap-4 flex-wrap">
       <button
-        @click="showFilters = !showFilters"
         :class="[
           'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
           showFilters ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
         ]"
+        @click="showFilters = !showFilters"
       >
         <Filter class="w-4 h-4" />
         {{ t('audit.filters') }}
       </button>
 
       <button
-        @click="refetch()"
         :disabled="isLoading"
         class="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-50"
+        @click="refetch()"
       >
         <RefreshCw :class="['w-4 h-4', isLoading && 'animate-spin']" />
         {{ t('common.refresh') }}
@@ -244,15 +244,15 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
 
       <div class="flex items-center gap-2">
         <button
-          @click="exportLogs('json')"
           class="flex items-center gap-2 px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+          @click="exportLogs('json')"
         >
           <Download class="w-4 h-4" />
           JSON
         </button>
         <button
-          @click="exportLogs('csv')"
           class="flex items-center gap-2 px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+          @click="exportLogs('csv')"
         >
           <Download class="w-4 h-4" />
           CSV
@@ -260,10 +260,10 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
       </div>
 
       <button
-        @click="cleanupMutation.mutate(90)"
         :disabled="cleanupMutation.isPending.value"
         class="flex items-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50"
         :title="t('audit.cleanupTitle')"
+        @click="cleanupMutation.mutate(90)"
       >
         <Trash2 class="w-4 h-4" />
         {{ t('audit.cleanup') }}
@@ -319,14 +319,14 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
 
         <div class="flex items-end gap-2">
           <button
-            @click="applyFilters"
             class="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            @click="applyFilters"
           >
             {{ t('audit.apply') }}
           </button>
           <button
-            @click="clearFilters"
             class="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="clearFilters"
           >
             <X class="w-4 h-4" />
           </button>
@@ -407,17 +407,17 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
         </div>
         <div class="flex items-center gap-2">
           <button
-            @click="prevPage"
             :disabled="currentPage === 1"
             class="p-2 rounded-lg hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            @click="prevPage"
           >
             <ChevronLeft class="w-4 h-4" />
           </button>
           <span class="text-sm">{{ t('audit.page') }} {{ currentPage }}</span>
           <button
-            @click="nextPage"
             :disabled="!hasMore"
             class="p-2 rounded-lg hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            @click="nextPage"
           >
             <ChevronRight class="w-4 h-4" />
           </button>
@@ -435,8 +435,8 @@ function parseDetails(details: string | null): Record<string, unknown> | null {
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-semibold">{{ t('audit.logDetails') }}</h3>
           <button
-            @click="selectedLog = null"
             class="p-1 hover:bg-secondary rounded-lg transition-colors"
+            @click="selectedLog = null"
           >
             <X class="w-5 h-5" />
           </button>

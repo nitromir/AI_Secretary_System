@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
-import { chatApi, ttsApi, llmApi, sttApi, type ChatSession, type ChatMessage, type ChatSessionSummary, type GroupedSessions } from '@/api'
+import { chatApi, ttsApi, llmApi, sttApi, type ChatSession, type ChatMessage, type ChatSessionSummary, type GroupedSessions, type CloudProvider } from '@/api'
 import { useConfirmStore } from '@/stores/confirm'
 import {
   MessageSquare,
@@ -31,7 +31,8 @@ import {
   Mic,
   MicOff,
   CheckSquare,
-  ListChecks
+  ListChecks,
+  Brain
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -83,9 +84,17 @@ const isTranscribing = ref(false)
 const mediaRecorder = ref<MediaRecorder | null>(null)
 const audioChunks = ref<Blob[]>([])
 
+// LLM selection state
+const selectedLlmBackend = ref<string>(localStorage.getItem('chat-llm-backend') || '')
+
 // Save voice mode preference
 watch(voiceMode, (val) => {
   localStorage.setItem('chat-voice-mode', val ? 'true' : 'false')
+})
+
+// Save selected LLM backend
+watch(selectedLlmBackend, (val) => {
+  localStorage.setItem('chat-llm-backend', val)
 })
 
 // Queries
@@ -111,12 +120,69 @@ const { data: groupedSessionsData, refetch: refetchGrouped } = useQuery({
   enabled: computed(() => groupBySource.value),
 })
 
+// LLM queries
+const { data: llmBackendData } = useQuery({
+  queryKey: ['llm-backend'],
+  queryFn: () => llmApi.getBackend(),
+})
+
+const { data: llmProvidersData } = useQuery({
+  queryKey: ['llm-providers-enabled'],
+  queryFn: () => llmApi.getProviders(true),
+})
+
 // Computed
 const sessions = computed(() => sessionsData.value?.sessions || [])
 const groupedSessions = computed(() => groupedSessionsData.value?.sessions || null)
 const currentSession = computed(() => sessionData.value?.session)
 const messages = computed(() => currentSession.value?.messages || [])
 const defaultPrompt = computed(() => defaultPromptData.value?.prompt || '')
+
+// Available LLM options for dropdown
+interface LlmOption {
+  value: string
+  label: string
+  type: 'vllm' | 'cloud'
+}
+
+const availableLlmOptions = computed<LlmOption[]>(() => {
+  const options: LlmOption[] = []
+
+  // Add vLLM option if backend supports it (always available as option)
+  options.push({
+    value: 'vllm',
+    label: 'vLLM (Local)',
+    type: 'vllm'
+  })
+
+  // Add enabled cloud providers
+  const providers = llmProvidersData.value?.providers || []
+  for (const provider of providers) {
+    if (provider.enabled) {
+      options.push({
+        value: `cloud:${provider.id}`,
+        label: `${provider.name} (${provider.model_name})`,
+        type: 'cloud'
+      })
+    }
+  }
+
+  // Add gemini as fallback option
+  options.push({
+    value: 'gemini',
+    label: t('llm.cloudAI'),
+    type: 'cloud'
+  })
+
+  return options
+})
+
+// Current LLM display name
+const currentLlmLabel = computed(() => {
+  const backend = selectedLlmBackend.value || llmBackendData.value?.backend || 'vllm'
+  const option = availableLlmOptions.value.find(o => o.value === backend)
+  return option?.label || backend
+})
 
 // Watch for session change to load custom prompt
 watch(currentSession, (session) => {
@@ -358,6 +424,9 @@ function sendMessage() {
   streamingContent.value = ''
 
   let fullContent = ''
+  // Build LLM override if a specific backend is selected
+  const llmOverride = selectedLlmBackend.value ? { llm_backend: selectedLlmBackend.value } : undefined
+
   const stream = chatApi.streamMessage(currentSessionId.value, content, (data) => {
     if (data.type === 'chunk' && data.content) {
       streamingContent.value += data.content
@@ -384,7 +453,7 @@ function sendMessage() {
       streamingContent.value = ''
       console.error('Stream error:', data.content)
     }
-  })
+  }, llmOverride)
 }
 
 function startEditing(message: ChatMessage) {
@@ -633,7 +702,7 @@ watch(sessions, (newSessions) => {
 
 <template>
   <!-- Hidden audio element for TTS playback -->
-  <audio ref="audioRef" :src="audioUrl || undefined" @ended="onAudioEnded" class="hidden" />
+  <audio ref="audioRef" :src="audioUrl || undefined" class="hidden" @ended="onAudioEnded" />
 
   <div class="flex h-[calc(100vh-6rem)] md:h-[calc(100vh-7rem)] -m-4 md:-m-6">
     <!-- Sidebar: Chat List -->
@@ -652,19 +721,19 @@ watch(sessions, (newSessions) => {
         </h2>
         <div class="flex items-center gap-1">
           <button
-            @click="selectionMode = !selectionMode"
             :class="[
               'p-2 rounded-lg transition-colors',
               selectionMode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
             ]"
             :title="selectionMode ? t('chatView.deselectAll') : t('chatView.selectAll')"
+            @click="selectionMode = !selectionMode"
           >
             <ListChecks class="w-4 h-4" />
           </button>
           <button
-            @click="createNewChat"
             :disabled="createSessionMutation.isPending.value"
             class="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            @click="createNewChat"
           >
             <Plus class="w-4 h-4" />
           </button>
@@ -676,9 +745,9 @@ watch(sessions, (newSessions) => {
         <div class="flex items-center justify-between text-sm">
           <span class="text-muted-foreground">{{ t('chatView.selectedCount', { count: selectedIds.size }) }}</span>
           <div class="flex gap-2">
-            <button @click="selectAllSessions" class="text-xs text-primary hover:underline">{{ t('chatView.selectAll') }}</button>
-            <button @click="deselectAll" class="text-xs hover:underline">{{ t('chatView.deselectAll') }}</button>
-            <button @click="deleteSelected" class="text-xs text-red-500 hover:underline">{{ t('chatView.deleteSelected') }}</button>
+            <button class="text-xs text-primary hover:underline" @click="selectAllSessions">{{ t('chatView.selectAll') }}</button>
+            <button class="text-xs hover:underline" @click="deselectAll">{{ t('chatView.deselectAll') }}</button>
+            <button class="text-xs text-red-500 hover:underline" @click="deleteSelected">{{ t('chatView.deleteSelected') }}</button>
           </div>
         </div>
       </div>
@@ -689,8 +758,8 @@ watch(sessions, (newSessions) => {
           <div v-if="groupedSessions[groupName as keyof typeof groupedSessions]?.length > 0">
             <!-- Group header (collapsible) -->
             <div
-              @click="toggleGroup(groupName)"
               class="px-3 py-2 bg-secondary/30 flex items-center gap-2 cursor-pointer hover:bg-secondary/50 sticky top-0"
+              @click="toggleGroup(groupName)"
             >
               <ChevronRight v-if="collapsedGroups.has(groupName)" class="w-4 h-4 text-muted-foreground" />
               <ChevronDown v-else class="w-4 h-4 text-muted-foreground" />
@@ -707,13 +776,13 @@ watch(sessions, (newSessions) => {
               <div
                 v-for="session in groupedSessions[groupName as keyof typeof groupedSessions]"
                 :key="session.id"
-                @click="!selectionMode && selectSession(session.id)"
                 :class="[
                   'p-3 cursor-pointer border-b border-border transition-colors group',
                   currentSessionId === session.id
                     ? 'bg-primary/10 border-l-2 border-l-primary'
                     : 'hover:bg-secondary/50'
                 ]"
+                @click="!selectionMode && selectSession(session.id)"
               >
                 <div class="flex items-start gap-2">
                   <!-- Checkbox (selection mode) -->
@@ -721,8 +790,8 @@ watch(sessions, (newSessions) => {
                     v-if="selectionMode"
                     type="checkbox"
                     :checked="selectedIds.has(session.id)"
-                    @click.stop="toggleSelection(session.id)"
                     class="mt-1 rounded border-border"
+                    @click.stop="toggleSelection(session.id)"
                   />
 
                   <div class="flex-1 min-w-0">
@@ -730,11 +799,11 @@ watch(sessions, (newSessions) => {
                     <template v-if="renamingSessionId === session.id">
                       <input
                         v-model="renamingTitle"
+                        class="rename-input w-full px-1 py-0.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                         @keydown.enter="saveRename"
                         @keydown.escape="cancelRename"
                         @blur="saveRename"
                         @click.stop
-                        class="rename-input w-full px-1 py-0.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </template>
                     <template v-else>
@@ -757,16 +826,16 @@ watch(sessions, (newSessions) => {
                   <!-- Action buttons (on hover, not in selection mode) -->
                   <div v-if="!selectionMode && renamingSessionId !== session.id" class="flex gap-0.5 opacity-0 group-hover:opacity-100">
                     <button
-                      @click.stop="startRename(session, $event)"
                       class="p-1 rounded hover:bg-background text-muted-foreground"
                       :title="t('chatView.rename')"
+                      @click.stop="startRename(session, $event)"
                     >
                       <Edit3 class="w-3 h-3" />
                     </button>
                     <button
-                      @click.stop="deleteSingleSession(session, $event)"
                       class="p-1 rounded hover:bg-background text-red-500"
                       :title="t('chatView.deleteChat')"
+                      @click.stop="deleteSingleSession(session, $event)"
                     >
                       <Trash2 class="w-3 h-3" />
                     </button>
@@ -780,8 +849,8 @@ watch(sessions, (newSessions) => {
         <div v-if="!sessions.length" class="p-4 text-center text-muted-foreground">
           <p>{{ t('chatView.noChats') }}</p>
           <button
-            @click="createNewChat"
             class="mt-2 text-primary hover:underline"
+            @click="createNewChat"
           >
             {{ t('chatView.createFirst') }}
           </button>
@@ -793,13 +862,13 @@ watch(sessions, (newSessions) => {
         <div
           v-for="session in sessions"
           :key="session.id"
-          @click="!selectionMode && selectSession(session.id)"
           :class="[
             'p-3 cursor-pointer border-b border-border transition-colors group',
             currentSessionId === session.id
               ? 'bg-primary/10 border-l-2 border-l-primary'
               : 'hover:bg-secondary/50'
           ]"
+          @click="!selectionMode && selectSession(session.id)"
         >
           <div class="flex items-start gap-2">
             <!-- Checkbox (selection mode) -->
@@ -807,8 +876,8 @@ watch(sessions, (newSessions) => {
               v-if="selectionMode"
               type="checkbox"
               :checked="selectedIds.has(session.id)"
-              @click.stop="toggleSelection(session.id)"
               class="mt-1 rounded border-border"
+              @click.stop="toggleSelection(session.id)"
             />
 
             <div class="flex-1 min-w-0">
@@ -816,11 +885,11 @@ watch(sessions, (newSessions) => {
               <template v-if="renamingSessionId === session.id">
                 <input
                   v-model="renamingTitle"
+                  class="rename-input w-full px-1 py-0.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                   @keydown.enter="saveRename"
                   @keydown.escape="cancelRename"
                   @blur="saveRename"
                   @click.stop
-                  class="rename-input w-full px-1 py-0.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </template>
               <template v-else>
@@ -843,16 +912,16 @@ watch(sessions, (newSessions) => {
             <!-- Action buttons (on hover, not in selection mode) -->
             <div v-if="!selectionMode && renamingSessionId !== session.id" class="flex gap-0.5 opacity-0 group-hover:opacity-100">
               <button
-                @click.stop="startRename(session, $event)"
                 class="p-1 rounded hover:bg-background text-muted-foreground"
                 :title="t('chatView.rename')"
+                @click.stop="startRename(session, $event)"
               >
                 <Edit3 class="w-3 h-3" />
               </button>
               <button
-                @click.stop="deleteSingleSession(session, $event)"
                 class="p-1 rounded hover:bg-background text-red-500"
                 :title="t('chatView.deleteChat')"
+                @click.stop="deleteSingleSession(session, $event)"
               >
                 <Trash2 class="w-3 h-3" />
               </button>
@@ -863,8 +932,8 @@ watch(sessions, (newSessions) => {
         <div v-if="!sessions.length" class="p-4 text-center text-muted-foreground">
           <p>{{ t('chatView.noChats') }}</p>
           <button
-            @click="createNewChat"
             class="mt-2 text-primary hover:underline"
+            @click="createNewChat"
           >
             {{ t('chatView.createFirst') }}
           </button>
@@ -874,8 +943,8 @@ watch(sessions, (newSessions) => {
 
     <!-- Mobile sidebar toggle -->
     <button
-      @click="showSidebar = !showSidebar"
       class="md:hidden fixed left-4 bottom-24 z-50 p-3 bg-primary text-primary-foreground rounded-full shadow-lg"
+      @click="showSidebar = !showSidebar"
     >
       <ChevronLeft :class="['w-5 h-5 transition-transform', showSidebar ? '' : 'rotate-180']" />
     </button>
@@ -894,29 +963,43 @@ watch(sessions, (newSessions) => {
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <!-- LLM provider selector -->
+          <div class="flex items-center gap-1">
+            <Brain class="w-4 h-4 text-muted-foreground" />
+            <select
+              v-model="selectedLlmBackend"
+              class="px-2 py-1 text-sm bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary border-none cursor-pointer"
+              :title="t('chat.selectLlm')"
+            >
+              <option value="">{{ t('chat.defaultLlm') }}</option>
+              <option v-for="option in availableLlmOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
           <!-- Voice mode toggle -->
           <button
-            @click="voiceMode = !voiceMode"
             :class="[
               'p-2 rounded-lg transition-colors',
               voiceMode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
             ]"
             :title="voiceMode ? 'Voice mode ON (click to disable)' : 'Voice mode OFF (click to enable)'"
+            @click="voiceMode = !voiceMode"
           >
             <Volume2 v-if="voiceMode" class="w-4 h-4" />
             <VolumeX v-else class="w-4 h-4" />
           </button>
           <button
-            @click="showSettings = true"
             class="p-2 rounded-lg hover:bg-secondary transition-colors"
             title="Chat settings"
+            @click="showSettings = true"
           >
             <Settings2 class="w-4 h-4" />
           </button>
           <button
-            @click="deleteCurrentSession"
             class="p-2 rounded-lg text-red-500 hover:bg-red-500/20 transition-colors"
             title="Delete chat"
+            @click="deleteCurrentSession"
           >
             <Trash2 class="w-4 h-4" />
           </button>
@@ -971,16 +1054,16 @@ watch(sessions, (newSessions) => {
                 />
                 <div class="flex gap-2">
                   <button
-                    @click="saveEdit"
                     :disabled="editMessageMutation.isPending.value"
                     class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                    @click="saveEdit"
                   >
                     <Check class="w-3 h-3 inline mr-1" />
                     Save
                   </button>
                   <button
-                    @click="cancelEditing"
                     class="px-3 py-1 bg-secondary text-foreground rounded text-sm hover:bg-secondary/80"
+                    @click="cancelEditing"
                   >
                     <X class="w-3 h-3 inline mr-1" />
                     Cancel
@@ -1006,10 +1089,10 @@ watch(sessions, (newSessions) => {
                   <!-- TTS button for assistant messages -->
                   <button
                     v-if="message.role === 'assistant'"
-                    @click="speakMessage(message.id, message.content)"
                     :disabled="ttsLoading === message.id"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
                     :title="speakingMessageId === message.id && isSpeaking ? 'Stop' : 'Listen'"
+                    @click="speakMessage(message.id, message.content)"
                   >
                     <Loader2 v-if="ttsLoading === message.id" class="w-3 h-3 animate-spin" />
                     <Square v-else-if="speakingMessageId === message.id && isSpeaking" class="w-3 h-3 text-primary" />
@@ -1018,41 +1101,41 @@ watch(sessions, (newSessions) => {
                   <!-- Regenerate button for assistant messages -->
                   <button
                     v-if="message.role === 'assistant'"
-                    @click="regenerateAssistantResponse(message.id)"
                     :disabled="regenerateMutation.isPending.value"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
                     title="Regenerate response"
+                    @click="regenerateAssistantResponse(message.id)"
                   >
                     <RefreshCw class="w-3 h-3" />
                   </button>
                   <button
-                    @click="copyToClipboard(message.content)"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
                     title="Copy"
+                    @click="copyToClipboard(message.content)"
                   >
                     <Copy class="w-3 h-3" />
                   </button>
                   <button
                     v-if="message.role === 'user'"
-                    @click="startEditing(message)"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
                     title="Edit"
+                    @click="startEditing(message)"
                   >
                     <Edit3 class="w-3 h-3" />
                   </button>
                   <button
                     v-if="message.role === 'user'"
-                    @click="regenerateResponse(message.id)"
                     :disabled="regenerateMutation.isPending.value"
                     class="p-1 rounded bg-background/80 hover:bg-background text-foreground"
                     title="Regenerate response"
+                    @click="regenerateResponse(message.id)"
                   >
                     <RefreshCw class="w-3 h-3" />
                   </button>
                   <button
-                    @click="deleteMessage(message.id)"
                     class="p-1 rounded bg-background/80 hover:bg-background text-red-500"
                     title="Delete"
+                    @click="deleteMessage(message.id)"
                   >
                     <Trash2 class="w-3 h-3" />
                   </button>
@@ -1097,15 +1180,14 @@ watch(sessions, (newSessions) => {
         <div class="flex gap-3 items-end">
           <textarea
             v-model="inputMessage"
-            @keydown.enter.exact.prevent="sendMessage"
             placeholder="Type a message..."
             rows="1"
             class="flex-1 p-3 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             :disabled="isStreaming || isRecording"
+            @keydown.enter.exact.prevent="sendMessage"
           />
           <!-- Microphone button -->
           <button
-            @click="toggleRecording"
             :disabled="isStreaming || isTranscribing"
             :class="[
               'p-3 rounded-lg transition-colors',
@@ -1114,6 +1196,7 @@ watch(sessions, (newSessions) => {
                 : 'bg-secondary hover:bg-secondary/80'
             ]"
             :title="isRecording ? 'Stop recording' : (isTranscribing ? 'Transcribing...' : 'Start voice input')"
+            @click="toggleRecording"
           >
             <Loader2 v-if="isTranscribing" class="w-5 h-5 animate-spin" />
             <MicOff v-else-if="isRecording" class="w-5 h-5" />
@@ -1121,9 +1204,9 @@ watch(sessions, (newSessions) => {
           </button>
           <!-- Send button -->
           <button
-            @click="sendMessage"
             :disabled="!inputMessage.trim() || isStreaming || isRecording"
             class="p-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="sendMessage"
           >
             <Send v-if="!isStreaming" class="w-5 h-5" />
             <Loader2 v-else class="w-5 h-5 animate-spin" />
@@ -1152,25 +1235,25 @@ watch(sessions, (newSessions) => {
         <!-- Tabs -->
         <div class="flex gap-2 mb-4 border-b border-border">
           <button
-            @click="settingsTab = 'session'"
             :class="[
               'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
               settingsTab === 'session'
                 ? 'border-primary text-primary'
                 : 'border-transparent hover:text-foreground text-muted-foreground'
             ]"
+            @click="settingsTab = 'session'"
           >
             <FileText class="w-4 h-4 inline mr-2" />
             Session Prompt
           </button>
           <button
-            @click="settingsTab = 'default'"
             :class="[
               'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
               settingsTab === 'default'
                 ? 'border-primary text-primary'
                 : 'border-transparent hover:text-foreground text-muted-foreground'
             ]"
+            @click="settingsTab = 'default'"
           >
             <Sparkles class="w-4 h-4 inline mr-2" />
             Default Prompt
@@ -1201,15 +1284,15 @@ watch(sessions, (newSessions) => {
 
           <div class="flex justify-end gap-2">
             <button
-              @click="showSettings = false"
               class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              @click="showSettings = false"
             >
               Cancel
             </button>
             <button
-              @click="saveSettings"
               :disabled="updateSessionMutation.isPending.value"
               class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              @click="saveSettings"
             >
               Save Session Prompt
             </button>
@@ -1226,17 +1309,17 @@ watch(sessions, (newSessions) => {
               <div class="flex gap-2">
                 <button
                   v-if="!isEditingDefault"
-                  @click="startEditingDefault"
                   class="px-3 py-1 text-xs bg-secondary rounded hover:bg-secondary/80 transition-colors"
+                  @click="startEditingDefault"
                 >
                   <Edit3 class="w-3 h-3 inline mr-1" />
                   Edit
                 </button>
                 <button
                   v-if="!isEditingDefault"
-                  @click="resetDefaultPrompt"
                   :disabled="resetDefaultPromptMutation.isPending.value"
                   class="px-3 py-1 text-xs bg-secondary rounded hover:bg-secondary/80 transition-colors text-orange-500"
+                  @click="resetDefaultPrompt"
                 >
                   <RotateCw class="w-3 h-3 inline mr-1" />
                   Reset
@@ -1264,15 +1347,15 @@ watch(sessions, (newSessions) => {
               />
               <div class="flex justify-end gap-2">
                 <button
-                  @click="cancelEditingDefault"
                   class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                  @click="cancelEditingDefault"
                 >
                   Cancel
                 </button>
                 <button
-                  @click="saveDefaultPrompt"
                   :disabled="saveDefaultPromptMutation.isPending.value"
                   class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  @click="saveDefaultPrompt"
                 >
                   <Loader2 v-if="saveDefaultPromptMutation.isPending.value" class="w-4 h-4 inline mr-1 animate-spin" />
                   Save Default Prompt
@@ -1283,8 +1366,8 @@ watch(sessions, (newSessions) => {
 
           <div v-if="!isEditingDefault" class="flex justify-end">
             <button
-              @click="showSettings = false"
               class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              @click="showSettings = false"
             >
               Close
             </button>

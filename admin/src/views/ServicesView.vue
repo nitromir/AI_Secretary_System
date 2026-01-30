@@ -125,24 +125,24 @@ watch(logSearch, async () => {
     <!-- Toolbar -->
     <div class="flex items-center gap-4">
       <button
-        @click="startAllMutation.mutate()"
         :disabled="startAllMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+        @click="startAllMutation.mutate()"
       >
         <Play class="w-4 h-4" />
         Start All
       </button>
       <button
-        @click="stopAllMutation.mutate()"
         :disabled="stopAllMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+        @click="stopAllMutation.mutate()"
       >
         <Square class="w-4 h-4" />
         Stop All
       </button>
       <button
-        @click="queryClient.invalidateQueries({ queryKey: ['services-status'] })"
         class="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+        @click="queryClient.invalidateQueries({ queryKey: ['services-status'] })"
       >
         <RefreshCw class="w-4 h-4" />
         Refresh
@@ -163,7 +163,8 @@ watch(logSearch, async () => {
           class="flex items-center justify-between p-4"
         >
           <div class="flex items-center gap-4">
-            <div :class="[
+            <div
+:class="[
               'p-2 rounded-lg',
               service.is_running ? 'bg-green-500/20' : 'bg-red-500/20'
             ]">
@@ -188,37 +189,37 @@ watch(logSearch, async () => {
           <div class="flex items-center gap-2">
             <button
               v-if="service.log_file"
-              @click="loadLog(service.id)"
               class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
               title="View Logs"
+              @click="loadLog(service.id)"
             >
               <Terminal class="w-4 h-4" />
             </button>
             <button
               v-if="!service.is_running"
-              @click="startMutation.mutate(service.id)"
               :disabled="startMutation.isPending.value"
               class="p-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
               title="Start"
+              @click="startMutation.mutate(service.id)"
             >
               <Loader2 v-if="startMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <Play v-else class="w-4 h-4" />
             </button>
             <button
               v-if="service.is_running"
-              @click="stopMutation.mutate(service.id)"
               :disabled="stopMutation.isPending.value"
               class="p-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
               title="Stop"
+              @click="stopMutation.mutate(service.id)"
             >
               <Loader2 v-if="stopMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <Square v-else class="w-4 h-4" />
             </button>
             <button
-              @click="restartMutation.mutate(service.id)"
               :disabled="restartMutation.isPending.value"
               class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50 transition-colors"
               title="Restart"
+              @click="restartMutation.mutate(service.id)"
             >
               <Loader2 v-if="restartMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <RotateCw v-else class="w-4 h-4" />
@@ -242,7 +243,8 @@ watch(logSearch, async () => {
           class="flex items-center justify-between p-4"
         >
           <div class="flex items-center gap-4">
-            <div :class="[
+            <div
+:class="[
               'p-2 rounded-lg',
               service.is_running ? 'bg-green-500/20' : 'bg-gray-500/20'
             ]">
@@ -257,7 +259,8 @@ watch(logSearch, async () => {
               </p>
             </div>
           </div>
-          <span :class="[
+          <span
+:class="[
             'text-sm px-2 py-1 rounded',
             service.is_running ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
           ]">
@@ -287,14 +290,14 @@ watch(logSearch, async () => {
               />
             </div>
             <button
-              @click="refreshLog"
               class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+              @click="refreshLog"
             >
               <RefreshCw class="w-4 h-4" />
             </button>
             <button
-              @click="closeLog"
               class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+              @click="closeLog"
             >
               <X class="w-4 h-4" />
             </button>

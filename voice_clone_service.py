@@ -20,6 +20,23 @@ import torch
 from TTS.api import TTS
 
 
+# Monkey-patch torch.isin for compatibility with transformers + PyTorch 2.x
+# Issue: transformers passes int as test_elements, but PyTorch 2.x requires tensor
+_original_isin = torch.isin
+
+
+def _patched_isin(elements, test_elements, *, assume_unique=False, invert=False):
+    """Patched torch.isin that handles int/list test_elements."""
+    if isinstance(test_elements, (int, float)):
+        test_elements = torch.tensor([test_elements], device=elements.device)
+    elif isinstance(test_elements, (list, tuple)):
+        test_elements = torch.tensor(test_elements, device=elements.device)
+    return _original_isin(elements, test_elements, assume_unique=assume_unique, invert=invert)
+
+
+torch.isin = _patched_isin
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

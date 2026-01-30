@@ -367,21 +367,21 @@ onUnmounted(() => {
     <!-- Tab Selector -->
     <div class="flex gap-2 border-b border-border pb-4">
       <button
-        @click="activeTab = 'llm'"
         :class="[
           'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
           activeTab === 'llm' ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'
         ]"
+        @click="activeTab = 'llm'"
       >
         <MessageSquare class="w-4 h-4" />
         LLM Training
       </button>
       <button
-        @click="activeTab = 'tts'"
         :class="[
           'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
           activeTab === 'tts' ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'
         ]"
+        @click="activeTab = 'tts'"
       >
         <AudioWaveform class="w-4 h-4" />
         TTS Training (Qwen3-TTS)
@@ -404,14 +404,15 @@ onUnmounted(() => {
           <div class="border-2 border-dashed border-border rounded-lg p-6 text-center">
             <Upload class="w-8 h-8 mx-auto text-muted-foreground mb-2" />
             <p class="text-sm text-muted-foreground mb-4">Upload Telegram export (result.json)</p>
-            <input type="file" accept=".json" class="hidden" id="file-upload" @change="handleFileSelect" />
+            <input id="file-upload" type="file" accept=".json" class="hidden" @change="handleFileSelect" />
             <label for="file-upload" class="inline-block px-4 py-2 bg-secondary rounded-lg cursor-pointer hover:bg-secondary/80 transition-colors">
               Select File
             </label>
             <div v-if="uploadingFile" class="mt-4">
               <p class="text-sm">{{ uploadingFile.name }} ({{ (uploadingFile.size / 1024 / 1024).toFixed(2) }} MB)</p>
-              <button @click="uploadFile" :disabled="uploadMutation.isPending.value"
-                class="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              <button
+:disabled="uploadMutation.isPending.value" class="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                @click="uploadFile">
                 <Loader2 v-if="uploadMutation.isPending.value" class="w-4 h-4 animate-spin inline mr-2" />
                 Upload
               </button>
@@ -469,12 +470,14 @@ onUnmounted(() => {
                   <User class="w-3 h-3" />
                   Имя владельца (assistant)
                 </label>
-                <input v-model="datasetConfig.owner_name" type="text" placeholder="Артем Юрьевич"
+                <input
+v-model="datasetConfig.owner_name" type="text" placeholder="Артем Юрьевич"
                   class="w-full px-3 py-2 bg-secondary rounded-lg text-sm" />
               </div>
               <div>
                 <label class="block text-sm mb-1">Имя выходного файла</label>
-                <input v-model="datasetConfig.output_name" type="text" placeholder="dataset"
+                <input
+v-model="datasetConfig.output_name" type="text" placeholder="dataset"
                   class="w-full px-3 py-2 bg-secondary rounded-lg text-sm" />
               </div>
             </div>
@@ -502,8 +505,9 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <button @click="processDataset" :disabled="processMutation.isPending.value || processingStatus?.is_running"
-            class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors">
+          <button
+:disabled="processMutation.isPending.value || processingStatus?.is_running" class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="processDataset">
             <Loader2 v-if="processMutation.isPending.value" class="w-4 h-4 animate-spin" />
             <FileJson v-else class="w-4 h-4" />
             Обработать Telegram Export
@@ -518,8 +522,9 @@ onUnmounted(() => {
             <Settings2 class="w-5 h-5" />
             Training Configuration
           </h2>
-          <button @click="saveConfig" :disabled="saveConfigMutation.isPending.value"
-            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors">
+          <button
+:disabled="saveConfigMutation.isPending.value" class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="saveConfig">
             Save Config
           </button>
         </div>
@@ -527,8 +532,9 @@ onUnmounted(() => {
           <div class="mb-6">
             <h3 class="text-sm font-medium mb-2">Presets</h3>
             <div class="flex gap-2">
-              <button v-for="(_, name) in presets" :key="name" @click="applyPreset(name as string)"
-                class="px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors text-sm">
+              <button
+v-for="(_, name) in presets" :key="name" class="px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors text-sm"
+                @click="applyPreset(name as string)">
                 {{ name }}
               </button>
             </div>
@@ -570,13 +576,15 @@ onUnmounted(() => {
             Training
           </h2>
           <div class="flex gap-2">
-            <button v-if="!status?.is_running" @click="startTrainingMutation.mutate()" :disabled="startTrainingMutation.isPending.value"
-              class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+            <button
+v-if="!status?.is_running" :disabled="startTrainingMutation.isPending.value" class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+              @click="startTrainingMutation.mutate()">
               <PlayCircle class="w-4 h-4" />
               Start
             </button>
-            <button v-else @click="stopTrainingMutation.mutate()" :disabled="stopTrainingMutation.isPending.value"
-              class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors">
+            <button
+v-else :disabled="stopTrainingMutation.isPending.value" class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              @click="stopTrainingMutation.mutate()">
               <StopCircle class="w-4 h-4" />
               Stop
             </button>
@@ -630,7 +638,7 @@ onUnmounted(() => {
       <div class="bg-card rounded-lg border border-border">
         <div class="p-4 border-b border-border flex items-center justify-between">
           <h2 class="text-lg font-semibold">LoRA Adapters</h2>
-          <button @click="() => refetchAdapters()" class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors">
+          <button class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors" @click="() => refetchAdapters()">
             <RefreshCw class="w-4 h-4" />
           </button>
         </div>
@@ -646,12 +654,14 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <button v-if="!adapter.active" @click="activateAdapterMutation.mutate(adapter.name)" :disabled="activateAdapterMutation.isPending.value"
-                class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm">
+              <button
+v-if="!adapter.active" :disabled="activateAdapterMutation.isPending.value" class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
+                @click="activateAdapterMutation.mutate(adapter.name)">
                 Activate
               </button>
-              <button v-if="!adapter.active" @click="deleteAdapterMutation.mutate(adapter.name)" :disabled="deleteAdapterMutation.isPending.value"
-                class="p-2 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors">
+              <button
+v-if="!adapter.active" :disabled="deleteAdapterMutation.isPending.value" class="p-2 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
+                @click="deleteAdapterMutation.mutate(adapter.name)">
                 <Trash2 class="w-4 h-4" />
               </button>
             </div>
@@ -676,14 +686,15 @@ onUnmounted(() => {
           <div class="border-2 border-dashed border-border rounded-lg p-6 text-center">
             <Upload class="w-8 h-8 mx-auto text-muted-foreground mb-2" />
             <p class="text-sm text-muted-foreground mb-4">Upload WAV files with your voice</p>
-            <input type="file" accept=".wav,.mp3,.ogg" multiple class="hidden" id="voice-upload" @change="handleVoiceSampleSelect" />
+            <input id="voice-upload" type="file" accept=".wav,.mp3,.ogg" multiple class="hidden" @change="handleVoiceSampleSelect" />
             <label for="voice-upload" class="inline-block px-4 py-2 bg-secondary rounded-lg cursor-pointer hover:bg-secondary/80 transition-colors">
               Select Files
             </label>
             <div v-if="uploadingVoiceSamples.length" class="mt-4">
               <p class="text-sm">{{ uploadingVoiceSamples.length }} files selected</p>
-              <button @click="uploadVoiceSamples" :disabled="uploadTtsSampleMutation.isPending.value"
-                class="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              <button
+:disabled="uploadTtsSampleMutation.isPending.value" class="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                @click="uploadVoiceSamples">
                 <Loader2 v-if="uploadTtsSampleMutation.isPending.value" class="w-4 h-4 animate-spin inline mr-2" />
                 Upload All
               </button>
@@ -710,7 +721,7 @@ onUnmounted(() => {
           <div v-if="ttsSamples.length" class="space-y-2">
             <div class="flex items-center justify-between">
               <h3 class="text-sm font-medium">Voice Samples</h3>
-              <button @click="() => refetchTtsSamples()" class="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+              <button class="p-1.5 rounded-lg hover:bg-secondary transition-colors" @click="() => refetchTtsSamples()">
                 <RefreshCw class="w-4 h-4" />
               </button>
             </div>
@@ -728,11 +739,12 @@ onUnmounted(() => {
                     </div>
                   </div>
                   <div class="flex items-center gap-2 flex-shrink-0">
-                    <button @click="startEditTranscript(sample)" class="p-1.5 hover:bg-secondary rounded-lg transition-colors">
+                    <button class="p-1.5 hover:bg-secondary rounded-lg transition-colors" @click="startEditTranscript(sample)">
                       <Edit3 class="w-4 h-4" />
                     </button>
-                    <button @click="deleteTtsSampleMutation.mutate(sample.filename)" :disabled="deleteTtsSampleMutation.isPending.value"
-                      class="p-1.5 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors">
+                    <button
+:disabled="deleteTtsSampleMutation.isPending.value" class="p-1.5 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
+                      @click="deleteTtsSampleMutation.mutate(sample.filename)">
                       <Trash2 class="w-4 h-4" />
                     </button>
                   </div>
@@ -740,16 +752,19 @@ onUnmounted(() => {
 
                 <!-- Transcript Editor -->
                 <div v-if="editingSample === sample.filename" class="mt-3 space-y-2">
-                  <textarea v-model="editingTranscript" rows="3" class="w-full px-3 py-2 bg-secondary rounded-lg text-sm"
+                  <textarea
+v-model="editingTranscript" rows="3" class="w-full px-3 py-2 bg-secondary rounded-lg text-sm"
                     placeholder="Enter transcript..." />
                   <div class="flex gap-2">
-                    <button @click="saveTranscript" :disabled="updateTranscriptMutation.isPending.value"
-                      class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm">
+                    <button
+:disabled="updateTranscriptMutation.isPending.value" class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                      @click="saveTranscript">
                       <Save class="w-3 h-3" />
                       Save
                     </button>
-                    <button @click="cancelEditTranscript"
-                      class="flex items-center gap-1 px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 text-sm">
+                    <button
+class="flex items-center gap-1 px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 text-sm"
+                      @click="cancelEditTranscript">
                       <X class="w-3 h-3" />
                       Cancel
                     </button>
@@ -766,8 +781,9 @@ onUnmounted(() => {
 
           <!-- Transcription Button -->
           <div class="flex gap-2">
-            <button @click="transcribeMutation.mutate()" :disabled="transcribeMutation.isPending.value || ttsProcessing?.is_running || !samplesWithoutTranscript.length"
-              class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            <button
+:disabled="transcribeMutation.isPending.value || ttsProcessing?.is_running || !samplesWithoutTranscript.length" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              @click="transcribeMutation.mutate()">
               <Loader2 v-if="transcribeMutation.isPending.value || (ttsProcessing?.is_running && ttsProcessing?.stage === 'transcribing')" class="w-4 h-4 animate-spin" />
               <Mic v-else class="w-4 h-4" />
               Transcribe with Whisper ({{ samplesWithoutTranscript.length }})
@@ -802,9 +818,10 @@ onUnmounted(() => {
             Requires at least one sample with transcript.
           </p>
 
-          <button @click="prepareTtsDatasetMutation.mutate()"
-            :disabled="prepareTtsDatasetMutation.isPending.value || ttsProcessing?.is_running || !samplesWithTranscript.length"
-            class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors">
+          <button
+:disabled="prepareTtsDatasetMutation.isPending.value || ttsProcessing?.is_running || !samplesWithTranscript.length"
+            class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="prepareTtsDatasetMutation.mutate()">
             <Loader2 v-if="prepareTtsDatasetMutation.isPending.value || (ttsProcessing?.is_running && ttsProcessing?.stage === 'preparing')" class="w-4 h-4 animate-spin" />
             <FileJson v-else class="w-4 h-4" />
             Prepare Dataset ({{ samplesWithTranscript.length }} samples)
@@ -820,13 +837,15 @@ onUnmounted(() => {
             Training (Qwen3-TTS)
           </h2>
           <div class="flex gap-2">
-            <button v-if="!ttsTraining?.is_running" @click="startTtsTrainingMutation.mutate()" :disabled="startTtsTrainingMutation.isPending.value"
-              class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+            <button
+v-if="!ttsTraining?.is_running" :disabled="startTtsTrainingMutation.isPending.value" class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+              @click="startTtsTrainingMutation.mutate()">
               <PlayCircle class="w-4 h-4" />
               Start Training
             </button>
-            <button v-else @click="stopTtsTrainingMutation.mutate()" :disabled="stopTtsTrainingMutation.isPending.value"
-              class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors">
+            <button
+v-else :disabled="stopTtsTrainingMutation.isPending.value" class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              @click="stopTtsTrainingMutation.mutate()">
               <StopCircle class="w-4 h-4" />
               Stop
             </button>
@@ -867,7 +886,7 @@ onUnmounted(() => {
       <div class="bg-card rounded-lg border border-border">
         <div class="p-4 border-b border-border flex items-center justify-between">
           <h2 class="text-lg font-semibold">Trained TTS Models</h2>
-          <button @click="() => refetchTtsModels()" class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors">
+          <button class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors" @click="() => refetchTtsModels()">
             <RefreshCw class="w-4 h-4" />
           </button>
         </div>

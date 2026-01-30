@@ -373,9 +373,9 @@ watch(instances, (newInstances) => {
             {{ t('telegram.bots') }}
           </h2>
           <button
-            @click="openCreateDialog"
             class="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             :title="t('telegram.createBot')"
+            @click="openCreateDialog"
           >
             <Plus class="w-4 h-4" />
           </button>
@@ -398,17 +398,18 @@ watch(instances, (newInstances) => {
           <button
             v-for="instance in instances"
             :key="instance.id"
-            @click="selectedInstanceId = instance.id"
             :class="[
               'w-full p-3 rounded-lg text-left transition-colors',
               selectedInstanceId === instance.id
                 ? 'bg-primary/10 border border-primary/30'
                 : 'hover:bg-secondary'
             ]"
+            @click="selectedInstanceId = instance.id"
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <span :class="[
+                <span
+:class="[
                   'w-2 h-2 rounded-full',
                   instance.running ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
                 ]" />
@@ -441,7 +442,8 @@ watch(instances, (newInstances) => {
           <div>
             <h1 class="text-2xl font-bold flex items-center gap-2">
               {{ selectedInstance.name }}
-              <span :class="[
+              <span
+:class="[
                 'px-2 py-0.5 text-xs rounded-full',
                 selectedInstance.running
                   ? 'bg-green-500/20 text-green-400'
@@ -458,9 +460,9 @@ watch(instances, (newInstances) => {
             <!-- Control buttons -->
             <button
               v-if="!selectedInstance.running"
-              @click="startMutation.mutate(selectedInstance.id)"
               :disabled="startMutation.isPending.value || !selectedInstance.bot_token_masked || !selectedInstance.enabled"
               class="flex items-center gap-2 px-3 py-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 disabled:opacity-50 transition-colors"
+              @click="startMutation.mutate(selectedInstance.id)"
             >
               <Loader2 v-if="startMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <Play v-else class="w-4 h-4" />
@@ -468,41 +470,41 @@ watch(instances, (newInstances) => {
             </button>
             <button
               v-else
-              @click="stopMutation.mutate(selectedInstance.id)"
               :disabled="stopMutation.isPending.value"
               class="flex items-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+              @click="stopMutation.mutate(selectedInstance.id)"
             >
               <Loader2 v-if="stopMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <Square v-else class="w-4 h-4" />
               {{ t('telegram.stop') }}
             </button>
             <button
-              @click="restartMutation.mutate(selectedInstance.id)"
               :disabled="restartMutation.isPending.value || !selectedInstance.running"
               class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 disabled:opacity-50 transition-colors"
               :title="t('telegram.restart')"
+              @click="restartMutation.mutate(selectedInstance.id)"
             >
               <Loader2 v-if="restartMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <RefreshCw v-else class="w-4 h-4" />
             </button>
             <button
-              @click="openLogs"
               class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
               :title="t('telegram.viewLogs')"
+              @click="openLogs"
             >
               <FileText class="w-4 h-4" />
             </button>
             <button
-              @click="openEditDialog(selectedInstance)"
               class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+              @click="openEditDialog(selectedInstance)"
             >
               <Edit3 class="w-4 h-4" />
               {{ t('common.edit') }}
             </button>
             <button
-              @click="confirmDelete(selectedInstance)"
               class="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
               :title="t('common.delete')"
+              @click="confirmDelete(selectedInstance)"
             >
               <Trash2 class="w-4 h-4" />
             </button>
@@ -550,13 +552,13 @@ watch(instances, (newInstances) => {
           <button
             v-for="tab in ['settings', 'users', 'messages', 'ai', 'buttons', 'sessions'] as const"
             :key="tab"
-            @click="activeTab = tab"
             :class="[
               'px-4 py-2 text-sm rounded-md transition-colors',
               activeTab === tab
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             ]"
+            @click="activeTab = tab"
           >
             <span class="flex items-center gap-2">
               <Settings2 v-if="tab === 'settings'" class="w-4 h-4" />
@@ -701,7 +703,8 @@ watch(instances, (newInstances) => {
                       {{ button.llm_backend || t('telegram.useDefaultBackend') }}
                     </p>
                   </div>
-                  <span :class="[
+                  <span
+:class="[
                     'px-2 py-0.5 text-xs rounded-full',
                     button.enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
                   ]">
@@ -718,9 +721,9 @@ watch(instances, (newInstances) => {
               <div class="flex items-center justify-between mb-4">
                 <h3 class="font-medium">{{ t('telegram.activeSessions') }} ({{ sessions.length }})</h3>
                 <button
-                  @click="clearSessionsMutation.mutate(selectedInstance.id)"
                   :disabled="clearSessionsMutation.isPending.value || sessions.length === 0"
                   class="flex items-center gap-2 px-3 py-1.5 text-sm bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                  @click="clearSessionsMutation.mutate(selectedInstance.id)"
                 >
                   <Trash2 class="w-4 h-4" />
                   {{ t('telegram.clearSessions') }}
@@ -766,8 +769,8 @@ watch(instances, (newInstances) => {
               {{ showCreateDialog ? t('telegram.createBot') : t('telegram.editBot') }}
             </h2>
             <button
-              @click="showCreateDialog = false; showEditDialog = false"
               class="p-1 hover:bg-secondary rounded"
+              @click="showCreateDialog = false; showEditDialog = false"
             >
               <X class="w-5 h-5" />
             </button>
@@ -806,8 +809,8 @@ watch(instances, (newInstances) => {
                   :placeholder="t('telegram.tokenPlaceholder')"
                 />
                 <button
-                  @click="showToken = !showToken"
                   class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                  @click="showToken = !showToken"
                 >
                   <EyeOff v-if="showToken" class="w-4 h-4" />
                   <Eye v-else class="w-4 h-4" />
@@ -834,13 +837,14 @@ watch(instances, (newInstances) => {
                 <p class="text-sm text-muted-foreground">{{ t('telegram.enableBotDesc') }}</p>
               </div>
               <button
-                @click="formData.enabled = !formData.enabled"
                 :class="[
                   'relative w-11 h-6 rounded-full transition-colors',
                   formData.enabled ? 'bg-green-500' : 'bg-gray-500'
                 ]"
+                @click="formData.enabled = !formData.enabled"
               >
-                <span :class="[
+                <span
+:class="[
                   'absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform',
                   formData.enabled ? 'translate-x-5' : 'translate-x-0'
                 ]" />
@@ -859,8 +863,8 @@ watch(instances, (newInstances) => {
                   @keydown.enter="addAllowedUser"
                 />
                 <button
-                  @click="addAllowedUser"
                   class="px-3 py-2 bg-primary text-primary-foreground rounded-lg"
+                  @click="addAllowedUser"
                 >
                   <Plus class="w-4 h-4" />
                 </button>
@@ -872,7 +876,7 @@ watch(instances, (newInstances) => {
                   class="flex items-center gap-1 px-2 py-1 bg-secondary rounded text-sm font-mono"
                 >
                   {{ userId }}
-                  <button @click="removeAllowedUser(userId)" class="text-muted-foreground hover:text-red-400">
+                  <button class="text-muted-foreground hover:text-red-400" @click="removeAllowedUser(userId)">
                     <X class="w-3 h-3" />
                   </button>
                 </span>
@@ -894,8 +898,8 @@ watch(instances, (newInstances) => {
                   @keydown.enter="addAdminUser"
                 />
                 <button
-                  @click="addAdminUser"
                   class="px-3 py-2 bg-primary text-primary-foreground rounded-lg"
+                  @click="addAdminUser"
                 >
                   <Plus class="w-4 h-4" />
                 </button>
@@ -907,7 +911,7 @@ watch(instances, (newInstances) => {
                   class="flex items-center gap-1 px-2 py-1 bg-orange-500/20 text-orange-400 rounded text-sm font-mono"
                 >
                   {{ userId }}
-                  <button @click="removeAdminUser(userId)" class="hover:text-red-400">
+                  <button class="hover:text-red-400" @click="removeAdminUser(userId)">
                     <X class="w-3 h-3" />
                   </button>
                 </span>
@@ -992,8 +996,8 @@ watch(instances, (newInstances) => {
                   <p class="text-sm text-muted-foreground">{{ t('telegram.actionButtonsDesc') }}</p>
                 </div>
                 <button
-                  @click="openAddButtonDialog"
                   class="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+                  @click="openAddButtonDialog"
                 >
                   <Plus class="w-4 h-4" />
                   {{ t('telegram.addButton') }}
@@ -1019,26 +1023,27 @@ watch(instances, (newInstances) => {
                     </p>
                   </div>
                   <button
-                    @click="toggleButtonEnabled(index)"
                     :class="[
                       'relative w-10 h-5 rounded-full transition-colors',
                       button.enabled ? 'bg-green-500' : 'bg-gray-500'
                     ]"
+                    @click="toggleButtonEnabled(index)"
                   >
-                    <span :class="[
+                    <span
+:class="[
                       'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform',
                       button.enabled ? 'translate-x-5' : 'translate-x-0'
                     ]" />
                   </button>
                   <button
-                    @click="openEditButtonDialog(index)"
                     class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-background rounded"
+                    @click="openEditButtonDialog(index)"
                   >
                     <Edit3 class="w-4 h-4" />
                   </button>
                   <button
-                    @click="deleteButton(index)"
                     class="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/20 rounded"
+                    @click="deleteButton(index)"
                   >
                     <Trash2 class="w-4 h-4" />
                   </button>
@@ -1049,15 +1054,15 @@ watch(instances, (newInstances) => {
 
           <div class="p-4 border-t border-border flex justify-end gap-2">
             <button
-              @click="showCreateDialog = false; showEditDialog = false"
               class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              @click="showCreateDialog = false; showEditDialog = false"
             >
               {{ t('common.cancel') }}
             </button>
             <button
-              @click="saveInstance"
               :disabled="createMutation.isPending.value || updateMutation.isPending.value || !formData.name"
               class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              @click="saveInstance"
             >
               <Loader2 v-if="createMutation.isPending.value || updateMutation.isPending.value" class="w-4 h-4 animate-spin" />
               <Check v-else class="w-4 h-4" />
@@ -1080,12 +1085,12 @@ watch(instances, (newInstances) => {
             <h2 class="text-lg font-semibold">{{ t('telegram.logs') }} - {{ selectedInstance?.name }}</h2>
             <div class="flex items-center gap-2">
               <button
-                @click="() => refetchLogs()"
                 class="p-2 hover:bg-secondary rounded-lg transition-colors"
+                @click="() => refetchLogs()"
               >
                 <RefreshCw class="w-4 h-4" />
               </button>
-              <button @click="showLogsDialog = false" class="p-1 hover:bg-secondary rounded">
+              <button class="p-1 hover:bg-secondary rounded" @click="showLogsDialog = false">
                 <X class="w-5 h-5" />
               </button>
             </div>
@@ -1109,7 +1114,7 @@ watch(instances, (newInstances) => {
             <h2 class="text-lg font-semibold">
               {{ editingButtonIndex >= 0 ? t('telegram.editButton') : t('telegram.addButton') }}
             </h2>
-            <button @click="showButtonEditDialog = false" class="p-1 hover:bg-secondary rounded">
+            <button class="p-1 hover:bg-secondary rounded" @click="showButtonEditDialog = false">
               <X class="w-5 h-5" />
             </button>
           </div>
@@ -1169,13 +1174,14 @@ watch(instances, (newInstances) => {
             <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
               <span class="font-medium">{{ t('telegram.buttonEnabled') }}</span>
               <button
-                @click="editingButton.enabled = !editingButton.enabled"
                 :class="[
                   'relative w-11 h-6 rounded-full transition-colors',
                   editingButton.enabled ? 'bg-green-500' : 'bg-gray-500'
                 ]"
+                @click="editingButton.enabled = !editingButton.enabled"
               >
-                <span :class="[
+                <span
+:class="[
                   'absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform',
                   editingButton.enabled ? 'translate-x-5' : 'translate-x-0'
                 ]" />
@@ -1185,15 +1191,15 @@ watch(instances, (newInstances) => {
 
           <div class="p-4 border-t border-border flex justify-end gap-2">
             <button
-              @click="showButtonEditDialog = false"
               class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              @click="showButtonEditDialog = false"
             >
               {{ t('common.cancel') }}
             </button>
             <button
-              @click="saveButton"
               :disabled="!editingButton.label"
               class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              @click="saveButton"
             >
               <Check class="w-4 h-4" />
               {{ t('common.save') }}

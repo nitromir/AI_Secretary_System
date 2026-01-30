@@ -16,7 +16,11 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Generator, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Union
+
+
+if TYPE_CHECKING:
+    from xray_proxy_manager import XrayProxyManager, XrayProxyManagerWithFallback
 
 import httpx
 
@@ -32,12 +36,17 @@ except ImportError:
 
 # VLESS Proxy Manager (optional)
 try:
-    from xray_proxy_manager import XrayProxyManager, validate_vless_url
+    from xray_proxy_manager import (
+        XrayProxyManager,
+        XrayProxyManagerWithFallback,
+        validate_vless_url,
+    )
 
     XRAY_AVAILABLE = True
 except ImportError:
     XRAY_AVAILABLE = False
     XrayProxyManager = None
+    XrayProxyManagerWithFallback = None
     validate_vless_url = None
 
 logging.basicConfig(level=logging.INFO)
@@ -311,7 +320,7 @@ class GeminiProvider(BaseLLMProvider):
     """
     Provider for Google Gemini API.
     Uses the google-generativeai SDK.
-    Supports optional VLESS proxy via xray-core.
+    Supports optional VLESS proxy via xray-core with fallback support.
     """
 
     def __init__(self, config: dict):
@@ -328,16 +337,31 @@ class GeminiProvider(BaseLLMProvider):
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(model_name=self.model_name or "gemini-2.0-flash")
 
-        # Initialize VLESS proxy if configured
-        self.proxy_manager: Optional["XrayProxyManager"] = None
+        # Initialize VLESS proxy if configured (supports single URL or list with fallback)
+        self.proxy_manager: Optional[Union["XrayProxyManager", "XrayProxyManagerWithFallback"]] = (
+            None
+        )
         self._setup_vless_proxy()
 
         logger.info(f"[{self.provider_id}] Initialized Gemini provider: {self.model_name}")
 
     def _setup_vless_proxy(self):
-        """Setup VLESS proxy if configured in runtime_params."""
+        """Setup VLESS proxy if configured in runtime_params.
+
+        Supports:
+        - vless_url: single URL (backward compatible)
+        - vless_urls: list of URLs with automatic fallback
+        """
+        # Check for list of URLs first (new format with fallback)
+        vless_urls = self.runtime_params.get("vless_urls", [])
         vless_url = self.runtime_params.get("vless_url", "")
-        if not vless_url:
+
+        # Normalize to list
+        if vless_urls:
+            urls = vless_urls if isinstance(vless_urls, list) else [vless_urls]
+        elif vless_url:
+            urls = [vless_url]
+        else:
             return
 
         if not XRAY_AVAILABLE:
@@ -346,19 +370,30 @@ class GeminiProvider(BaseLLMProvider):
             )
             return
 
-        # Validate URL
-        is_valid, error = validate_vless_url(vless_url)
-        if not is_valid:
-            logger.error(f"[{self.provider_id}] Invalid VLESS URL: {error}")
-            return
-
-        # Create proxy manager
-        self.proxy_manager = XrayProxyManager()
-        if self.proxy_manager.configure(vless_url):
-            logger.info(f"[{self.provider_id}] VLESS proxy configured")
+        # Use fallback manager if multiple URLs, otherwise simple manager
+        if len(urls) > 1:
+            self.proxy_manager = XrayProxyManagerWithFallback()
+            count = self.proxy_manager.configure_proxies(urls)
+            if count > 0:
+                logger.info(
+                    f"[{self.provider_id}] VLESS proxy configured with {count} fallback servers"
+                )
+            else:
+                logger.warning(f"[{self.provider_id}] No valid VLESS URLs configured")
+                self.proxy_manager = None
         else:
-            logger.warning(f"[{self.provider_id}] Failed to configure VLESS proxy")
-            self.proxy_manager = None
+            # Single URL - use simple manager
+            is_valid, error = validate_vless_url(urls[0])
+            if not is_valid:
+                logger.error(f"[{self.provider_id}] Invalid VLESS URL: {error}")
+                return
+
+            self.proxy_manager = XrayProxyManager()
+            if self.proxy_manager.configure(urls[0]):
+                logger.info(f"[{self.provider_id}] VLESS proxy configured")
+            else:
+                logger.warning(f"[{self.provider_id}] Failed to configure VLESS proxy")
+                self.proxy_manager = None
 
     def get_proxy_status(self) -> dict:
         """Get VLESS proxy status."""
@@ -366,14 +401,37 @@ class GeminiProvider(BaseLLMProvider):
             return {
                 "configured": False,
                 "xray_available": XRAY_AVAILABLE and XrayProxyManager is not None,
+                "fallback_enabled": False,
             }
-        return self.proxy_manager.get_status()
+        status = self.proxy_manager.get_status()
+        status["fallback_enabled"] = isinstance(self.proxy_manager, XrayProxyManagerWithFallback)
+        return status
 
-    def test_proxy_connection(self) -> dict:
-        """Test VLESS proxy connection to Google API."""
+    def test_proxy_connection(self, index: int = -1) -> dict:
+        """Test VLESS proxy connection to Google API.
+
+        Args:
+            index: Proxy index to test (-1 for current/all)
+        """
         if not self.proxy_manager:
             return {"success": False, "error": "No VLESS proxy configured"}
+
+        if isinstance(self.proxy_manager, XrayProxyManagerWithFallback):
+            if index >= 0:
+                return self.proxy_manager.test_proxy(index)
+            return {"results": self.proxy_manager.test_all_proxies()}
+
         return self.proxy_manager.test_connection("https://generativelanguage.googleapis.com")
+
+    def mark_proxy_failed(self):
+        """Mark current proxy as failed and switch to next (fallback mode only)."""
+        if isinstance(self.proxy_manager, XrayProxyManagerWithFallback):
+            self.proxy_manager.mark_current_failed()
+
+    def reset_proxies(self):
+        """Reset all proxies to enabled state (fallback mode only)."""
+        if isinstance(self.proxy_manager, XrayProxyManagerWithFallback):
+            self.proxy_manager.reset_all_proxies()
 
     def _get_proxy_context(self):
         """Get proxy context manager or a no-op context manager."""

@@ -4,6 +4,11 @@ VLESS Proxy Manager using xray-core.
 
 Provides VLESS proxy support for services that need to bypass network restrictions.
 Currently used by GeminiProvider to route requests through a VLESS proxy.
+
+Supports multiple VLESS URLs with automatic fallback:
+- Tries proxies in order until one works
+- Remembers the working proxy
+- Automatically switches to next proxy on failure
 """
 
 import json
@@ -18,7 +23,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
 
@@ -580,3 +585,462 @@ def validate_vless_url(vless_url: str) -> tuple[bool, str]:
         return True, ""
     except ValueError as e:
         return False, str(e)
+
+
+@dataclass
+class ProxyInfo:
+    """Information about a configured proxy."""
+
+    url: str
+    config: VLESSConfig
+    remark: str = ""
+    last_success: float = 0.0
+    fail_count: int = 0
+    enabled: bool = True
+
+
+class XrayProxyManagerWithFallback:
+    """
+    Manages multiple VLESS proxies with automatic fallback.
+
+    Features:
+    - Configure multiple VLESS URLs with priority order
+    - Automatically try next proxy if current one fails
+    - Remember working proxy and prefer it
+    - Health check and automatic recovery
+
+    Usage:
+        manager = XrayProxyManagerWithFallback()
+        manager.configure_proxies([
+            "vless://...#Proxy1",
+            "vless://...#Proxy2",
+        ])
+        with manager.proxy_environment():
+            response = requests.get("https://example.com")
+    """
+
+    def __init__(self, socks_port: int = 10808, http_port: int = 10809):
+        """
+        Initialize proxy manager with fallback support.
+
+        Args:
+            socks_port: Local SOCKS5 proxy port
+            http_port: Local HTTP proxy port
+        """
+        self.socks_port = socks_port
+        self.http_port = http_port
+        self.proxies: list[ProxyInfo] = []
+        self.current_proxy_index: int = -1
+        self.process: Optional[subprocess.Popen] = None
+        self.config_file: Optional[Path] = None
+        self._xray_path: Optional[str] = None
+        self._last_health_check: float = 0.0
+        self._health_check_interval: float = 60.0  # seconds
+
+    def find_xray_binary(self) -> Optional[str]:
+        """Find xray binary in known locations."""
+        if self._xray_path:
+            return self._xray_path
+
+        search_paths = [
+            "./bin/xray",
+            "/usr/local/bin/xray",
+            "/usr/bin/xray",
+        ]
+
+        for path_str in search_paths:
+            p = Path(path_str)
+            if p.is_file() and os.access(path_str, os.X_OK):
+                self._xray_path = path_str
+                logger.info(f"Found xray at: {path_str}")
+                return path_str
+
+        path = shutil.which("xray")
+        if path:
+            self._xray_path = path
+            return path
+
+        logger.warning("xray binary not found")
+        return None
+
+    def is_xray_available(self) -> bool:
+        """Check if xray binary is available."""
+        return self.find_xray_binary() is not None
+
+    def is_running(self) -> bool:
+        """Check if xray process is running."""
+        if self.process is None:
+            return False
+        return self.process.poll() is None
+
+    def is_port_in_use(self, port: int) -> bool:
+        """Check if a port is in use."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("127.0.0.1", port)) == 0
+
+    def configure_proxies(self, vless_urls: list[str]) -> int:
+        """
+        Configure multiple VLESS proxies.
+
+        Args:
+            vless_urls: List of VLESS URLs in priority order
+
+        Returns:
+            Number of successfully configured proxies
+        """
+        self.proxies = []
+        self.current_proxy_index = -1
+
+        for url in vless_urls:
+            if not url or not url.strip():
+                continue
+
+            url = url.strip()
+            is_valid, error = validate_vless_url(url)
+            if not is_valid:
+                logger.warning(f"Invalid VLESS URL skipped: {error}")
+                continue
+
+            try:
+                config = parse_vless_url(url)
+                proxy_info = ProxyInfo(
+                    url=url,
+                    config=config,
+                    remark=config.remark or f"{config.address}:{config.port}",
+                )
+                self.proxies.append(proxy_info)
+                logger.info(f"Configured proxy: {proxy_info.remark}")
+            except Exception as e:
+                logger.warning(f"Failed to parse VLESS URL: {e}")
+
+        if self.proxies:
+            self.current_proxy_index = 0
+            logger.info(f"Configured {len(self.proxies)} proxies with fallback")
+
+        return len(self.proxies)
+
+    def get_current_proxy(self) -> Optional[ProxyInfo]:
+        """Get currently active proxy."""
+        if 0 <= self.current_proxy_index < len(self.proxies):
+            return self.proxies[self.current_proxy_index]
+        return None
+
+    def _switch_to_next_proxy(self) -> bool:
+        """
+        Switch to the next available proxy.
+
+        Returns:
+            True if switched successfully, False if no more proxies
+        """
+        if not self.proxies:
+            return False
+
+        # Stop current xray
+        self.stop()
+
+        # Try each proxy starting from next one
+        start_index = self.current_proxy_index
+        for i in range(len(self.proxies)):
+            next_index = (start_index + 1 + i) % len(self.proxies)
+            proxy = self.proxies[next_index]
+
+            if not proxy.enabled:
+                continue
+
+            self.current_proxy_index = next_index
+            logger.info(f"Switching to proxy: {proxy.remark}")
+
+            if self._start_with_proxy(proxy):
+                return True
+
+            # Mark as failed
+            proxy.fail_count += 1
+            if proxy.fail_count >= 3:
+                proxy.enabled = False
+                logger.warning(f"Proxy disabled after 3 failures: {proxy.remark}")
+
+        logger.error("All proxies failed")
+        return False
+
+    def _start_with_proxy(self, proxy: ProxyInfo) -> bool:
+        """Start xray with specific proxy configuration."""
+        xray_path = self.find_xray_binary()
+        if not xray_path:
+            return False
+
+        # Check ports
+        if self.is_port_in_use(self.http_port):
+            # Port in use, might be already running
+            return True
+
+        try:
+            config = generate_xray_config(proxy.config, self.socks_port, self.http_port)
+            self.config_file = Path(tempfile.mktemp(suffix=".json", prefix="xray_"))
+            self.config_file.write_text(json.dumps(config, indent=2))
+
+            self.process = subprocess.Popen(
+                [xray_path, "run", "-c", str(self.config_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            time.sleep(0.5)
+
+            if self.process.poll() is not None:
+                stderr = self.process.stderr.read().decode() if self.process.stderr else ""
+                logger.error(f"xray failed to start: {stderr[:200]}")
+                self._cleanup_config()
+                return False
+
+            # Verify port
+            for _ in range(10):
+                if self.is_port_in_use(self.http_port):
+                    logger.info(f"xray started with proxy: {proxy.remark}")
+                    proxy.last_success = time.time()
+                    proxy.fail_count = 0
+                    return True
+                time.sleep(0.1)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start xray: {e}")
+            self._cleanup_config()
+            return False
+
+    def start(self) -> bool:
+        """Start xray with current or best available proxy."""
+        if self.is_running():
+            return True
+
+        if not self.proxies:
+            logger.warning("No proxies configured")
+            return False
+
+        # Try current proxy first
+        proxy = self.get_current_proxy()
+        if proxy and proxy.enabled:
+            if self._start_with_proxy(proxy):
+                return True
+
+        # Fallback to next
+        return self._switch_to_next_proxy()
+
+    def stop(self):
+        """Stop xray process."""
+        if self.process:
+            try:
+                self.process.send_signal(signal.SIGTERM)
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+            except Exception as e:
+                logger.warning(f"Error stopping xray: {e}")
+            finally:
+                self.process = None
+
+        self._cleanup_config()
+
+    def _cleanup_config(self):
+        """Remove temporary config file."""
+        if self.config_file and self.config_file.exists():
+            try:
+                self.config_file.unlink()
+            except Exception:
+                pass
+            self.config_file = None
+
+    def _check_health(self) -> bool:
+        """Check if current proxy is healthy."""
+        if not self.is_running():
+            return False
+
+        # Quick port check
+        if not self.is_port_in_use(self.http_port):
+            return False
+
+        return True
+
+    @contextmanager
+    def proxy_environment(self, on_failure: Optional[Callable] = None):
+        """
+        Context manager that sets proxy environment with automatic fallback.
+
+        Args:
+            on_failure: Optional callback when all proxies fail
+
+        Usage:
+            with manager.proxy_environment():
+                response = requests.get("https://example.com")
+        """
+        original_http_proxy = os.environ.get("HTTP_PROXY")
+        original_https_proxy = os.environ.get("HTTPS_PROXY")
+        original_http_proxy_lower = os.environ.get("http_proxy")
+        original_https_proxy_lower = os.environ.get("https_proxy")
+
+        proxy_url = f"http://127.0.0.1:{self.http_port}"
+
+        try:
+            # Start if not running
+            if self.proxies and not self.is_running():
+                self.start()
+
+            # Set proxy env vars if running
+            if self.is_running():
+                os.environ["HTTP_PROXY"] = proxy_url
+                os.environ["HTTPS_PROXY"] = proxy_url
+                os.environ["http_proxy"] = proxy_url
+                os.environ["https_proxy"] = proxy_url
+
+            yield
+
+        except Exception as e:
+            # On error, try to switch to next proxy
+            logger.warning(f"Request failed, trying fallback: {e}")
+            if self._switch_to_next_proxy():
+                # Set new proxy
+                if self.is_running():
+                    os.environ["HTTP_PROXY"] = proxy_url
+                    os.environ["HTTPS_PROXY"] = proxy_url
+                    os.environ["http_proxy"] = proxy_url
+                    os.environ["https_proxy"] = proxy_url
+            elif on_failure:
+                on_failure()
+            raise
+
+        finally:
+            # Restore original env vars
+            if original_http_proxy is not None:
+                os.environ["HTTP_PROXY"] = original_http_proxy
+            else:
+                os.environ.pop("HTTP_PROXY", None)
+
+            if original_https_proxy is not None:
+                os.environ["HTTPS_PROXY"] = original_https_proxy
+            else:
+                os.environ.pop("HTTPS_PROXY", None)
+
+            if original_http_proxy_lower is not None:
+                os.environ["http_proxy"] = original_http_proxy_lower
+            else:
+                os.environ.pop("http_proxy", None)
+
+            if original_https_proxy_lower is not None:
+                os.environ["https_proxy"] = original_https_proxy_lower
+            else:
+                os.environ.pop("https_proxy", None)
+
+    def mark_current_failed(self):
+        """Mark current proxy as failed and switch to next."""
+        proxy = self.get_current_proxy()
+        if proxy:
+            proxy.fail_count += 1
+            logger.warning(f"Proxy marked as failed: {proxy.remark} (failures: {proxy.fail_count})")
+        self._switch_to_next_proxy()
+
+    def reset_all_proxies(self):
+        """Reset all proxies to enabled state."""
+        for proxy in self.proxies:
+            proxy.enabled = True
+            proxy.fail_count = 0
+        if self.proxies:
+            self.current_proxy_index = 0
+        logger.info("All proxies reset to enabled")
+
+    def get_status(self) -> dict:
+        """Get detailed status of all proxies."""
+        current = self.get_current_proxy()
+        return {
+            "xray_available": self.is_xray_available(),
+            "xray_path": self._xray_path,
+            "is_running": self.is_running(),
+            "socks_port": self.socks_port,
+            "http_port": self.http_port,
+            "total_proxies": len(self.proxies),
+            "enabled_proxies": sum(1 for p in self.proxies if p.enabled),
+            "current_proxy_index": self.current_proxy_index,
+            "current_proxy": {
+                "remark": current.remark,
+                "server": f"{current.config.address}:{current.config.port}",
+                "security": current.config.security,
+                "fail_count": current.fail_count,
+                "enabled": current.enabled,
+            }
+            if current
+            else None,
+            "proxies": [
+                {
+                    "index": i,
+                    "remark": p.remark,
+                    "server": f"{p.config.address}:{p.config.port}",
+                    "security": p.config.security,
+                    "enabled": p.enabled,
+                    "fail_count": p.fail_count,
+                    "is_current": i == self.current_proxy_index,
+                }
+                for i, p in enumerate(self.proxies)
+            ],
+        }
+
+    def test_proxy(
+        self, index: int, target_url: str = "https://generativelanguage.googleapis.com"
+    ) -> dict:
+        """
+        Test a specific proxy by index.
+
+        Args:
+            index: Proxy index to test
+            target_url: URL to test connection to
+
+        Returns:
+            Test result dict
+        """
+        if index < 0 or index >= len(self.proxies):
+            return {"success": False, "error": "Invalid proxy index"}
+
+        proxy = self.proxies[index]
+
+        # Create temporary manager for testing
+        temp_manager = XrayProxyManager(socks_port=10818, http_port=10819)
+        if not temp_manager.configure(proxy.url):
+            return {"success": False, "error": "Failed to configure proxy"}
+
+        result = temp_manager.test_connection(target_url)
+        temp_manager.stop()
+
+        if result.get("success"):
+            proxy.last_success = time.time()
+            proxy.fail_count = 0
+            proxy.enabled = True
+
+        return {
+            **result,
+            "proxy_index": index,
+            "proxy_remark": proxy.remark,
+        }
+
+    def test_all_proxies(
+        self, target_url: str = "https://generativelanguage.googleapis.com"
+    ) -> list[dict]:
+        """Test all configured proxies."""
+        results = []
+        for i in range(len(self.proxies)):
+            result = self.test_proxy(i, target_url)
+            results.append(result)
+        return results
+
+    def __del__(self):
+        """Cleanup on deletion."""
+        self.stop()
+
+
+# Module-level singleton for fallback manager
+_fallback_proxy_manager: Optional[XrayProxyManagerWithFallback] = None
+
+
+def get_fallback_proxy_manager() -> XrayProxyManagerWithFallback:
+    """Get or create the singleton fallback proxy manager."""
+    global _fallback_proxy_manager
+    if _fallback_proxy_manager is None:
+        _fallback_proxy_manager = XrayProxyManagerWithFallback()
+    return _fallback_proxy_manager

@@ -101,13 +101,13 @@ function toggleLocale() {
       <button
         v-for="tab in ['general', 'export', 'audit'] as const"
         :key="tab"
-        @click="activeTab = tab"
         :class="[
           'px-4 py-2 text-sm rounded-md transition-colors capitalize',
           activeTab === tab
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
         ]"
+        @click="activeTab = tab"
       >
         {{ tab }}
       </button>
@@ -128,8 +128,8 @@ function toggleLocale() {
             </div>
           </div>
           <button
-            @click="toggleLocale"
             class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="toggleLocale"
           >
             {{ getLocale().toUpperCase() }}
           </button>
@@ -152,13 +152,13 @@ function toggleLocale() {
             <button
               v-for="theme in themeStore.themes"
               :key="theme.value"
-              @click="themeStore.setTheme(theme.value)"
               :class="[
                 'px-3 py-2 rounded-lg text-sm transition-colors',
                 themeStore.theme === theme.value
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary hover:bg-secondary/80'
               ]"
+              @click="themeStore.setTheme(theme.value)"
             >
               {{ t(`themes.${theme.value}`) }}
             </button>
@@ -179,9 +179,9 @@ function toggleLocale() {
         </div>
         <div class="p-4 space-y-3">
           <button
-            @click="exportFullConfig"
             :disabled="isExporting"
             class="flex items-center justify-between w-full p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors disabled:opacity-50"
+            @click="exportFullConfig"
           >
             <div class="flex items-center gap-3">
               <Database class="w-5 h-5 text-indigo-400" />
@@ -194,9 +194,9 @@ function toggleLocale() {
           </button>
 
           <button
-            @click="exportFaq"
             :disabled="isExporting"
             class="flex items-center justify-between w-full p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors disabled:opacity-50"
+            @click="exportFaq"
           >
             <div class="flex items-center gap-3">
               <Database class="w-5 h-5 text-green-400" />
@@ -209,9 +209,9 @@ function toggleLocale() {
           </button>
 
           <button
-            @click="exportPresets"
             :disabled="isExporting"
             class="flex items-center justify-between w-full p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors disabled:opacity-50"
+            @click="exportPresets"
           >
             <div class="flex items-center gap-3">
               <Database class="w-5 h-5 text-purple-400" />
@@ -235,8 +235,8 @@ function toggleLocale() {
         </div>
         <div class="p-4">
           <button
-            @click="handleImport"
             class="flex items-center justify-center gap-2 w-full p-4 rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors"
+            @click="handleImport"
           >
             <Upload class="w-5 h-5" />
             <span>Click to select configuration file (.json)</span>
@@ -255,15 +255,15 @@ function toggleLocale() {
           </h3>
           <div class="flex gap-2">
             <button
-              @click="downloadAuditLog"
               class="flex items-center gap-2 px-3 py-1.5 text-sm bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              @click="downloadAuditLog"
             >
               <Download class="w-4 h-4" />
               Export
             </button>
             <button
-              @click="clearAuditLog"
               class="flex items-center gap-2 px-3 py-1.5 text-sm bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+              @click="clearAuditLog"
             >
               <Trash2 class="w-4 h-4" />
               Clear

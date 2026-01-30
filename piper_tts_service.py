@@ -41,11 +41,12 @@ class PiperTTSService:
 
     def __init__(
         self,
-        models_dir: str = "./models",
+        models_dir: str = None,
         piper_path: Optional[str] = None,
         default_voice: str = "dmitri",
     ):
-        self.models_dir = Path(models_dir)
+        # Find models directory (Docker or local)
+        self.models_dir = self._find_models_dir(models_dir)
         self.default_voice = default_voice
 
         # Ищем piper binary
@@ -60,6 +61,27 @@ class PiperTTSService:
         logger.info(f"   Piper: {self.piper_path}")
         logger.info(f"   Модели: {self.models_dir}")
         logger.info(f"   Голос по умолчанию: {default_voice}")
+
+    def _find_models_dir(self, models_dir: Optional[str]) -> Path:
+        """Ищет директорию с моделями Piper"""
+        if models_dir and Path(models_dir).exists():
+            return Path(models_dir)
+
+        # Search paths (Docker, then local)
+        search_paths = [
+            "/app/models/piper",  # Docker
+            "./models/piper",  # Local with piper subdir
+            "./models",  # Local root
+        ]
+
+        for path in search_paths:
+            p = Path(path)
+            if p.exists() and any(p.glob("*.onnx")):
+                logger.info(f"✅ Найдена директория моделей Piper: {path}")
+                return p
+
+        # Default fallback
+        return Path("./models/piper")
 
     def _find_piper(self, piper_path: Optional[str]) -> Optional[str]:
         """Ищет piper binary"""
