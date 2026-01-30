@@ -163,6 +163,7 @@ app/
 | `xray_proxy_manager.py` | VLESS proxy manager for Gemini (xray-core process, URL parsing) |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
 | `voice_clone_service.py` | XTTS v2 with custom presets + streaming synthesis |
+| `piper_tts_service.py` | Piper TTS (CPU) with Dmitri/Irina voices, auto-discovers models dir |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots |
 | `app/services/audio_pipeline.py` | GSM telephony audio processing (8kHz, PCM16, G.711) |
@@ -320,6 +321,9 @@ See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
 
 **Recently completed:**
+- ✅ **Chat LLM Selector** — Per-session LLM override dropdown in chat header (vLLM, Gemini, or any cloud provider)
+- ✅ **Voice Switching Fix** — Fixed reference bug preventing voice changes (Gulya, Lidia) from taking effect
+- ✅ **Piper TTS in Docker** — Dmitri and Irina voices now available in Docker with auto-discovery of models directory
 - ✅ **VLESS Proxy for Gemini** — Route Gemini API through VLESS proxy (xray-core) for restricted regions
 - ✅ **vLLM Docker Management** — Auto-start vLLM container from admin panel via Docker SDK
 - ✅ **Chat Management** — Inline rename, bulk delete, grouping by source (Admin/Telegram/Widget)
@@ -349,6 +353,12 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 **Usage in Telegram bots:**
 - Set `llm_backend` in bot config: `"vllm"`, `"gemini"`, or `"cloud:{provider_id}"`
 - Action buttons can override LLM per-mode (e.g., creative mode uses different model)
+
+**Per-session LLM override in Chat:**
+- Chat view has an LLM selector dropdown in the header
+- Select a provider to override the default LLM for that session
+- "Default" uses the system-wide LLM backend setting
+- Useful for testing different providers without changing global settings
 
 ## VLESS Proxy for Gemini
 
