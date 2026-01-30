@@ -4,8 +4,10 @@
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Dict, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -350,36 +352,55 @@ async def admin_set_llm_backend(
             # Переключение на vLLM
             logger.info("🔄 Переключение на vLLM...")
 
-            # Проверяем, запущен ли vLLM
-            vllm_status = manager.get_service_status("vllm")
+            # Определяем URL для vLLM
+            vllm_url = os.getenv("VLLM_API_URL", "http://localhost:11434")
+            is_docker = Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "1"
 
-            if not vllm_status.get("is_running"):
-                # Запускаем vLLM
-                logger.info("🚀 Запуск vLLM...")
-                start_result = await manager.start_service("vllm")
-                if start_result.get("status") != "ok":
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Не удалось запустить vLLM: {start_result.get('message', 'Unknown error')}",
-                    )
+            # Проверяем доступность vLLM
+            async def check_vllm_health() -> bool:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        # Пробуем разные endpoints (v1/models для OpenAI-совместимого API)
+                        for endpoint in ["/health", "/v1/models"]:
+                            try:
+                                resp = await client.get(f"{vllm_url}{endpoint}", timeout=5.0)
+                                if resp.status_code == 200:
+                                    return True
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                return False
 
-                # Ждём готовности vLLM (до 120 секунд)
-                logger.info("⏳ Ожидание готовности vLLM...")
-                import httpx
+            vllm_accessible = await check_vllm_health()
 
-                for i in range(60):  # 60 * 2 = 120 секунд
+            if not vllm_accessible:
+                # Пытаемся запустить vLLM (и в Docker, и локально)
+                vllm_status = manager.get_service_status("vllm")
+
+                if not vllm_status.get("is_running"):
+                    logger.info("🚀 Запуск vLLM...")
+                    start_result = await manager.start_service("vllm")
+                    if start_result.get("status") != "ok":
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"Не удалось запустить vLLM: {start_result.get('message', 'Unknown error')}",
+                        )
+
+                # Ждём готовности vLLM (до 180 секунд для Docker, т.к. загрузка модели)
+                max_attempts = 90 if is_docker else 60  # 180 или 120 секунд
+                logger.info(f"⏳ Ожидание готовности vLLM (до {max_attempts * 2} сек)...")
+
+                for i in range(max_attempts):
                     await asyncio.sleep(2)
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            resp = await client.get("http://localhost:11434/health", timeout=5.0)
-                            if resp.status_code == 200:
-                                logger.info(f"✅ vLLM готов (попытка {i + 1})")
-                                break
-                    except Exception:
-                        pass
+                    if await check_vllm_health():
+                        logger.info(f"✅ vLLM готов (попытка {i + 1})")
+                        break
                 else:
                     raise HTTPException(
-                        status_code=503, detail="vLLM не стал доступен за 120 секунд"
+                        status_code=503,
+                        detail=f"vLLM не стал доступен по адресу {vllm_url}. "
+                        "Проверьте логи контейнера: docker logs ai-secretary-vllm",
                     )
 
             # Создаём новый vLLM сервис

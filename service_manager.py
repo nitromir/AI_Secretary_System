@@ -12,9 +12,13 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, AsyncGenerator, Dict, List, Optional
 
 import psutil
+
+
+if TYPE_CHECKING:
+    import docker
 
 
 logging.basicConfig(level=logging.INFO)
@@ -165,17 +169,17 @@ class ServiceManager:
 
         # Проверяем по PID файлу
         if config.pid_file:
-            proc = self._find_process_by_pid_file(config.pid_file)
-            if proc:
-                memory_mb = proc.memory_info().rss / (1024 * 1024)
-                return True, proc.pid, memory_mb
+            ps_proc = self._find_process_by_pid_file(config.pid_file)
+            if ps_proc:
+                memory_mb = ps_proc.memory_info().rss / (1024 * 1024)
+                return True, ps_proc.pid, memory_mb
 
         # Проверяем по порту
         if config.port:
-            proc = self._find_process_by_port(config.port)
-            if proc:
-                memory_mb = proc.memory_info().rss / (1024 * 1024)
-                return True, proc.pid, memory_mb
+            ps_proc = self._find_process_by_port(config.port)
+            if ps_proc:
+                memory_mb = ps_proc.memory_info().rss / (1024 * 1024)
+                return True, ps_proc.pid, memory_mb
 
         return False, None, None
 
@@ -192,9 +196,177 @@ class ServiceManager:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 url = f"http://localhost:{config.port}{config.health_endpoint}"
                 response = await client.get(url)
-                return response.status_code == 200
+                return bool(response.status_code == 200)
         except Exception:
             return False
+
+    def _is_docker_mode(self) -> bool:
+        """Определяет, запущены ли мы в Docker-контейнере"""
+        return Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "1"
+
+    def _get_docker_client(self) -> Optional["docker.DockerClient"]:
+        """Получает Docker клиент (lazy initialization)"""
+        if not hasattr(self, "_docker_client"):
+            try:
+                import docker
+
+                self._docker_client = docker.from_env()
+            except Exception as e:
+                logger.warning(f"Docker client unavailable: {e}")
+                self._docker_client = None
+        return self._docker_client
+
+    async def _start_vllm_container(self) -> dict:
+        """Запускает vLLM контейнер через Docker API"""
+        container_name = os.getenv("VLLM_CONTAINER_NAME", "ai-secretary-vllm")
+        vllm_model = os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
+        docker_client = self._get_docker_client()
+
+        if not docker_client:
+            return {"status": "error", "message": "Docker client недоступен"}
+
+        try:
+            # Проверяем, есть ли уже контейнер
+            try:
+                container = docker_client.containers.get(container_name)
+                if container.status == "running":
+                    return {
+                        "status": "ok",
+                        "message": "vLLM контейнер уже запущен",
+                        "container_id": container.short_id,
+                    }
+                # Контейнер существует, но остановлен - запускаем
+                logger.info(f"🚀 Запуск существующего контейнера {container_name}...")
+                container.start()
+                self.start_times["vllm"] = datetime.now()
+                return {
+                    "status": "ok",
+                    "message": "vLLM контейнер запущен",
+                    "container_id": container.short_id,
+                }
+            except Exception:
+                pass  # Контейнер не существует
+
+            # Проверяем наличие образа
+            vllm_image = "vllm/vllm-openai:latest"
+            try:
+                docker_client.images.get(vllm_image)
+            except Exception:
+                return {
+                    "status": "error",
+                    "message": f"Образ {vllm_image} не найден. Выполните: docker pull {vllm_image}",
+                }
+
+            # Создаём контейнер через Docker SDK
+            logger.info(f"🚀 Создание контейнера {container_name}...")
+
+            # Получаем сеть ai-secretary
+            try:
+                network = docker_client.networks.get("ai_secretary_system_ai-secretary")
+            except Exception:
+                # Пробуем альтернативное имя
+                try:
+                    network = docker_client.networks.get("ai-secretary")
+                except Exception:
+                    network = None
+
+            # Конфигурация контейнера
+            container = docker_client.containers.run(
+                image="vllm/vllm-openai:latest",
+                name=container_name,
+                command=[
+                    "--model",
+                    vllm_model,
+                    "--gpu-memory-utilization",
+                    "0.5",
+                    "--max-model-len",
+                    "4096",
+                    "--dtype",
+                    "float16",
+                    "--max-num-seqs",
+                    "32",
+                    "--enforce-eager",
+                    "--trust-remote-code",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8000",
+                ],
+                volumes={
+                    os.path.expanduser("~/.cache/huggingface"): {
+                        "bind": "/root/.cache/huggingface",
+                        "mode": "rw",
+                    },
+                },
+                environment={
+                    "HUGGING_FACE_HUB_TOKEN": os.getenv("HF_TOKEN", ""),
+                    "VLLM_LOGGING_LEVEL": "WARNING",
+                },
+                device_requests=[{"Driver": "nvidia", "Count": 1, "Capabilities": [["gpu"]]}],
+                detach=True,
+                restart_policy={"Name": "unless-stopped"},
+            )
+
+            # Подключаем к сети
+            if network:
+                network.connect(container)
+
+            self.start_times["vllm"] = datetime.now()
+            logger.info(f"✅ vLLM контейнер создан: {container.short_id}")
+
+            return {
+                "status": "ok",
+                "message": "vLLM контейнер запускается (загрузка модели ~2-3 мин)",
+                "container_id": container.short_id,
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            self.last_errors["vllm"] = error_msg
+            logger.error(f"❌ Ошибка запуска vLLM контейнера: {error_msg}")
+            return {"status": "error", "message": f"Ошибка запуска: {error_msg}"}
+
+    async def _stop_vllm_container(self) -> dict:
+        """Останавливает vLLM контейнер через Docker API"""
+        container_name = os.getenv("VLLM_CONTAINER_NAME", "ai-secretary-vllm")
+        docker_client = self._get_docker_client()
+
+        if not docker_client:
+            return {"status": "error", "message": "Docker client недоступен"}
+
+        try:
+            container = docker_client.containers.get(container_name)
+            if container.status != "running":
+                return {"status": "ok", "message": "vLLM контейнер уже остановлен"}
+
+            logger.info(f"🛑 Остановка контейнера {container_name}...")
+            container.stop(timeout=30)
+            self.start_times.pop("vllm", None)
+
+            logger.info("✅ vLLM контейнер остановлен")
+            return {"status": "ok", "message": "vLLM контейнер остановлен"}
+
+        except Exception as e:
+            if "No such container" in str(e) or "404" in str(e):
+                return {"status": "ok", "message": "vLLM контейнер не существует"}
+            error_msg = str(e)
+            self.last_errors["vllm"] = error_msg
+            logger.error(f"❌ Ошибка остановки vLLM контейнера: {error_msg}")
+            return {"status": "error", "message": f"Ошибка остановки: {error_msg}"}
+
+    def _is_vllm_container_running(self) -> tuple[bool, Optional[str]]:
+        """Проверяет, запущен ли vLLM контейнер"""
+        container_name = os.getenv("VLLM_CONTAINER_NAME", "ai-secretary-vllm")
+        docker_client = self._get_docker_client()
+
+        if not docker_client:
+            return False, None
+
+        try:
+            container = docker_client.containers.get(container_name)
+            return container.status == "running", container.short_id
+        except Exception:
+            return False, None
 
     async def start_service(self, service_name: str) -> dict:
         """
@@ -208,6 +380,10 @@ class ServiceManager:
                 "status": "error",
                 "message": f"Сервис {config.display_name} управляется orchestrator, перезапустите orchestrator",
             }
+
+        # Для vLLM в Docker режиме используем Docker API
+        if service_name == "vllm" and self._is_docker_mode():
+            return await self._start_vllm_container()
 
         # Проверяем, не запущен ли уже
         is_running, pid, _ = self._is_service_running(service_name)
@@ -289,6 +465,10 @@ class ServiceManager:
                 "message": f"Сервис {config.display_name} управляется orchestrator",
             }
 
+        # Для vLLM в Docker режиме используем Docker API
+        if service_name == "vllm" and self._is_docker_mode():
+            return await self._stop_vllm_container()
+
         is_running, _pid, _ = self._is_service_running(service_name)
         if not is_running:
             return {"status": "ok", "message": f"{config.display_name} уже остановлен"}
@@ -355,6 +535,30 @@ class ServiceManager:
     def get_service_status(self, service_name: str) -> dict:
         """Получает статус сервиса"""
         config = self._get_config(service_name)
+
+        # Для vLLM в Docker режиме проверяем контейнер
+        if service_name == "vllm" and self._is_docker_mode():
+            is_running, container_id = self._is_vllm_container_running()
+            status = {
+                "name": service_name,
+                "display_name": config.display_name,
+                "is_running": is_running,
+                "pid": None,
+                "container_id": container_id,
+                "memory_mb": None,
+                "port": 8000,  # vLLM container port
+                "internal": False,
+                "gpu_required": config.gpu_required,
+                "cpu_only": config.cpu_only,
+                "log_file": None,
+                "last_error": self.last_errors.get(service_name),
+                "docker_mode": True,
+            }
+            if service_name in self.start_times and is_running:
+                uptime = datetime.now() - self.start_times[service_name]
+                status["uptime_seconds"] = uptime.total_seconds()
+            return status
+
         is_running, pid, memory_mb = self._is_service_running(service_name)
 
         status = {
@@ -562,7 +766,7 @@ def get_service_manager() -> ServiceManager:
 if __name__ == "__main__":
     import asyncio
 
-    async def test():
+    async def test() -> None:
         manager = ServiceManager()
 
         print("=== Service Status ===")
