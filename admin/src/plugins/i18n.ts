@@ -195,7 +195,9 @@ const messages = {
         telegram: 'Telegram',
         widget: 'Виджет',
         unknown: 'Другие'
-      }
+      },
+      selectLlm: 'Выбрать LLM провайдер',
+      defaultLlm: 'По умолчанию'
     },
     // Auth
     auth: {
@@ -642,7 +644,9 @@ const messages = {
         telegram: 'Telegram',
         widget: 'Widget',
         unknown: 'Other'
-      }
+      },
+      selectLlm: 'Select LLM provider',
+      defaultLlm: 'Default'
     },
     // Auth
     auth: {

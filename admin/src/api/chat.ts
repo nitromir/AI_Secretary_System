@@ -94,14 +94,20 @@ export const chatApi = {
   streamMessage: (
     sessionId: string,
     content: string,
-    onChunk: (data: { type: string; content?: string; message?: ChatMessage }) => void
+    onChunk: (data: { type: string; content?: string; message?: ChatMessage }) => void,
+    llmOverride?: { llm_backend?: string; system_prompt?: string }
   ) => {
     const controller = new AbortController()
+
+    const body: Record<string, unknown> = { content }
+    if (llmOverride) {
+      body.llm_override = llmOverride
+    }
 
     fetch(`/admin/chat/sessions/${sessionId}/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok) throw new Error('Stream failed')

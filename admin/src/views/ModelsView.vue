@@ -270,24 +270,24 @@ function startDownload(repoId: string) {
         <div class="flex gap-2">
           <button
             v-if="!scanStatus?.is_active"
-            @click="scanMutation.mutate(false)"
             :disabled="scanMutation.isPending.value"
             class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="scanMutation.mutate(false)"
           >
             <FolderSearch class="w-4 h-4" />
             Scan Models
           </button>
           <button
             v-else
-            @click="cancelScanMutation.mutate()"
             class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            @click="cancelScanMutation.mutate()"
           >
             <X class="w-4 h-4" />
             Cancel
           </button>
           <button
-            @click="() => refetchModels()"
             class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+            @click="() => refetchModels()"
           >
             <RefreshCw class="w-4 h-4" />
           </button>
@@ -376,9 +376,9 @@ function startDownload(repoId: string) {
             <!-- Actions -->
             <div class="flex items-center gap-2">
               <button
-                @click="showDeleteConfirm = model.path"
                 class="p-2 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
                 title="Delete"
+                @click="showDeleteConfirm = model.path"
               >
                 <Trash2 class="w-4 h-4" />
               </button>
@@ -390,16 +390,16 @@ function startDownload(repoId: string) {
             <p class="text-sm text-red-500 mb-3">Delete "{{ model.name }}" ({{ model.size_gb }} GB)?</p>
             <div class="flex gap-2">
               <button
-                @click="deleteMutation.mutate(model.path)"
                 :disabled="deleteMutation.isPending.value"
                 class="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm"
+                @click="deleteMutation.mutate(model.path)"
               >
                 <Loader2 v-if="deleteMutation.isPending.value" class="w-4 h-4 animate-spin inline mr-1" />
                 Delete
               </button>
               <button
-                @click="showDeleteConfirm = null"
                 class="px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 text-sm"
+                @click="showDeleteConfirm = null"
               >
                 Cancel
               </button>
@@ -426,8 +426,8 @@ function startDownload(repoId: string) {
             <span class="font-medium">Downloading {{ downloadStatus.repo_id }}</span>
           </div>
           <button
-            @click="cancelDownloadMutation.mutate()"
             class="p-1 hover:bg-secondary rounded"
+            @click="cancelDownloadMutation.mutate()"
           >
             <X class="w-4 h-4" />
           </button>
@@ -476,9 +476,9 @@ function startDownload(repoId: string) {
             />
           </div>
           <button
-            @click="handleHfSearch"
             :disabled="hfSearchQuery.length < 2"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="handleHfSearch"
           >
             <Search class="w-4 h-4" />
           </button>
@@ -526,9 +526,9 @@ function startDownload(repoId: string) {
                   <ExternalLink class="w-4 h-4" />
                 </a>
                 <button
-                  @click="startDownload(result.repo_id)"
                   :disabled="downloadStatus?.is_active"
                   class="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
+                  @click="startDownload(result.repo_id)"
                 >
                   <Download class="w-4 h-4" />
                   Download
@@ -551,9 +551,9 @@ function startDownload(repoId: string) {
               class="px-4 py-2 bg-secondary rounded-lg text-sm w-64"
             />
             <button
-              @click="startDownload(hfSearchQuery)"
               :disabled="!hfSearchQuery || downloadStatus?.is_active"
               class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
+              @click="startDownload(hfSearchQuery)"
             >
               <Download class="w-4 h-4" />
             </button>

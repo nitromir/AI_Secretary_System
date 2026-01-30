@@ -187,7 +187,8 @@ onUnmounted(() => {
             <Clock class="w-4 h-4 text-muted-foreground" />
             <span>Uptime: {{ systemInfo.uptime }}</span>
           </div>
-          <span :class="[
+          <span
+:class="[
             'px-3 py-1 rounded-full text-sm font-medium',
             healthData?.overall === 'healthy' ? 'bg-green-500/20 text-green-500' : 'bg-yellow-500/20 text-yellow-500'
           ]">
@@ -203,27 +204,27 @@ onUnmounted(() => {
         <button
           v-for="tab in ['overview', 'gpus', 'docker', 'processes', 'network', 'disks'] as const"
           :key="tab"
-          @click="activeTab = tab"
           :class="[
             'px-4 py-2 rounded-lg transition-colors capitalize',
             activeTab === tab ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'
           ]"
+          @click="activeTab = tab"
         >
           {{ tab }}
         </button>
       </div>
       <div class="flex-1" />
       <button
-        @click="refreshAll"
         class="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+        @click="refreshAll"
       >
         <RefreshCw class="w-4 h-4" />
         Refresh
       </button>
       <button
-        @click="resetMetricsMutation.mutate()"
         :disabled="resetMetricsMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 disabled:opacity-50 transition-colors"
+        @click="resetMetricsMutation.mutate()"
       >
         <Trash2 class="w-4 h-4" />
         Reset Cache
@@ -488,7 +489,8 @@ onUnmounted(() => {
               <tr v-for="container in docker" :key="container.id" class="hover:bg-secondary/30">
                 <td class="p-3">
                   <div class="flex items-center gap-2">
-                    <div :class="[
+                    <div
+:class="[
                       'w-2 h-2 rounded-full',
                       container.state === 'running' ? 'bg-green-500' : 'bg-gray-500'
                     ]" />
@@ -497,7 +499,8 @@ onUnmounted(() => {
                 </td>
                 <td class="p-3 text-sm text-muted-foreground max-w-[200px] truncate">{{ container.image }}</td>
                 <td class="p-3">
-                  <span :class="[
+                  <span
+:class="[
                     'px-2 py-1 rounded text-xs',
                     container.state === 'running' ? 'bg-green-500/20 text-green-500' :
                     container.state === 'exited' ? 'bg-gray-500/20 text-gray-500' :
@@ -568,7 +571,8 @@ onUnmounted(() => {
                 </td>
                 <td class="p-3">{{ formatBytes(proc.memory_mb) }}</td>
                 <td class="p-3">
-                  <span :class="[
+                  <span
+:class="[
                     'px-2 py-1 rounded text-xs',
                     proc.status === 'running' ? 'bg-green-500/20 text-green-500' :
                     proc.status === 'sleeping' ? 'bg-blue-500/20 text-blue-500' :
@@ -596,7 +600,8 @@ onUnmounted(() => {
           class="bg-card rounded-lg border border-border p-4"
         >
           <div class="flex items-center gap-3 mb-4">
-            <div :class="[
+            <div
+:class="[
               'p-2 rounded-lg',
               iface.is_up ? 'bg-green-500/20' : 'bg-gray-500/20'
             ]">
@@ -607,7 +612,8 @@ onUnmounted(() => {
               <p class="text-sm text-muted-foreground">{{ iface.ip_address }}</p>
             </div>
             <div class="ml-auto">
-              <span :class="[
+              <span
+:class="[
                 'px-2 py-1 rounded text-xs',
                 iface.is_up ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'
               ]">
@@ -653,7 +659,8 @@ onUnmounted(() => {
                 <p class="text-sm text-muted-foreground">{{ disk.device }} ({{ disk.fstype }})</p>
               </div>
             </div>
-            <span :class="[
+            <span
+:class="[
               'text-lg font-bold',
               disk.percent_used > 90 ? 'text-red-500' :
               disk.percent_used > 75 ? 'text-orange-500' : ''

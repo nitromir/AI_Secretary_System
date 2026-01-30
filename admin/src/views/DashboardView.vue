@@ -406,8 +406,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
         <div class="flex items-center justify-between p-4 border-b border-border">
           <h2 class="text-lg font-semibold">{{ t('dashboard.services') }}</h2>
           <button
-            @click="refreshAll"
             class="flex items-center gap-2 px-3 py-1.5 text-sm bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="refreshAll"
           >
             <RefreshCw class="w-4 h-4" />
             {{ t('dashboard.refresh') }}
@@ -428,12 +428,14 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
             ]"
             @click="navigateTo('/services')"
           >
-            <div :class="[
+            <div
+:class="[
               'w-10 h-10 rounded-lg flex items-center justify-center',
               (service.is_running || service.status === 'running') ? 'bg-green-500/20' :
               service.status === 'error' ? 'bg-red-500/20' : 'bg-gray-500/20'
             ]">
-              <Server :class="[
+              <Server
+:class="[
                 'w-5 h-5',
                 (service.is_running || service.status === 'running') ? 'text-green-400' :
                 service.status === 'error' ? 'text-red-400' : 'text-gray-400'
@@ -468,8 +470,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
       <!-- Quick Actions -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <button
-          @click="navigateTo('/llm')"
           class="flex items-center gap-2 md:gap-3 p-3 md:p-4 bg-card rounded-xl border border-border hover:bg-secondary/30 transition-all hover:scale-[1.02]"
+          @click="navigateTo('/llm')"
         >
           <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
             <Brain class="w-4 h-4 md:w-5 md:h-5 text-primary" />
@@ -481,8 +483,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
         </button>
 
         <button
-          @click="navigateTo('/tts')"
           class="flex items-center gap-2 md:gap-3 p-3 md:p-4 bg-card rounded-xl border border-border hover:bg-secondary/30 transition-all hover:scale-[1.02]"
+          @click="navigateTo('/tts')"
         >
           <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
             <Mic class="w-4 h-4 md:w-5 md:h-5 text-purple-400" />
@@ -494,8 +496,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
         </button>
 
         <button
-          @click="navigateTo('/faq')"
           class="flex items-center gap-2 md:gap-3 p-3 md:p-4 bg-card rounded-xl border border-border hover:bg-secondary/30 transition-all hover:scale-[1.02]"
+          @click="navigateTo('/faq')"
         >
           <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-green-500/20 flex items-center justify-center shrink-0">
             <MessageSquare class="w-4 h-4 md:w-5 md:h-5 text-green-400" />
@@ -507,8 +509,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
         </button>
 
         <button
-          @click="navigateTo('/finetune')"
           class="flex items-center gap-2 md:gap-3 p-3 md:p-4 bg-card rounded-xl border border-border hover:bg-secondary/30 transition-all hover:scale-[1.02]"
+          @click="navigateTo('/finetune')"
         >
           <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-orange-500/20 flex items-center justify-center shrink-0">
             <Sparkles class="w-4 h-4 md:w-5 md:h-5 text-orange-400" />
@@ -537,7 +539,8 @@ const currentStatus = computed(() => statusConfig.value[overallStatus.value])
               <XCircle v-else class="w-5 h-5 text-red-500" />
               <span class="font-medium capitalize">{{ String(name).replace(/_/g, ' ') }}</span>
             </div>
-            <span :class="[
+            <span
+:class="[
               'text-sm px-2 py-0.5 rounded',
               component.status === 'healthy' ? 'bg-green-500/20 text-green-500' :
               component.status === 'unavailable' ? 'bg-yellow-500/20 text-yellow-500' :

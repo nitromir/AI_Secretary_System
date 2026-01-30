@@ -1413,6 +1413,12 @@ async def admin_set_voice(request: AdminVoiceRequest):
             detail=f"Unknown voice: {voice_id}. Available: gulya, lidia, lidia_openvoice, dmitri, irina",
         )
 
+    # Sync with service container for modular routers
+    from app.dependencies import get_container
+
+    container = get_container()
+    container.current_voice_config = current_voice_config
+
     return {"status": "ok", **current_voice_config}
 
 

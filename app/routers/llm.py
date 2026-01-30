@@ -941,3 +941,114 @@ async def admin_validate_vless_url(vless_url: str):
             "valid": False,
             "error": str(e),
         }
+
+
+class ProxyTestMultipleRequest(BaseModel):
+    """Request to test multiple VLESS proxy URLs"""
+
+    vless_urls: list[str]
+
+
+@router.post("/proxy/test-multiple")
+async def admin_test_multiple_proxies(
+    request: ProxyTestMultipleRequest, user: User = Depends(get_current_user)
+):
+    """
+    Test multiple VLESS proxy URLs.
+
+    Args:
+        request: Contains list of vless_urls to test
+
+    Returns:
+        Test results for each proxy
+    """
+    try:
+        from xray_proxy_manager import XrayProxyManagerWithFallback
+    except ImportError:
+        raise HTTPException(status_code=503, detail="xray_proxy_manager module not available")
+
+    manager = XrayProxyManagerWithFallback(socks_port=10818, http_port=10819)
+    if not manager.is_xray_available():
+        return {
+            "status": "error",
+            "error": "xray binary not found. Install xray-core first.",
+            "results": [],
+        }
+
+    count = manager.configure_proxies(request.vless_urls)
+    if count == 0:
+        return {
+            "status": "error",
+            "error": "No valid VLESS URLs provided",
+            "results": [],
+        }
+
+    # Test all proxies
+    results = manager.test_all_proxies()
+    manager.stop()
+
+    # Audit log
+    successful = sum(1 for r in results if r.get("success"))
+    await async_audit_logger.log(
+        action="test",
+        resource="vless_proxy_multiple",
+        user_id=user.username,
+        details={"total": len(results), "successful": successful},
+    )
+
+    return {
+        "status": "ok",
+        "total": len(results),
+        "successful": successful,
+        "results": results,
+    }
+
+
+@router.post("/proxy/reset")
+async def admin_reset_proxies(user: User = Depends(get_current_user)):
+    """
+    Reset all proxies to enabled state (for fallback mode).
+    """
+    container = get_container()
+    llm_service = container.llm_service
+
+    if isinstance(llm_service, CloudLLMService):
+        provider = llm_service.provider
+        if isinstance(provider, GeminiProvider):
+            provider.reset_proxies()
+
+            await async_audit_logger.log(
+                action="reset",
+                resource="vless_proxy",
+                user_id=user.username,
+            )
+
+            return {"status": "ok", "message": "All proxies reset to enabled"}
+
+    return {"status": "error", "message": "No Gemini provider with proxy configured"}
+
+
+@router.post("/proxy/switch-next")
+async def admin_switch_to_next_proxy(user: User = Depends(get_current_user)):
+    """
+    Manually switch to the next proxy in fallback chain.
+    """
+    container = get_container()
+    llm_service = container.llm_service
+
+    if isinstance(llm_service, CloudLLMService):
+        provider = llm_service.provider
+        if isinstance(provider, GeminiProvider):
+            provider.mark_proxy_failed()
+            status = provider.get_proxy_status()
+
+            await async_audit_logger.log(
+                action="switch",
+                resource="vless_proxy",
+                user_id=user.username,
+                details={"new_proxy": status.get("current_proxy")},
+            )
+
+            return {"status": "ok", "proxy": status}
+
+    return {"status": "error", "message": "No Gemini provider with fallback proxy configured"}

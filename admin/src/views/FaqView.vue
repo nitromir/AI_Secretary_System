@@ -139,16 +139,16 @@ function runTest() {
     <!-- Toolbar -->
     <div class="flex items-center gap-4 flex-wrap">
       <button
-        @click="openAddModal"
         class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        @click="openAddModal"
       >
         <Plus class="w-4 h-4" />
         Add Entry
       </button>
       <button
-        @click="reloadMutation.mutate()"
         :disabled="reloadMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 disabled:opacity-50 transition-colors"
+        @click="reloadMutation.mutate()"
       >
         <RotateCw class="w-4 h-4" />
         Reload
@@ -201,9 +201,9 @@ function runTest() {
             @keyup.enter="runTest"
           />
           <button
-            @click="runTest"
             :disabled="testMutation.isPending.value || !testText"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="runTest"
           >
             Test
           </button>
@@ -252,17 +252,17 @@ function runTest() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button
-                @click="openEditModal(entry)"
                 class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
                 title="Edit"
+                @click="openEditModal(entry)"
               >
                 <Pencil class="w-4 h-4" />
               </button>
               <button
-                @click="deleteMutation.mutate(entry.trigger)"
                 :disabled="deleteMutation.isPending.value"
                 class="p-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                 title="Delete"
+                @click="deleteMutation.mutate(entry.trigger)"
               >
                 <Trash2 class="w-4 h-4" />
               </button>
@@ -284,8 +284,8 @@ function runTest() {
             {{ editingEntry ? 'Edit FAQ Entry' : 'Add FAQ Entry' }}
           </h3>
           <button
-            @click="closeModal"
             class="p-1 rounded hover:bg-secondary transition-colors"
+            @click="closeModal"
           >
             <X class="w-5 h-5" />
           </button>
@@ -316,15 +316,15 @@ function runTest() {
 
         <div class="flex justify-end gap-2 mt-6">
           <button
-            @click="closeModal"
             class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="closeModal"
           >
             Cancel
           </button>
           <button
-            @click="saveEntry"
             :disabled="!formTrigger || !formResponse || addMutation.isPending.value || updateMutation.isPending.value"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="saveEntry"
           >
             {{ editingEntry ? 'Update' : 'Add' }}
           </button>

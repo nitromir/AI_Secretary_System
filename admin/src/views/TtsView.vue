@@ -213,9 +213,9 @@ function createPreset() {
                   {{ voice.samples_count }} samples
                 </span>
                 <button
-                  @click.stop="testVoice(voice.id)"
                   :disabled="testLoading"
                   class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                  @click.stop="testVoice(voice.id)"
                 >
                   <Play class="w-3 h-3" />
                 </button>
@@ -251,9 +251,9 @@ function createPreset() {
               <p class="text-xs text-muted-foreground mb-2">{{ voice.description }}</p>
               <div class="flex justify-end">
                 <button
-                  @click.stop="testVoice(voice.id)"
                   :disabled="testLoading"
                   class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                  @click.stop="testVoice(voice.id)"
                 >
                   <Play class="w-3 h-3" />
                 </button>
@@ -291,9 +291,9 @@ function createPreset() {
               <p class="text-xs text-muted-foreground mb-2">{{ voice.description }}</p>
               <div v-if="voice.available" class="flex justify-end">
                 <button
-                  @click.stop="testVoice(voice.id)"
                   :disabled="testLoading"
                   class="p-1.5 rounded bg-secondary hover:bg-secondary/80 transition-colors"
+                  @click.stop="testVoice(voice.id)"
                 >
                   <Play class="w-3 h-3" />
                 </button>
@@ -312,9 +312,9 @@ function createPreset() {
           XTTS Parameters
         </h2>
         <button
-          @click="saveParams"
           :disabled="saveParamsMutation.isPending.value"
           class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          @click="saveParams"
         >
           <Save class="w-4 h-4" />
           Apply
@@ -329,13 +329,13 @@ function createPreset() {
             <button
               v-for="(preset, name) in presets"
               :key="name"
-              @click="setPresetMutation.mutate(name as string)"
               :class="[
                 'px-3 py-1.5 rounded-lg text-sm transition-colors',
                 currentPreset === name
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary hover:bg-secondary/80'
               ]"
+              @click="setPresetMutation.mutate(name as string)"
             >
               {{ preset.display_name }}
             </button>
@@ -448,8 +448,8 @@ function createPreset() {
       <div class="p-4 border-b border-border flex items-center justify-between">
         <h2 class="text-lg font-semibold">Custom Presets</h2>
         <button
-          @click="showCreatePreset = true"
           class="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+          @click="showCreatePreset = true"
         >
           <Plus class="w-4 h-4" />
           Create
@@ -473,8 +473,8 @@ function createPreset() {
               </span>
             </div>
             <button
-              @click="deletePresetMutation.mutate(name as string)"
               class="p-1.5 text-red-500 hover:bg-red-500/20 rounded transition-colors"
+              @click="deletePresetMutation.mutate(name as string)"
             >
               <Trash2 class="w-4 h-4" />
             </button>
@@ -488,9 +488,9 @@ function createPreset() {
       <div class="p-4 border-b border-border flex items-center justify-between">
         <h2 class="text-lg font-semibold">TTS Cache</h2>
         <button
-          @click="clearCacheMutation.mutate()"
           :disabled="clearCacheMutation.isPending.value"
           class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+          @click="clearCacheMutation.mutate()"
         >
           <Trash2 class="w-4 h-4" />
           Clear
@@ -523,9 +523,9 @@ function createPreset() {
         />
         <div class="flex items-center gap-4">
           <button
-            @click="synthesizeTest"
             :disabled="testLoading || !testText"
             class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="synthesizeTest"
           >
             <Play v-if="!testLoading" class="w-4 h-4" />
             <span v-else class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -561,15 +561,15 @@ function createPreset() {
 
         <div class="flex justify-end gap-2">
           <button
-            @click="showCreatePreset = false"
             class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+            @click="showCreatePreset = false"
           >
             Cancel
           </button>
           <button
-            @click="createPreset"
             :disabled="!newPresetName || createPresetMutation.isPending.value"
             class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="createPreset"
           >
             Create
           </button>

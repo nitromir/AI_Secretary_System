@@ -40,8 +40,8 @@ function selectTheme(theme: Theme) {
     <button
       type="button"
       class="flex items-center gap-2 rounded-lg bg-secondary px-2 md:px-3 py-2 text-sm text-muted-foreground hover:bg-secondary/80 hover:text-foreground transition-colors"
-      @click.stop="menuOpen = !menuOpen"
       :title="t(`themes.${themeStore.theme}`)"
+      @click.stop="menuOpen = !menuOpen"
     >
       <svg
         class="h-5 w-5"
