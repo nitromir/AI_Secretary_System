@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.dependencies import get_container
 from auth_manager import User, get_current_user
-from cloud_llm_service import PROVIDER_TYPES, CloudLLMService
+from cloud_llm_service import PROVIDER_TYPES, CloudLLMService, GeminiProvider
 from db.integration import async_audit_logger, async_cloud_provider_manager
 from llm_service import LLMService
 from service_manager import get_service_manager
@@ -81,6 +81,12 @@ class AdminLLMParamsRequest(BaseModel):
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
     repetition_penalty: Optional[float] = None
+
+
+class ProxyTestRequest(BaseModel):
+    """Request to test VLESS proxy connection"""
+
+    vless_url: str
 
 
 # ============== Helper Functions ==============
@@ -780,3 +786,158 @@ async def admin_reset_persona_prompt(persona: str):
     """Сбросить системный промпт персоны на значение по умолчанию"""
     # TODO: Реализовать хранение оригинальных промптов
     raise HTTPException(status_code=501, detail="Not implemented yet")
+
+
+# ============== VLESS Proxy Endpoints ==============
+
+
+@router.get("/proxy/status")
+async def admin_get_proxy_status():
+    """
+    Get VLESS proxy status for current Gemini provider.
+
+    Returns xray availability, running state, and configuration.
+    """
+    container = get_container()
+    llm_service = container.llm_service
+
+    # Check if using Gemini provider with proxy
+    if isinstance(llm_service, CloudLLMService):
+        provider = llm_service.provider
+        if isinstance(provider, GeminiProvider):
+            return {"status": "ok", "proxy": provider.get_proxy_status()}
+
+    # Check if xray is available globally
+    try:
+        from xray_proxy_manager import get_proxy_manager
+
+        manager = get_proxy_manager()
+        return {
+            "status": "ok",
+            "proxy": {
+                "xray_available": manager.is_xray_available(),
+                "xray_path": manager._xray_path,
+                "configured": False,
+                "is_running": False,
+            },
+        }
+    except ImportError:
+        return {
+            "status": "ok",
+            "proxy": {
+                "xray_available": False,
+                "configured": False,
+                "is_running": False,
+            },
+        }
+
+
+@router.post("/proxy/test")
+async def admin_test_proxy(request: ProxyTestRequest, user: User = Depends(get_current_user)):
+    """
+    Test VLESS proxy connection to Google Gemini API.
+
+    Args:
+        request: Contains vless_url to test
+
+    Returns:
+        Test result with success status and details
+    """
+    try:
+        from xray_proxy_manager import XrayProxyManager, validate_vless_url
+    except ImportError:
+        raise HTTPException(status_code=503, detail="xray_proxy_manager module not available")
+
+    # Validate URL first
+    is_valid, error = validate_vless_url(request.vless_url)
+    if not is_valid:
+        return {
+            "status": "error",
+            "success": False,
+            "error": f"Invalid VLESS URL: {error}",
+        }
+
+    # Create temporary proxy manager for testing
+    manager = XrayProxyManager()
+    if not manager.is_xray_available():
+        return {
+            "status": "error",
+            "success": False,
+            "error": "xray binary not found. Install xray-core first.",
+        }
+
+    if not manager.configure(request.vless_url):
+        return {
+            "status": "error",
+            "success": False,
+            "error": "Failed to configure VLESS proxy",
+        }
+
+    # Test connection
+    result = manager.test_connection("https://generativelanguage.googleapis.com")
+
+    # Stop the test proxy
+    manager.stop()
+
+    if result.get("success"):
+        # Audit log
+        await async_audit_logger.log(
+            action="test",
+            resource="vless_proxy",
+            user_id=user.username,
+            details={"target": result.get("target"), "status_code": result.get("status_code")},
+        )
+        return {
+            "status": "ok",
+            "success": True,
+            "message": f"Connection successful (HTTP {result.get('status_code')})",
+            "details": result,
+        }
+    else:
+        return {
+            "status": "error",
+            "success": False,
+            "error": result.get("error", "Unknown error"),
+        }
+
+
+@router.get("/proxy/validate")
+async def admin_validate_vless_url(vless_url: str):
+    """
+    Validate a VLESS URL without testing the connection.
+
+    Args:
+        vless_url: VLESS URL to validate
+
+    Returns:
+        Validation result with parsed configuration if valid
+    """
+    try:
+        from xray_proxy_manager import parse_vless_url, validate_vless_url
+    except ImportError:
+        raise HTTPException(status_code=503, detail="xray_proxy_manager module not available")
+
+    is_valid, error = validate_vless_url(vless_url)
+    if not is_valid:
+        return {
+            "valid": False,
+            "error": error,
+        }
+
+    # Parse and return safe info (without exposing full UUID)
+    try:
+        config = parse_vless_url(vless_url)
+        return {
+            "valid": True,
+            "config": {
+                "server": f"{config.address}:{config.port}",
+                "security": config.security,
+                "transport": config.transport_type,
+                "remark": config.remark,
+            },
+        }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e),
+        }

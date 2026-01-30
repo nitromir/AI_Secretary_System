@@ -30,6 +30,16 @@ except ImportError:
     GEMINI_AVAILABLE = False
     genai = None
 
+# VLESS Proxy Manager (optional)
+try:
+    from xray_proxy_manager import XrayProxyManager, validate_vless_url
+
+    XRAY_AVAILABLE = True
+except ImportError:
+    XRAY_AVAILABLE = False
+    XrayProxyManager = None
+    validate_vless_url = None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -301,6 +311,7 @@ class GeminiProvider(BaseLLMProvider):
     """
     Provider for Google Gemini API.
     Uses the google-generativeai SDK.
+    Supports optional VLESS proxy via xray-core.
     """
 
     def __init__(self, config: dict):
@@ -317,12 +328,67 @@ class GeminiProvider(BaseLLMProvider):
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(model_name=self.model_name or "gemini-2.0-flash")
 
+        # Initialize VLESS proxy if configured
+        self.proxy_manager: Optional["XrayProxyManager"] = None
+        self._setup_vless_proxy()
+
         logger.info(f"[{self.provider_id}] Initialized Gemini provider: {self.model_name}")
+
+    def _setup_vless_proxy(self):
+        """Setup VLESS proxy if configured in runtime_params."""
+        vless_url = self.runtime_params.get("vless_url", "")
+        if not vless_url:
+            return
+
+        if not XRAY_AVAILABLE:
+            logger.warning(
+                f"[{self.provider_id}] VLESS URL configured but xray_proxy_manager not available"
+            )
+            return
+
+        # Validate URL
+        is_valid, error = validate_vless_url(vless_url)
+        if not is_valid:
+            logger.error(f"[{self.provider_id}] Invalid VLESS URL: {error}")
+            return
+
+        # Create proxy manager
+        self.proxy_manager = XrayProxyManager()
+        if self.proxy_manager.configure(vless_url):
+            logger.info(f"[{self.provider_id}] VLESS proxy configured")
+        else:
+            logger.warning(f"[{self.provider_id}] Failed to configure VLESS proxy")
+            self.proxy_manager = None
+
+    def get_proxy_status(self) -> dict:
+        """Get VLESS proxy status."""
+        if not self.proxy_manager:
+            return {
+                "configured": False,
+                "xray_available": XRAY_AVAILABLE and XrayProxyManager is not None,
+            }
+        return self.proxy_manager.get_status()
+
+    def test_proxy_connection(self) -> dict:
+        """Test VLESS proxy connection to Google API."""
+        if not self.proxy_manager:
+            return {"success": False, "error": "No VLESS proxy configured"}
+        return self.proxy_manager.test_connection("https://generativelanguage.googleapis.com")
+
+    def _get_proxy_context(self):
+        """Get proxy context manager or a no-op context manager."""
+        from contextlib import nullcontext
+
+        if self.proxy_manager:
+            return self.proxy_manager.proxy_environment()
+        return nullcontext()
 
     def is_available(self) -> bool:
         try:
-            # Simple test - list models
-            list(genai.list_models())
+            # Use proxy if configured
+            with self._get_proxy_context():
+                # Simple test - list models
+                list(genai.list_models())
             return True
         except Exception as e:
             logger.warning(f"[{self.provider_id}] Health check failed: {e}")
@@ -332,27 +398,29 @@ class GeminiProvider(BaseLLMProvider):
         self, user_message: str, system_prompt: str = None, history: List[Dict] = None
     ) -> str:
         try:
-            # Rebuild model with system instruction if provided
-            if system_prompt:
-                model = genai.GenerativeModel(
-                    model_name=self.model_name or "gemini-2.0-flash",
-                    system_instruction=system_prompt,
-                )
-            else:
-                model = self.model
+            # Use proxy if configured
+            with self._get_proxy_context():
+                # Rebuild model with system instruction if provided
+                if system_prompt:
+                    model = genai.GenerativeModel(
+                        model_name=self.model_name or "gemini-2.0-flash",
+                        system_instruction=system_prompt,
+                    )
+                else:
+                    model = self.model
 
-            # Convert history to Gemini format
-            gemini_history = []
-            if history:
-                for msg in history:
-                    role = "model" if msg["role"] == "assistant" else msg["role"]
-                    if role not in ["user", "model"]:
-                        continue
-                    gemini_history.append({"role": role, "parts": [msg["content"]]})
+                # Convert history to Gemini format
+                gemini_history = []
+                if history:
+                    for msg in history:
+                        role = "model" if msg["role"] == "assistant" else msg["role"]
+                        if role not in ["user", "model"]:
+                            continue
+                        gemini_history.append({"role": role, "parts": [msg["content"]]})
 
-            chat = model.start_chat(history=gemini_history)
-            response = chat.send_message(user_message)
-            return response.text.strip()
+                chat = model.start_chat(history=gemini_history)
+                response = chat.send_message(user_message)
+                return response.text.strip()
         except Exception as e:
             logger.error(f"[{self.provider_id}] Error: {e}")
             return "Извините, произошла техническая ошибка."
@@ -361,28 +429,30 @@ class GeminiProvider(BaseLLMProvider):
         self, user_message: str, system_prompt: str = None, history: List[Dict] = None
     ) -> Generator[str, None, None]:
         try:
-            if system_prompt:
-                model = genai.GenerativeModel(
-                    model_name=self.model_name or "gemini-2.0-flash",
-                    system_instruction=system_prompt,
-                )
-            else:
-                model = self.model
+            # Use proxy if configured
+            with self._get_proxy_context():
+                if system_prompt:
+                    model = genai.GenerativeModel(
+                        model_name=self.model_name or "gemini-2.0-flash",
+                        system_instruction=system_prompt,
+                    )
+                else:
+                    model = self.model
 
-            gemini_history = []
-            if history:
-                for msg in history:
-                    role = "model" if msg["role"] == "assistant" else msg["role"]
-                    if role not in ["user", "model"]:
-                        continue
-                    gemini_history.append({"role": role, "parts": [msg["content"]]})
+                gemini_history = []
+                if history:
+                    for msg in history:
+                        role = "model" if msg["role"] == "assistant" else msg["role"]
+                        if role not in ["user", "model"]:
+                            continue
+                        gemini_history.append({"role": role, "parts": [msg["content"]]})
 
-            chat = model.start_chat(history=gemini_history)
-            response = chat.send_message(user_message, stream=True)
+                chat = model.start_chat(history=gemini_history)
+                response = chat.send_message(user_message, stream=True)
 
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
         except Exception as e:
             logger.error(f"[{self.provider_id}] Stream error: {e}")
             yield "Извините, произошла техническая ошибка."

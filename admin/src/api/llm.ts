@@ -57,6 +57,40 @@ export interface LlmModelInfo {
   available?: boolean
 }
 
+// VLESS Proxy types
+export interface ProxyStatus {
+  xray_available: boolean
+  xray_path?: string | null
+  is_running: boolean
+  socks_port?: number
+  http_port?: number
+  configured: boolean
+  vless_server?: string | null
+  vless_security?: string | null
+}
+
+export interface ProxyTestResult {
+  status: string
+  success: boolean
+  message?: string
+  error?: string
+  details?: {
+    target?: string
+    status_code?: number
+  }
+}
+
+export interface VlessValidation {
+  valid: boolean
+  error?: string
+  config?: {
+    server: string
+    security: string
+    transport: string
+    remark: string
+  }
+}
+
 export interface LlmModelsResponse {
   available_models: Record<string, LlmModelInfo>
   current_model: LlmModelInfo | null
@@ -144,4 +178,14 @@ export const llmApi = {
     api.post<{ status: string; message: string }>(
       `/admin/llm/providers/${providerId}/set-default`
     ),
+
+  // VLESS Proxy API
+  getProxyStatus: () =>
+    api.get<{ status: string; proxy: ProxyStatus }>('/admin/llm/proxy/status'),
+
+  testProxy: (vlessUrl: string) =>
+    api.post<ProxyTestResult>('/admin/llm/proxy/test', { vless_url: vlessUrl }),
+
+  validateVlessUrl: (vlessUrl: string) =>
+    api.get<VlessValidation>(`/admin/llm/proxy/validate?vless_url=${encodeURIComponent(vlessUrl)}`),
 }
