@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~112 API endpoints across 11 routers, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~118 API endpoints across 11 routers, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (11 modular routers, ~112 endpoints)     │
+│  orchestrator.py + app/routers/ (11 modular routers, ~118 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
 │  │              Vue 3 Admin Panel (13 tabs, PWA)                      │   │
@@ -25,7 +25,12 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
 │ vLLM   │  │ Cloud  │     │ XTTS v2  │    │ Piper    │    │ Vosk/    │
 │ Local  │  │ LLM    │     │ OpenVoice│    │ (CPU)    │    │ Whisper  │
 │ LLM    │  │ Factory│     │ TTS      │    │ TTS      │    │ STT      │
-└────────┘  └────────┘     └──────────┘    └──────────┘    └──────────┘
+└────────┘  └────┬───┘     └──────────┘    └──────────┘    └──────────┘
+                 │
+          ┌──────▼──────┐
+          │ xray-core   │  (optional, for Gemini VLESS proxy)
+          │ VLESS Proxy │
+          └─────────────┘
 ```
 
 **GPU Mode (RTX 3060 12GB):** vLLM ~6GB (50% GPU) + XTTS v2 ~5GB
@@ -135,14 +140,14 @@ python prepare_dataset.py && python train.py
 orchestrator.py              # FastAPI entry point, global state, legacy endpoints
 app/
 ├── dependencies.py          # ServiceContainer for DI
-├── routers/                 # 11 modular routers (~115 endpoints)
+├── routers/                 # 11 modular routers (~118 endpoints)
 │   ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
 │   ├── audit.py             # 4 endpoints  - Audit log viewing/export
 │   ├── services.py          # 6 endpoints  - vLLM start/stop/restart
 │   ├── monitor.py           # 7 endpoints  - GPU stats, health, SSE metrics
 │   ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
 │   ├── stt.py               # 4 endpoints  - STT status, transcribe
-│   ├── llm.py               # 24 endpoints - Backend, persona, cloud providers
+│   ├── llm.py               # 27 endpoints - Backend, persona, cloud providers, VLESS proxy
 │   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
 │   ├── chat.py              # 12 endpoints - Sessions (CRUD, bulk delete, grouping), messages, streaming
 │   ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
@@ -155,6 +160,7 @@ app/
 | File | Purpose |
 |------|---------|
 | `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) |
+| `xray_proxy_manager.py` | VLESS proxy manager for Gemini (xray-core process, URL parsing) |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
 | `voice_clone_service.py` | XTTS v2 with custom presets + streaming synthesis |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
@@ -289,6 +295,12 @@ Key patterns:
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost` for API URL
 5. **Ruff ignores Cyrillic** — RUF001/002/003 disabled to allow Russian strings in code
 6. **Docker + vLLM** — vLLM автоматически запускается как контейнер при переключении в админке. Первый раз нужно скачать образ: `docker pull vllm/vllm-openai:latest` (~9GB)
+7. **xray-core for VLESS** — Included in Docker image. For local dev, download to `./bin/xray`:
+   ```bash
+   mkdir -p bin && cd bin
+   wget https://github.com/XTLS/Xray-core/releases/download/v1.8.7/Xray-linux-64.zip
+   unzip Xray-linux-64.zip && chmod +x xray
+   ```
 
 ## Configuration Files
 
@@ -308,6 +320,7 @@ See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
 
 **Recently completed:**
+- ✅ **VLESS Proxy for Gemini** — Route Gemini API through VLESS proxy (xray-core) for restricted regions
 - ✅ **vLLM Docker Management** — Auto-start vLLM container from admin panel via Docker SDK
 - ✅ **Chat Management** — Inline rename, bulk delete, grouping by source (Admin/Telegram/Widget)
 - ✅ **Source Tracking** — Chat sessions track origin (admin panel, telegram bot, widget)
@@ -336,3 +349,48 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 **Usage in Telegram bots:**
 - Set `llm_backend` in bot config: `"vllm"`, `"gemini"`, or `"cloud:{provider_id}"`
 - Action buttons can override LLM per-mode (e.g., creative mode uses different model)
+
+## VLESS Proxy for Gemini
+
+For regions where Google API is restricted, Gemini providers support optional VLESS proxy routing via xray-core.
+
+**Setup:**
+1. Install xray-core (included in Docker image, or download to `./bin/xray`)
+2. Create/edit Gemini provider in Admin Panel → LLM → Cloud Providers
+3. In the modal, enter your VLESS URL in the "VLESS Proxy" section
+4. Click "Test Proxy" to verify connection
+5. Save — all Gemini API requests will route through the proxy
+
+**VLESS URL format:**
+```
+vless://uuid@host:port?security=reality&pbk=PUBLIC_KEY&sid=SHORT_ID&type=tcp&flow=xtls-rprx-vision#Name
+```
+
+**Supported protocols:**
+- Security: `none`, `tls`, `reality`
+- Transport: `tcp`, `ws` (WebSocket), `grpc`
+- Flow: `xtls-rprx-vision` (for XTLS)
+
+**API endpoints:**
+- `GET /admin/llm/proxy/status` — xray availability and running state
+- `POST /admin/llm/proxy/test` — Test VLESS URL connection to Google API
+- `GET /admin/llm/proxy/validate` — Validate VLESS URL format
+
+**How it works:**
+```
+GeminiProvider → XrayProxyManager → xray-core (local SOCKS5/HTTP) → VLESS Server → Google API
+```
+
+**Storage:** VLESS URL is stored in provider's `config` JSON field:
+```json
+{
+  "temperature": 0.7,
+  "vless_url": "vless://uuid@host:port?..."
+}
+```
+
+**Error handling:**
+- xray not found → Warning logged, falls back to direct connection
+- Invalid VLESS URL → Error shown in UI at save time
+- xray fails to start → Warning, fallback to direct
+- VLESS server unreachable → SDK timeout, error returned to user
