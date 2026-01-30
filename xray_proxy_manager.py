@@ -856,10 +856,7 @@ class XrayProxyManagerWithFallback:
             return False
 
         # Quick port check
-        if not self.is_port_in_use(self.http_port):
-            return False
-
-        return True
+        return self.is_port_in_use(self.http_port)
 
     @contextmanager
     def proxy_environment(self, on_failure: Optional[Callable] = None):
