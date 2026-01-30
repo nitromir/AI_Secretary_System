@@ -288,7 +288,7 @@ Key patterns:
 3. **GPU memory sharing** — vLLM 50% (~6GB) + XTTS ~5GB on 12GB GPU
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost` for API URL
 5. **Ruff ignores Cyrillic** — RUF001/002/003 disabled to allow Russian strings in code
-6. **Docker + vLLM** — vLLM runs on host, not in container. Start `./start_qwen.sh` before switching to vLLM in admin panel
+6. **Docker + vLLM** — vLLM автоматически запускается как контейнер при переключении в админке. Первый раз нужно скачать образ: `docker pull vllm/vllm-openai:latest` (~9GB)
 
 ## Configuration Files
 
@@ -308,6 +308,7 @@ See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
 
 **Recently completed:**
+- ✅ **vLLM Docker Management** — Auto-start vLLM container from admin panel via Docker SDK
 - ✅ **Chat Management** — Inline rename, bulk delete, grouping by source (Admin/Telegram/Widget)
 - ✅ **Source Tracking** — Chat sessions track origin (admin panel, telegram bot, widget)
 - ✅ **Cloud AI Label** — Renamed "Gemini" to "Cloud AI" for generic cloud provider support

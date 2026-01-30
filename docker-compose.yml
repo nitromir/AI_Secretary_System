@@ -2,15 +2,16 @@
 # AI Secretary System - Docker Compose
 # =============================================================================
 #
-# Default: Uses LOCAL vLLM (start with ./start_qwen.sh before docker compose)
-#
 # Usage:
-#   ./start_qwen.sh                    # Start local vLLM first
 #   docker compose up -d               # Start orchestrator + redis
 #   docker compose logs -f orchestrator
 #
-# For FULL containerized setup (downloads ~9GB vLLM image):
-#   docker compose -f docker-compose.yml -f docker-compose.full.yml up -d
+# vLLM is started automatically from Admin Panel when switching LLM backend.
+# First start downloads ~9GB vLLM image.
+#
+# For manual vLLM control:
+#   docker compose up -d vllm          # Start vLLM manually
+#   docker compose stop vllm           # Stop vLLM
 #
 # =============================================================================
 
@@ -38,17 +39,23 @@ services:
       # Mount LOCAL caches (no re-download)
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.local/share/tts:/root/.local/share/tts
+      # Docker socket for managing vLLM container
+      - /var/run/docker.sock:/var/run/docker.sock
       # DEV: Mount source code for hot-reload (remove in production)
       - ./orchestrator.py:/app/orchestrator.py:ro
       - ./cloud_llm_service.py:/app/cloud_llm_service.py:ro
       - ./voice_clone_service.py:/app/voice_clone_service.py:ro
+      - ./service_manager.py:/app/service_manager.py:ro
       - ./db:/app/db:ro
       - ./app:/app/app:ro
       - ./admin/dist:/app/admin/dist:ro
     environment:
-      # LLM - connect to LOCAL vLLM on host
-      - LLM_BACKEND=${LLM_BACKEND:-vllm}
-      - VLLM_API_URL=http://host.docker.internal:11434
+      # Docker mode detection
+      - DOCKER_CONTAINER=1
+      - VLLM_CONTAINER_NAME=ai-secretary-vllm
+      # LLM - connect to vLLM container
+      - LLM_BACKEND=${LLM_BACKEND:-gemini}
+      - VLLM_API_URL=http://ai-secretary-vllm:8000/v1
       - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-}
       - SECRETARY_PERSONA=${SECRETARY_PERSONA:-gulya}
       # Cloud LLM fallback
@@ -99,6 +106,46 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
+    networks:
+      - ai-secretary
+
+  # ---------------------------------------------------------------------------
+  # vLLM - Local LLM Inference Server (started on demand from Admin Panel)
+  # ---------------------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: ai-secretary-vllm
+    profiles: ["vllm"]  # Not started by default, use: docker compose --profile vllm up -d
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      --gpu-memory-utilization 0.5
+      --max-model-len 4096
+      --dtype float16
+      --max-num-seqs 32
+      --enforce-eager
+      --trust-remote-code
+      --host 0.0.0.0
+      --port 8000
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ./finetune/adapters:/app/adapters:ro
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=WARNING
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']  # Use first available GPU for vLLM
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
     restart: unless-stopped
     networks:
       - ai-secretary
