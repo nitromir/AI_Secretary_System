@@ -32,7 +32,7 @@ import {
   Zap,
   GripVertical
 } from 'lucide-vue-next'
-import { botInstancesApi, type BotInstance, type BotInstanceSession, type ActionButton } from '@/api'
+import { botInstancesApi, llmApi, type BotInstance, type BotInstanceSession, type ActionButton } from '@/api'
 import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
@@ -103,6 +103,44 @@ const { data: sessionsData, refetch: refetchSessions } = useQuery({
   queryKey: ['bot-instance-sessions', selectedInstanceId],
   queryFn: () => selectedInstanceId.value ? botInstancesApi.getSessions(selectedInstanceId.value) : Promise.resolve({ sessions: [] }),
   enabled: computed(() => !!selectedInstanceId.value),
+})
+
+// Cloud LLM providers query
+const { data: llmProvidersData } = useQuery({
+  queryKey: ['llm-providers-enabled'],
+  queryFn: () => llmApi.getProviders(true),
+})
+
+// Available LLM options for dropdown
+interface LlmOption {
+  value: string
+  label: string
+  type: 'vllm' | 'cloud'
+}
+
+const availableLlmOptions = computed<LlmOption[]>(() => {
+  const options: LlmOption[] = []
+
+  // Add vLLM option (local)
+  options.push({
+    value: 'vllm',
+    label: 'vLLM (Local)',
+    type: 'vllm'
+  })
+
+  // Add enabled cloud providers
+  const providers = llmProvidersData.value?.providers || []
+  for (const provider of providers) {
+    if (provider.enabled) {
+      options.push({
+        value: `cloud:${provider.id}`,
+        label: `${provider.name} (${provider.model_name})`,
+        type: 'cloud'
+      })
+    }
+  }
+
+  return options
 })
 
 const sessions = computed<BotInstanceSession[]>(() => sessionsData.value?.sessions || [])
@@ -936,8 +974,9 @@ watch(instances, (newInstances) => {
                   v-model="formData.llm_backend"
                   class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="vllm">vLLM</option>
-                  <option value="gemini">{{ t('llm.cloudAI') }}</option>
+                  <option v-for="option in availableLlmOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
                 </select>
               </div>
               <div>
@@ -1151,12 +1190,10 @@ watch(instances, (newInstances) => {
                 class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">{{ t('telegram.useDefaultBackend') }}</option>
-                <option value="vllm">{{ t('llm.vllmLocal') }}</option>
-                <option value="gemini">{{ t('llm.cloudAI') }}</option>
+                <option v-for="option in availableLlmOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
               </select>
-              <p class="text-xs text-muted-foreground mt-1">
-                Cloud providers can be configured as "cloud:provider-id"
-              </p>
             </div>
 
             <!-- System Prompt -->
