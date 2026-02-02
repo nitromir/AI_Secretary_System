@@ -282,6 +282,7 @@ class BotInstance(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    auto_start: Mapped[bool] = mapped_column(Boolean, default=False)  # Auto-start on app launch
 
     # Telegram configuration
     bot_token: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -367,6 +368,7 @@ class BotInstance(Base):
             "name": self.name,
             "description": self.description,
             "enabled": self.enabled,
+            "auto_start": self.auto_start,
             # Telegram
             "bot_token_masked": "***" + self.bot_token[-4:]
             if self.bot_token and len(self.bot_token) > 4
@@ -662,5 +664,96 @@ DEFAULT_ACTION_BUTTONS = [
         "llm_backend": None,
         "system_prompt": None,
         "llm_params": None,
+    },
+]
+
+
+class LLMPreset(Base):
+    """LLM preset configuration for vLLM (generation parameters + system prompt)"""
+
+    __tablename__ = "llm_presets"
+
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True
+    )  # slug: "gulya", "lidia", "creative"
+    name: Mapped[str] = mapped_column(String(100), index=True)  # Display name
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # System prompt
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Generation parameters
+    temperature: Mapped[float] = mapped_column(default=0.7)
+    max_tokens: Mapped[int] = mapped_column(Integer, default=512)
+    top_p: Mapped[float] = mapped_column(default=0.9)
+    repetition_penalty: Mapped[float] = mapped_column(default=1.1)
+
+    # Status
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+    # Timestamps
+    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "system_prompt": self.system_prompt,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "repetition_penalty": self.repetition_penalty,
+            "is_default": self.is_default,
+            "enabled": self.enabled,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None,
+        }
+
+    def get_params(self) -> dict:
+        """Get generation parameters as dict"""
+        return {
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "repetition_penalty": self.repetition_penalty,
+        }
+
+
+# Default LLM presets (migrated from SECRETARY_PERSONAS)
+DEFAULT_LLM_PRESETS = [
+    {
+        "id": "gulya",
+        "name": "Гуля",
+        "description": "Гульнара - дружелюбная и профессиональная секретарь",
+        "system_prompt": (
+            "Ты - Гульнара (Гуля), виртуальная секретарь. "
+            "Ты дружелюбная, профессиональная и всегда готова помочь. "
+            "Отвечай кратко и по делу, используй вежливые формулировки."
+        ),
+        "temperature": 0.7,
+        "max_tokens": 512,
+        "top_p": 0.9,
+        "repetition_penalty": 1.1,
+        "is_default": True,
+    },
+    {
+        "id": "lidia",
+        "name": "Лидия",
+        "description": "Лидия - строгая и формальная секретарь",
+        "system_prompt": (
+            "Ты - Лидия, виртуальная секретарь. "
+            "Ты строгая, формальная и профессиональная. "
+            "Отвечай чётко, структурированно, придерживайся делового стиля."
+        ),
+        "temperature": 0.5,
+        "max_tokens": 512,
+        "top_p": 0.85,
+        "repetition_penalty": 1.15,
+        "is_default": False,
     },
 ]

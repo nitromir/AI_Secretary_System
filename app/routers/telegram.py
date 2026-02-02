@@ -420,7 +420,7 @@ async def admin_delete_bot_instance(instance_id: str, user: User = Depends(get_c
 
 @router.post("/instances/{instance_id}/start")
 async def admin_start_bot_instance(instance_id: str):
-    """Start a specific bot instance"""
+    """Start a specific bot instance and enable auto-start"""
     # Check if instance exists
     instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
     if not instance:
@@ -433,13 +433,23 @@ async def admin_start_bot_instance(instance_id: str):
         raise HTTPException(status_code=400, detail="Bot instance is disabled")
 
     result = await multi_bot_manager.start_bot(instance_id)
+
+    # Save auto_start=True so bot restarts on app launch
+    if result.get("status") in ["started", "already_running"]:
+        await async_bot_instance_manager.set_auto_start(instance_id, True)
+
     return result
 
 
 @router.post("/instances/{instance_id}/stop")
 async def admin_stop_bot_instance(instance_id: str):
-    """Stop a specific bot instance"""
+    """Stop a specific bot instance and disable auto-start"""
     result = await multi_bot_manager.stop_bot(instance_id)
+
+    # Save auto_start=False so bot doesn't restart on app launch
+    if result.get("status") == "stopped":
+        await async_bot_instance_manager.set_auto_start(instance_id, False)
+
     return result
 
 
