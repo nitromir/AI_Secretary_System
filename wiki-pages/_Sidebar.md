@@ -15,6 +15,7 @@
 * [[Models]]
 * [[Widget]]
 * [[Telegram]]
+* [[GSM]]
 * [[Audit]]
 * [[Settings]]
 
