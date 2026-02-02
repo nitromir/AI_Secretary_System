@@ -75,12 +75,16 @@ DEV_MODE=1 ./start_gpu.sh              # Backend proxies to Vite
 ### Code Quality
 
 ```bash
-source .venv/bin/activate              # Activate venv
+# First-time venv setup (if needed)
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install ruff mypy pre-commit
 
 # Python
 ruff check .                           # Lint
 ruff check . --fix                     # Auto-fix
 ruff format .                          # Format
+mypy orchestrator.py                   # Type check (optional)
 
 # Vue/TypeScript
 cd admin && npm run lint
@@ -100,6 +104,7 @@ pytest -k "test_chat" -v               # By name pattern
 pytest -m "not slow" -v                # Exclude slow tests
 pytest -m "not integration" -v         # Exclude integration tests
 pytest -m "not gpu" -v                 # Exclude GPU-required tests
+pytest --cov --cov-report=html         # With coverage report
 
 # Frontend tests
 cd admin && npm test
@@ -316,27 +321,9 @@ Key patterns:
 
 ## Roadmap
 
-See [BACKLOG.md](./BACKLOG.md) for task tracking and [docs/IMPROVEMENT_PLAN.md](./docs/IMPROVEMENT_PLAN.md) for production readiness plan.
+See [BACKLOG.md](./BACKLOG.md) for detailed task tracking and [docs/IMPROVEMENT_PLAN.md](./docs/IMPROVEMENT_PLAN.md) for production readiness plan.
 
 **Current focus:** Foundation (security, testing) → Monetization → GSM Telephony
-
-**Recently completed:**
-- ✅ **Multiple VLESS Proxies** — Configure multiple VLESS URLs with automatic failover when a proxy fails
-- ✅ **Chat LLM Selector** — Per-session LLM override dropdown in chat header (vLLM, Gemini, or any cloud provider)
-- ✅ **Voice Switching Fix** — Fixed reference bug preventing voice changes (Gulya, Lidia) from taking effect
-- ✅ **Piper TTS in Docker** — Dmitri and Irina voices now available in Docker with auto-discovery of models directory
-- ✅ **VLESS Proxy for Gemini** — Route Gemini API through VLESS proxy (xray-core) for restricted regions
-- ✅ **vLLM Docker Management** — Auto-start vLLM container from admin panel via Docker SDK
-- ✅ **Chat Management** — Inline rename, bulk delete, grouping by source (Admin/Telegram/Widget)
-- ✅ **Source Tracking** — Chat sessions track origin (admin panel, telegram bot, widget)
-- ✅ **Cloud AI Label** — Renamed "Gemini" to "Cloud AI" for generic cloud provider support
-- ✅ Cloud LLM provider selection with dropdown UI (OpenRouter, Gemini, OpenAI, etc.)
-- ✅ Updated OpenRouter models list (January 2026 free models)
-- ✅ Improved error messages for cloud API errors (401, 404, 429)
-- ✅ Streaming TTS with <500ms TTFA target (`synthesize_streaming()`)
-- ✅ HTTP/WebSocket streaming endpoints for telephony
-- ✅ GSM audio pipeline (8kHz, PCM16, G.711 A-law)
-- ✅ Benchmark script for latency testing
 
 ## Cloud LLM Providers
 
@@ -344,10 +331,10 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 
 | Provider | Free Models | Paid Models |
 |----------|-------------|-------------|
-| **OpenRouter** | `nvidia/nemotron-3-nano-30b-a3b:free`, `arcee-ai/trinity-large-preview:free`, `upstage/solar-pro-3:free` | `google/gemini-2.0-flash-001`, `openai/gpt-4o-mini` |
+| **OpenRouter** | `nemotron-3-nano:free`, `trinity-large:free`, `solar-pro-3:free` | `gemini-2.0-flash`, `gpt-4o-mini` |
 | **Google Gemini** | — | `gemini-2.0-flash`, `gemini-2.5-pro` |
 | **OpenAI** | — | `gpt-4o`, `gpt-4o-mini` |
-| **Anthropic** | — | `claude-opus-4-5-20251101`, `claude-sonnet-4-20250514` |
+| **Anthropic** | — | `claude-opus-4.5`, `claude-sonnet-4` |
 | **DeepSeek** | — | `deepseek-chat`, `deepseek-coder` |
 | **Kimi** | — | `kimi-k2`, `moonshot-v1-128k` |
 
