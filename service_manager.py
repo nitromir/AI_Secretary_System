@@ -216,10 +216,33 @@ class ServiceManager:
                 self._docker_client = None
         return self._docker_client
 
-    async def _start_vllm_container(self) -> dict:
+    async def _get_vllm_model_from_db(self) -> Optional[str]:
+        """Получает выбранную модель vLLM из БД"""
+        try:
+            from db.database import get_session_context
+
+            async with get_session_context() as session:
+                from db.repositories.config import ConfigRepository
+
+                config_repo = ConfigRepository(session)
+                llm_config = await config_repo.get_llm_config()
+                return llm_config.get("vllm_model")
+        except Exception as e:
+            logger.debug(f"Could not get vLLM model from DB: {e}")
+            return None
+
+    async def _start_vllm_container(self, model_override: Optional[str] = None) -> dict:
         """Запускает vLLM контейнер через Docker API"""
         container_name = os.getenv("VLLM_CONTAINER_NAME", "ai-secretary-vllm")
-        vllm_model = os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
+
+        # Приоритет: model_override > DB config > env var
+        vllm_model = model_override
+        if not vllm_model:
+            # Попробуем получить из БД
+            vllm_model = await self._get_vllm_model_from_db()
+        if not vllm_model:
+            vllm_model = os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
+
         docker_client = self._get_docker_client()
 
         if not docker_client:
@@ -360,6 +383,74 @@ class ServiceManager:
             self.last_errors["vllm"] = error_msg
             logger.error(f"❌ Ошибка остановки vLLM контейнера: {error_msg}")
             return {"status": "error", "message": f"Ошибка остановки: {error_msg}"}
+
+    async def _remove_vllm_container(self) -> dict:
+        """Удаляет vLLM контейнер для переключения модели"""
+        container_name = os.getenv("VLLM_CONTAINER_NAME", "ai-secretary-vllm")
+        docker_client = self._get_docker_client()
+
+        if not docker_client:
+            return {"status": "error", "message": "Docker client недоступен"}
+
+        try:
+            container = docker_client.containers.get(container_name)
+
+            # Если запущен - останавливаем
+            if container.status == "running":
+                logger.info(f"🛑 Остановка контейнера {container_name}...")
+                container.stop(timeout=30)
+
+            # Удаляем контейнер
+            logger.info(f"🗑️ Удаление контейнера {container_name}...")
+            container.remove()
+            self.start_times.pop("vllm", None)
+
+            logger.info("✅ vLLM контейнер удалён")
+            return {"status": "ok", "message": "vLLM контейнер удалён"}
+
+        except Exception as e:
+            if "No such container" in str(e) or "404" in str(e):
+                return {"status": "ok", "message": "vLLM контейнер не существует"}
+            error_msg = str(e)
+            self.last_errors["vllm"] = error_msg
+            logger.error(f"❌ Ошибка удаления vLLM контейнера: {error_msg}")
+            return {"status": "error", "message": f"Ошибка удаления: {error_msg}"}
+
+    async def switch_vllm_model(self, model: str) -> dict:
+        """
+        Переключает модель vLLM: удаляет текущий контейнер и создаёт новый.
+
+        Args:
+            model: Полное имя модели (например, "Qwen/Qwen2.5-7B-Instruct-AWQ")
+
+        Returns:
+            dict с результатом операции
+        """
+        logger.info(f"🔄 Переключение vLLM на модель: {model}")
+
+        # Сохраняем модель в БД
+        try:
+            from db.database import get_session_context
+
+            async with get_session_context() as session:
+                from db.repositories.config import ConfigRepository
+
+                config_repo = ConfigRepository(session)
+                await config_repo.set_llm_config({"vllm_model": model})
+                logger.info(f"✅ Модель {model} сохранена в конфигурации")
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения модели в БД: {e}")
+            return {"status": "error", "message": f"Ошибка сохранения конфигурации: {e}"}
+
+        # Удаляем текущий контейнер
+        remove_result = await self._remove_vllm_container()
+        if remove_result.get("status") == "error" and "не существует" not in remove_result.get(
+            "message", ""
+        ):
+            return remove_result
+
+        # Запускаем с новой моделью
+        return await self._start_vllm_container(model_override=model)
 
     def _is_vllm_container_running(self) -> tuple[bool, Optional[str]]:
         """Проверяет, запущен ли vLLM контейнер"""

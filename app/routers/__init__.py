@@ -6,6 +6,7 @@ from app.routers import (
     auth,
     chat,
     faq,
+    gsm,
     llm,
     monitor,
     services,
@@ -28,4 +29,5 @@ __all__ = [
     "chat",
     "telegram",
     "widget",
+    "gsm",
 ]

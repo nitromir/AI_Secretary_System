@@ -89,6 +89,37 @@ class ProxyTestRequest(BaseModel):
     vless_url: str
 
 
+class LLMPresetCreate(BaseModel):
+    """Create LLM preset"""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: float = 0.7
+    max_tokens: int = 512
+    top_p: float = 0.9
+    repetition_penalty: float = 1.1
+
+
+class LLMPresetUpdate(BaseModel):
+    """Update LLM preset"""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    repetition_penalty: Optional[float] = None
+
+
+class VLLMModelRequest(BaseModel):
+    """Request to change vLLM model"""
+
+    model: str  # Full model name, e.g., "Qwen/Qwen2.5-7B-Instruct-AWQ"
+
+
 # ============== Helper Functions ==============
 
 
@@ -358,22 +389,23 @@ async def admin_set_llm_backend(
             # Переключение на vLLM
             logger.info("🔄 Переключение на vLLM...")
 
-            # Определяем URL для vLLM
-            vllm_url = os.getenv("VLLM_API_URL", "http://localhost:11434")
+            # Определяем URL для vLLM (нормализуем - удаляем trailing /v1)
+            vllm_url = os.getenv("VLLM_API_URL", "http://localhost:11434").rstrip("/")
+            if vllm_url.endswith("/v1"):
+                vllm_url = vllm_url[:-3]
             is_docker = Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "1"
 
             # Проверяем доступность vLLM
             async def check_vllm_health() -> bool:
                 try:
                     async with httpx.AsyncClient() as client:
-                        # Пробуем разные endpoints (v1/models для OpenAI-совместимого API)
-                        for endpoint in ["/health", "/v1/models"]:
-                            try:
-                                resp = await client.get(f"{vllm_url}{endpoint}", timeout=5.0)
-                                if resp.status_code == 200:
-                                    return True
-                            except Exception:
-                                pass
+                        # vLLM использует /v1/models для проверки доступности
+                        try:
+                            resp = await client.get(f"{vllm_url}/v1/models", timeout=5.0)
+                            if resp.status_code == 200:
+                                return True
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 return False
@@ -483,6 +515,93 @@ async def admin_set_llm_backend(
         raise
     except Exception as e:
         logger.error(f"❌ Ошибка переключения бэкенда: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== vLLM Model Selection ==============
+
+
+@router.get("/vllm-model")
+async def admin_get_vllm_model():
+    """
+    Получить текущую настроенную модель vLLM.
+    Возвращает модель из БД или env var.
+    """
+    from db.database import get_session_context
+    from db.repositories.config import ConfigRepository
+
+    # Пробуем из БД
+    try:
+        async with get_session_context() as session:
+            config_repo = ConfigRepository(session)
+            llm_config = await config_repo.get_llm_config()
+            db_model = llm_config.get("vllm_model")
+    except Exception:
+        db_model = None
+
+    # Fallback на env var
+    env_model = os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
+
+    return {
+        "model": db_model or env_model,
+        "source": "db" if db_model else "env",
+        "env_model": env_model,
+    }
+
+
+@router.post("/vllm-model")
+async def admin_set_vllm_model(request: VLLMModelRequest, user: User = Depends(get_current_user)):
+    """
+    Изменить модель vLLM и перезапустить контейнер.
+
+    Модель сохраняется в БД и используется при следующих запусках.
+    Контейнер vLLM удаляется и создаётся заново с новой моделью.
+
+    Примеры моделей:
+    - Qwen/Qwen2.5-7B-Instruct-AWQ (по умолчанию)
+    - deepseek-ai/deepseek-llm-7b-chat
+    - meta-llama/Llama-3.1-8B-Instruct
+    """
+    manager = get_service_manager()
+
+    # Проверяем, что мы в Docker режиме
+    is_docker = Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "1"
+    if not is_docker:
+        raise HTTPException(
+            status_code=400,
+            detail="Переключение модели vLLM поддерживается только в Docker режиме",
+        )
+
+    logger.info(f"🔄 Запрос на смену модели vLLM: {request.model}")
+
+    try:
+        result = await manager.switch_vllm_model(request.model)
+
+        if result.get("status") == "ok":
+            # Audit log
+            await async_audit_logger.log(
+                action="update",
+                resource="config",
+                resource_id="vllm_model",
+                user_id=user.username,
+                details={"model": request.model},
+            )
+
+            return {
+                "status": "ok",
+                "model": request.model,
+                "message": f"Модель vLLM изменена на {request.model}. Загрузка займёт 2-3 минуты.",
+                "container_id": result.get("container_id"),
+            }
+        else:
+            raise HTTPException(
+                status_code=500, detail=result.get("message", "Ошибка переключения")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Ошибка смены модели vLLM: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1052,3 +1171,236 @@ async def admin_switch_to_next_proxy(user: User = Depends(get_current_user)):
             return {"status": "ok", "proxy": status}
 
     return {"status": "error", "message": "No Gemini provider with fallback proxy configured"}
+
+
+# ============== LLM Presets Endpoints ==============
+
+
+@router.get("/presets")
+async def admin_get_llm_presets():
+    """Get all LLM presets"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        # Ensure default presets exist
+        await repo.ensure_defaults()
+        presets = await repo.get_all_enabled()
+        return {"presets": [p.to_dict() for p in presets]}
+
+
+@router.get("/presets/{preset_id}")
+async def admin_get_llm_preset(preset_id: str):
+    """Get a specific LLM preset"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(preset_id)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+        return preset.to_dict()
+
+
+@router.post("/presets")
+async def admin_create_llm_preset(request: LLMPresetCreate, user: User = Depends(get_current_user)):
+    """Create a new LLM preset"""
+    from db.database import get_session_context
+    from db.models import LLMPreset
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+
+        # Check if preset already exists
+        existing = await repo.get_by_id(request.id)
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Preset already exists: {request.id}")
+
+        preset = LLMPreset(**request.model_dump())
+        session.add(preset)
+        await session.commit()
+        await session.refresh(preset)
+
+        await async_audit_logger.log(
+            action="create",
+            resource="llm_preset",
+            resource_id=preset.id,
+            user_id=user.username,
+            details={"name": preset.name},
+        )
+
+        return preset.to_dict()
+
+
+@router.put("/presets/{preset_id}")
+async def admin_update_llm_preset(
+    preset_id: str, request: LLMPresetUpdate, user: User = Depends(get_current_user)
+):
+    """Update an existing LLM preset"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(preset_id)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+
+        # Update fields
+        update_data = request.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            if value is not None:
+                setattr(preset, field, value)
+
+        await session.commit()
+        await session.refresh(preset)
+
+        # Update llm_service if this is the current preset
+        container = get_container()
+        llm_service = container.llm_service
+        if (
+            llm_service
+            and hasattr(llm_service, "persona_id")
+            and llm_service.persona_id == preset_id
+        ):
+            # Update runtime params
+            if hasattr(llm_service, "runtime_params"):
+                llm_service.runtime_params["temperature"] = preset.temperature
+                llm_service.runtime_params["max_tokens"] = preset.max_tokens
+                llm_service.runtime_params["top_p"] = preset.top_p
+                llm_service.runtime_params["repetition_penalty"] = preset.repetition_penalty
+            # Update system prompt
+            if preset.system_prompt:
+                llm_service.system_prompt = preset.system_prompt
+
+        await async_audit_logger.log(
+            action="update",
+            resource="llm_preset",
+            resource_id=preset_id,
+            user_id=user.username,
+            details=update_data,
+        )
+
+        return preset.to_dict()
+
+
+@router.delete("/presets/{preset_id}")
+async def admin_delete_llm_preset(preset_id: str, user: User = Depends(get_current_user)):
+    """Delete an LLM preset"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    # Prevent deletion of default presets
+    if preset_id in ["gulya", "lidia"]:
+        raise HTTPException(status_code=400, detail="Cannot delete default presets")
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(preset_id)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+
+        await repo.delete(preset_id)
+
+        await async_audit_logger.log(
+            action="delete",
+            resource="llm_preset",
+            resource_id=preset_id,
+            user_id=user.username,
+        )
+
+        return {"status": "ok", "deleted": preset_id}
+
+
+@router.post("/presets/{preset_id}/activate")
+async def admin_activate_llm_preset(preset_id: str, user: User = Depends(get_current_user)):
+    """
+    Activate an LLM preset - load its parameters into the current vLLM service.
+    Also sets it as the default preset.
+    """
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(preset_id)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+
+        # Set as default
+        await repo.set_default(preset_id)
+
+        # Update llm_service
+        container = get_container()
+        llm_service = container.llm_service
+
+        if llm_service and hasattr(llm_service, "runtime_params"):
+            # Update runtime params
+            llm_service.runtime_params["temperature"] = preset.temperature
+            llm_service.runtime_params["max_tokens"] = preset.max_tokens
+            llm_service.runtime_params["top_p"] = preset.top_p
+            llm_service.runtime_params["repetition_penalty"] = preset.repetition_penalty
+
+            # Update system prompt
+            if preset.system_prompt and hasattr(llm_service, "system_prompt"):
+                llm_service.system_prompt = preset.system_prompt
+
+            # Update persona_id for tracking
+            if hasattr(llm_service, "persona_id"):
+                llm_service.persona_id = preset_id
+            if hasattr(llm_service, "persona"):
+                llm_service.persona = {
+                    "name": preset.name,
+                    "full_name": preset.name,
+                    "description": preset.description or "",
+                    "prompt": preset.system_prompt or "",
+                }
+
+            logger.info(f"✅ LLM Preset activated: {preset.name} ({preset_id})")
+
+        await async_audit_logger.log(
+            action="activate",
+            resource="llm_preset",
+            resource_id=preset_id,
+            user_id=user.username,
+            details={"name": preset.name, "params": preset.get_params()},
+        )
+
+        return {
+            "status": "ok",
+            "preset": preset.to_dict(),
+            "message": f"Preset '{preset.name}' activated",
+        }
+
+
+@router.get("/presets/current")
+async def admin_get_current_preset():
+    """Get the currently active LLM preset"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    container = get_container()
+    llm_service = container.llm_service
+
+    # Get current preset_id from llm_service
+    current_id = "gulya"  # Default
+    if llm_service and hasattr(llm_service, "persona_id"):
+        current_id = llm_service.persona_id
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        await repo.ensure_defaults()
+        preset = await repo.get_by_id(current_id)
+
+        if preset:
+            return {"current": preset.to_dict()}
+
+        # Fallback to default
+        default = await repo.get_default()
+        if default:
+            return {"current": default.to_dict()}
+
+        return {"current": None, "error": "No preset found"}

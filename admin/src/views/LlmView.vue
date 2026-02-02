@@ -39,6 +39,7 @@ const editingPrompt = ref(false)
 const promptText = ref('')
 const selectedPersonaForPrompt = ref('gulya')
 const stopUnusedVllm = ref(false)
+const switchingModel = ref<string | null>(null)
 
 // Cloud provider state
 const showProviderModal = ref(false)
@@ -134,6 +135,24 @@ const setBackendMutation = useMutation({
   },
   onError: (error: Error) => {
     toast.error(`Ошибка переключения: ${error.message}`)
+  },
+})
+
+// vLLM model switching mutation
+const setVllmModelMutation = useMutation({
+  mutationFn: (model: string) => {
+    switchingModel.value = model
+    return llmApi.setVllmModel(model)
+  },
+  onSuccess: (data) => {
+    switchingModel.value = null
+    queryClient.invalidateQueries({ queryKey: ['llm-models'] })
+    queryClient.invalidateQueries({ queryKey: ['llm-backend'] })
+    toast.success(data.message || `Модель изменена на ${data.model}`)
+  },
+  onError: (error: Error) => {
+    switchingModel.value = null
+    toast.error(`Ошибка смены модели: ${error.message}`)
   },
 })
 
@@ -681,28 +700,45 @@ function switchToCloudProvider(providerId: string) {
               </div>
             </div>
 
-            <div class="mt-3 pt-3 border-t border-border">
-              <code class="text-xs bg-secondary px-2 py-1 rounded block">
-                ./start_gpu.sh {{ model.start_flag || '' }}
+            <div class="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2">
+              <code class="text-xs bg-secondary px-2 py-1 rounded flex-1 overflow-hidden text-ellipsis">
+                {{ model.vllm_model_name || model.full_name }}
               </code>
+              <button
+                v-if="modelsData?.current_model?.id !== id && (model.vllm_model_name || model.full_name)"
+                class="px-3 py-1 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1"
+                :disabled="switchingModel !== null"
+                @click="setVllmModelMutation.mutate((model.vllm_model_name || model.full_name) as string)"
+              >
+                <Loader2 v-if="switchingModel === (model.vllm_model_name || model.full_name)" class="w-3 h-3 animate-spin" />
+                <Play v-else class="w-3 h-3" />
+                {{ switchingModel === (model.vllm_model_name || model.full_name) ? 'Загрузка...' : 'Выбрать' }}
+              </button>
             </div>
           </div>
         </div>
 
-        <p class="text-sm text-muted-foreground mt-4">
+        <p v-if="switchingModel" class="text-sm text-primary mt-4">
+          <Loader2 class="w-4 h-4 inline mr-1 animate-spin" />
+          Переключение на {{ switchingModel }}... Загрузка модели занимает 2-3 минуты.
+        </p>
+        <p v-else class="text-sm text-muted-foreground mt-4">
           <AlertCircle class="w-4 h-4 inline mr-1" />
-          Для смены модели перезапустите систему с нужным флагом. Hot-swap требует рестарта vLLM.
+          Смена модели перезапускает контейнер vLLM. Загрузка новой модели занимает 2-3 минуты.
         </p>
       </div>
     </div>
 
-    <!-- Persona Selection -->
+    <!-- LLM Presets (vLLM) -->
     <div class="bg-card rounded-lg border border-border">
       <div class="p-4 border-b border-border">
         <h2 class="text-lg font-semibold flex items-center gap-2">
           <User class="w-5 h-5" />
-          Secretary Persona
+          LLM Presets
         </h2>
+        <p class="text-sm text-muted-foreground mt-1">
+          Presets for local vLLM (system prompt + generation parameters)
+        </p>
       </div>
 
       <div class="p-4">
@@ -734,10 +770,15 @@ function switchToCloudProvider(providerId: string) {
     <!-- Generation Parameters -->
     <div class="bg-card rounded-lg border border-border">
       <div class="p-4 border-b border-border flex items-center justify-between">
-        <h2 class="text-lg font-semibold flex items-center gap-2">
-          <Settings2 class="w-5 h-5" />
-          Generation Parameters
-        </h2>
+        <div>
+          <h2 class="text-lg font-semibold flex items-center gap-2">
+            <Settings2 class="w-5 h-5" />
+            Generation Parameters
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            Parameters for current preset (vLLM only)
+          </p>
+        </div>
         <button
           :disabled="setParamsMutation.isPending.value"
           class="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"

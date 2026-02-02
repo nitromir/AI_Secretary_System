@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~118 API endpoints across 11 routers, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 14 tabs, i18n (ru/en), themes, ~130 API endpoints across 12 routers, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (11 modular routers, ~118 endpoints)     │
+│  orchestrator.py + app/routers/ (12 modular routers, ~130 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              Vue 3 Admin Panel (13 tabs, PWA)                      │   │
+│  │              Vue 3 Admin Panel (14 tabs, PWA)                      │   │
 │  │                      admin/dist/                                   │   │
 │  └───────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────┬─────────────────────────────────────────┘
@@ -156,7 +156,8 @@ app/
 │   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
 │   ├── chat.py              # 12 endpoints - Sessions (CRUD, bulk delete, grouping), messages, streaming
 │   ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
-│   └── widget.py            # 7 endpoints  - Widget instances CRUD
+│   ├── widget.py            # 7 endpoints  - Widget instances CRUD
+│   └── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
 └── services/
     └── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
 ```
@@ -412,6 +413,50 @@ GeminiProvider → XrayProxyManagerWithFallback → xray-core (SOCKS5/HTTP) → 
 - Proxy fails → Auto-switch to next proxy (if multiple configured)
 - All proxies fail → Fallback to direct connection
 - VLESS server unreachable → SDK timeout, error returned to user
+
+## GSM Telephony (SIM7600E-H)
+
+Support for GSM telephony via SIM7600E-H 4G LTE module for voice calls and SMS.
+
+**Hardware:**
+- Module: SIM7600E-H (4G LTE, voice, SMS)
+- Connection: USB to server
+- Antennas: MAIN (required), AUX (optional for better signal)
+
+**USB Ports (Linux):**
+```
+/dev/ttyUSB0 - Diag (diagnostics)
+/dev/ttyUSB1 - NMEA (GPS data)
+/dev/ttyUSB2 - AT commands ← main control port
+/dev/ttyUSB3 - Modem (PPP)
+/dev/ttyUSB4 - Audio (USB PCM) ← voice stream
+```
+
+**Audio format:** 8kHz, 16-bit PCM, mono (compatible with TelephonyAudioPipeline)
+
+**Key AT commands:**
+```bash
+AT           # Check connection
+AT+CPIN?     # SIM status
+AT+CSQ       # Signal strength (0-31, 99=unknown)
+AT+CREG?     # Network registration
+AT+CLIP=1    # Enable Caller ID
+ATA          # Answer incoming call
+ATH          # Hang up
+AT+CMGF=1    # SMS text mode
+AT+CMGS="+7..." # Send SMS
+```
+
+**API endpoints (`/admin/gsm/`):**
+- `GET /status` — Module status (signal, SIM, network)
+- `GET/PUT /config` — Configuration (auto-answer, timeouts, messages)
+- `GET /calls` — Call history
+- `POST /calls/answer|hangup|dial` — Call control
+- `GET/POST /sms` — SMS history and send
+- `POST /at` — Execute AT command (debug)
+- `GET /ports` — List serial ports
+
+**Admin UI:** Tab "Телефония" with status, calls, SMS, settings, and AT console.
 
 ## Telegram Bot Auto-Start
 

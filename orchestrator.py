@@ -32,6 +32,7 @@ from app.routers import (
     auth,
     chat,
     faq,
+    gsm,
     llm,
     monitor,
     services,
@@ -356,6 +357,7 @@ app.include_router(tts.router)
 app.include_router(chat.router)
 app.include_router(telegram.router)
 app.include_router(widget.router)
+app.include_router(gsm.router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0
