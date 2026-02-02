@@ -398,6 +398,37 @@ async def _reload_voice_presets():
             svc.reload_presets(presets_dict)
 
 
+async def _auto_start_telegram_bots():
+    """Auto-start Telegram bots that have auto_start=True."""
+    from db.integration import async_bot_instance_manager
+    from multi_bot_manager import MultiBotManager
+
+    try:
+        instances = await async_bot_instance_manager.get_auto_start_instances()
+        if not instances:
+            logger.info("📱 No Telegram bots configured for auto-start")
+            return
+
+        manager = MultiBotManager()
+        started = 0
+        for instance in instances:
+            instance_id = instance["id"]
+            try:
+                result = await manager.start_bot(instance_id)
+                if result.get("status") in ["started", "already_running"]:
+                    started += 1
+                    logger.info(f"📱 Auto-started Telegram bot: {instance['name']}")
+                else:
+                    logger.warning(f"📱 Failed to auto-start bot {instance_id}: {result}")
+            except Exception as e:
+                logger.error(f"📱 Error auto-starting bot {instance_id}: {e}")
+
+        if started > 0:
+            logger.info(f"📱 Auto-started {started}/{len(instances)} Telegram bots")
+    except Exception as e:
+        logger.error(f"📱 Error during Telegram bot auto-start: {e}")
+
+
 class ConversationRequest(BaseModel):
     text: str
     session_id: Optional[str] = None
@@ -576,6 +607,9 @@ async def startup_event():
         container.current_voice_config = current_voice_config
         logger.info("✅ Service container populated for modular routers")
 
+        # Auto-start Telegram bots that were running before restart
+        await _auto_start_telegram_bots()
+
         logger.info("✅ Основные сервисы загружены успешно")
 
     except Exception as e:
@@ -610,13 +644,19 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Проверка здоровья всех сервисов"""
+    # Используем llm_service из container (может быть обновлён через router)
+    from app.dependencies import get_container
+
+    container = get_container()
+    current_llm_service = container.llm_service if container.llm_service else llm_service
+
     # Определяем тип LLM сервиса
     llm_backend_type = "unknown"
-    if llm_service:
-        if hasattr(llm_service, "api_url"):  # vLLM
-            llm_backend_type = f"vllm ({llm_service.model_name})"
-        elif hasattr(llm_service, "model_name"):  # Gemini
-            llm_backend_type = f"gemini ({llm_service.model_name})"
+    if current_llm_service:
+        if hasattr(current_llm_service, "api_url"):  # vLLM
+            llm_backend_type = f"vllm ({current_llm_service.model_name})"
+        elif hasattr(current_llm_service, "model_name"):  # Gemini
+            llm_backend_type = f"gemini ({current_llm_service.model_name})"
 
     services_status = {
         "voice_clone_xtts_gulya": gulya_voice_service is not None,
@@ -624,7 +664,7 @@ async def health_check():
         "voice_clone_openvoice": openvoice_service is not None,
         "piper_tts": piper_service is not None,
         "stt": stt_service is not None,
-        "llm": llm_service is not None,
+        "llm": current_llm_service is not None,
         "llm_backend": llm_backend_type,
         "streaming_tts": streaming_tts_manager is not None,
         "current_voice": current_voice_config,
@@ -1858,11 +1898,16 @@ async def admin_set_llm_backend(
                 logger.info("⏳ Ожидание готовности vLLM...")
                 import httpx
 
+                # Нормализуем URL (удаляем trailing /v1)
+                vllm_url = os.getenv("VLLM_API_URL", "http://localhost:11434").rstrip("/")
+                if vllm_url.endswith("/v1"):
+                    vllm_url = vllm_url[:-3]
+
                 for i in range(60):  # 60 * 2 = 120 секунд
                     await asyncio.sleep(2)
                     try:
                         async with httpx.AsyncClient() as client:
-                            resp = await client.get("http://localhost:11434/health", timeout=5.0)
+                            resp = await client.get(f"{vllm_url}/v1/models", timeout=5.0)
                             if resp.status_code == 200:
                                 logger.info(f"✅ vLLM готов (попытка {i + 1})")
                                 break
@@ -1870,7 +1915,7 @@ async def admin_set_llm_backend(
                         pass
                 else:
                     raise HTTPException(
-                        status_code=503, detail="vLLM не стал доступен за 120 секунд"
+                        status_code=503, detail=f"vLLM не стал доступен за 120 секунд ({vllm_url})"
                     )
 
             # Создаём новый vLLM сервис

@@ -459,6 +459,18 @@ class AsyncBotInstanceManager:
             repo = BotInstanceRepository(session)
             return await repo.set_enabled(instance_id, enabled)
 
+    async def set_auto_start(self, instance_id: str, auto_start: bool) -> bool:
+        """Set auto-start flag for bot instance."""
+        async with AsyncSessionLocal() as session:
+            repo = BotInstanceRepository(session)
+            return await repo.set_auto_start(instance_id, auto_start)
+
+    async def get_auto_start_instances(self) -> List[dict]:
+        """Get all bot instances that should auto-start."""
+        async with AsyncSessionLocal() as session:
+            repo = BotInstanceRepository(session)
+            return await repo.get_auto_start_instances()
+
     async def get_enabled_instances(self) -> List[dict]:
         """Get all enabled bot instances."""
         async with AsyncSessionLocal() as session:

@@ -142,6 +142,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             "name",
             "description",
             "enabled",
+            "auto_start",
             "bot_token",
             "api_url",
             "welcome_message",
@@ -197,6 +198,28 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         )
         await self.session.commit()
         return result.rowcount > 0
+
+    async def set_auto_start(self, instance_id: str, auto_start: bool) -> bool:
+        """Set auto-start flag for bot instance."""
+        result = await self.session.execute(
+            update(BotInstance)
+            .where(BotInstance.id == instance_id)
+            .values(auto_start=auto_start, updated=datetime.utcnow())
+        )
+        await self.session.commit()
+        return result.rowcount > 0
+
+    async def get_auto_start_instances(self) -> List[dict]:
+        """Get all bot instances that should auto-start."""
+        query = (
+            select(BotInstance)
+            .where(BotInstance.enabled == True)
+            .where(BotInstance.auto_start == True)
+            .order_by(BotInstance.name)
+        )
+        result = await self.session.execute(query)
+        instances = result.scalars().all()
+        return [i.to_dict() for i in instances]
 
     async def get_enabled_instances(self) -> List[dict]:
         """Get all enabled bot instances."""
