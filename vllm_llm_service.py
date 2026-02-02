@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Generator, List, Optional
 
 import httpx
@@ -18,8 +19,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ============== Доступные модели vLLM ==============
-AVAILABLE_MODELS = {
+# ============== Предопределённые модели vLLM ==============
+PREDEFINED_MODELS = {
     "qwen": {
         "id": "qwen",
         "name": "Qwen2.5-7B-AWQ",
@@ -51,6 +52,104 @@ AVAILABLE_MODELS = {
         "lora_support": False,
     },
 }
+
+
+def scan_huggingface_models() -> Dict[str, dict]:
+    """
+    Сканирует HuggingFace кэш и возвращает скачанные LLM модели.
+    Поддерживает модели совместимые с vLLM (Qwen, Llama, DeepSeek, Mistral и др.)
+    """
+    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+    if not hf_cache.exists():
+        return {}
+
+    discovered = {}
+    # Паттерны для LLM моделей (исключаем TTS, STT, embedding и т.д.)
+    llm_patterns = ["qwen", "llama", "deepseek", "mistral", "phi", "gemma", "yi-"]
+    exclude_patterns = ["whisper", "tts", "tokenizer", "sentence", "embed", "clip"]
+
+    for model_dir in hf_cache.iterdir():
+        if not model_dir.is_dir() or not model_dir.name.startswith("models--"):
+            continue
+
+        # Парсим имя: models--org--model-name -> org/model-name
+        parts = model_dir.name.replace("models--", "").split("--")
+        if len(parts) < 2:
+            continue
+
+        org = parts[0]
+        model_name = "--".join(parts[1:])
+        full_name = f"{org}/{model_name}"
+        name_lower = full_name.lower()
+
+        # Проверяем что это LLM модель
+        is_llm = any(p in name_lower for p in llm_patterns)
+        is_excluded = any(p in name_lower for p in exclude_patterns)
+
+        if not is_llm or is_excluded:
+            continue
+
+        # Определяем тип квантизации
+        quant_type = "FP16"
+        if "awq" in name_lower:
+            quant_type = "AWQ"
+        elif "gptq" in name_lower:
+            quant_type = "GPTQ"
+        elif "gguf" in name_lower:
+            quant_type = "GGUF"
+        elif "bnb" in name_lower or "4bit" in name_lower:
+            quant_type = "BNB-4bit"
+        elif "exl2" in name_lower:
+            quant_type = "EXL2"
+
+        # Создаём уникальный ID
+        model_id = model_name.lower().replace("-", "_").replace(".", "_")
+
+        discovered[model_id] = {
+            "id": model_id,
+            "name": model_name,
+            "full_name": full_name,
+            "description": f"Локально скачанная модель ({quant_type})",
+            "size": "—",
+            "features": [quant_type, "Локальная"],
+            "start_flag": "",
+            "lora_support": "awq" in name_lower or quant_type == "FP16",
+            "downloaded": True,
+            "quant_type": quant_type,
+        }
+
+    return discovered
+
+
+def get_available_models() -> Dict[str, dict]:
+    """
+    Возвращает все доступные модели: предопределённые + скачанные.
+    Скачанные модели помечаются флагом downloaded=True.
+    """
+    models = {}
+
+    # Добавляем предопределённые
+    for key, model in PREDEFINED_MODELS.items():
+        models[key] = {**model, "downloaded": False}
+
+    # Добавляем скачанные (перезаписывают предопределённые если совпадают)
+    downloaded = scan_huggingface_models()
+    for key, model in downloaded.items():
+        # Проверяем совпадение с предопределёнными по full_name
+        for pred_key, pred_model in PREDEFINED_MODELS.items():
+            if pred_model["full_name"].lower() in model["full_name"].lower():
+                # Обновляем предопределённую модель флагом downloaded
+                models[pred_key] = {**models[pred_key], "downloaded": True}
+                break
+        else:
+            # Новая модель, не в предопределённых
+            models[key] = model
+
+    return models
+
+
+# Кэш для сканированных моделей (обновляется при вызове)
+AVAILABLE_MODELS = get_available_models()
 
 
 # ============== Персоны секретарей ==============
