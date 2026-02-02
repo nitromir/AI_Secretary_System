@@ -14,6 +14,7 @@ Supports:
 
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Union
@@ -334,14 +335,25 @@ class GeminiProvider(BaseLLMProvider):
         if not self.api_key:
             raise ValueError("API key required for Gemini provider")
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(model_name=self.model_name or "gemini-2.0-flash")
-
-        # Initialize VLESS proxy if configured (supports single URL or list with fallback)
+        # Initialize VLESS proxy BEFORE configuring genai (so HTTP client uses proxy)
         self.proxy_manager: Optional[Union["XrayProxyManager", "XrayProxyManagerWithFallback"]] = (
             None
         )
         self._setup_vless_proxy()
+
+        # Start proxy and set env vars BEFORE genai.configure()
+        # This ensures the HTTP client is created with proxy settings
+        if self.proxy_manager:
+            self.proxy_manager.start()
+            proxy_url = f"http://127.0.0.1:{self.proxy_manager.http_port}"
+            os.environ["HTTP_PROXY"] = proxy_url
+            os.environ["HTTPS_PROXY"] = proxy_url
+            os.environ["http_proxy"] = proxy_url
+            os.environ["https_proxy"] = proxy_url
+            logger.info(f"[{self.provider_id}] Proxy env set: {proxy_url}")
+
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(model_name=self.model_name or "gemini-2.0-flash")
 
         logger.info(f"[{self.provider_id}] Initialized Gemini provider: {self.model_name}")
 
@@ -433,20 +445,11 @@ class GeminiProvider(BaseLLMProvider):
         if isinstance(self.proxy_manager, XrayProxyManagerWithFallback):
             self.proxy_manager.reset_all_proxies()
 
-    def _get_proxy_context(self):
-        """Get proxy context manager or a no-op context manager."""
-        from contextlib import nullcontext
-
-        if self.proxy_manager:
-            return self.proxy_manager.proxy_environment()
-        return nullcontext()
-
     def is_available(self) -> bool:
+        """Check if provider is available. Proxy is already running if configured."""
         try:
-            # Use proxy if configured
-            with self._get_proxy_context():
-                # Simple test - list models
-                list(genai.list_models())
+            # Proxy env vars are set in __init__, just test the API
+            list(genai.list_models())
             return True
         except Exception as e:
             logger.warning(f"[{self.provider_id}] Health check failed: {e}")
@@ -455,30 +458,29 @@ class GeminiProvider(BaseLLMProvider):
     def generate_response(
         self, user_message: str, system_prompt: str = None, history: List[Dict] = None
     ) -> str:
+        """Generate response. Proxy is already running if configured."""
         try:
-            # Use proxy if configured
-            with self._get_proxy_context():
-                # Rebuild model with system instruction if provided
-                if system_prompt:
-                    model = genai.GenerativeModel(
-                        model_name=self.model_name or "gemini-2.0-flash",
-                        system_instruction=system_prompt,
-                    )
-                else:
-                    model = self.model
+            # Rebuild model with system instruction if provided
+            if system_prompt:
+                model = genai.GenerativeModel(
+                    model_name=self.model_name or "gemini-2.0-flash",
+                    system_instruction=system_prompt,
+                )
+            else:
+                model = self.model
 
-                # Convert history to Gemini format
-                gemini_history = []
-                if history:
-                    for msg in history:
-                        role = "model" if msg["role"] == "assistant" else msg["role"]
-                        if role not in ["user", "model"]:
-                            continue
-                        gemini_history.append({"role": role, "parts": [msg["content"]]})
+            # Convert history to Gemini format
+            gemini_history = []
+            if history:
+                for msg in history:
+                    role = "model" if msg["role"] == "assistant" else msg["role"]
+                    if role not in ["user", "model"]:
+                        continue
+                    gemini_history.append({"role": role, "parts": [msg["content"]]})
 
-                chat = model.start_chat(history=gemini_history)
-                response = chat.send_message(user_message)
-                return response.text.strip()
+            chat = model.start_chat(history=gemini_history)
+            response = chat.send_message(user_message)
+            return response.text.strip()
         except Exception as e:
             logger.error(f"[{self.provider_id}] Error: {e}")
             return "Извините, произошла техническая ошибка."
@@ -486,31 +488,30 @@ class GeminiProvider(BaseLLMProvider):
     def generate_response_stream(
         self, user_message: str, system_prompt: str = None, history: List[Dict] = None
     ) -> Generator[str, None, None]:
+        """Generate streaming response. Proxy is already running if configured."""
         try:
-            # Use proxy if configured
-            with self._get_proxy_context():
-                if system_prompt:
-                    model = genai.GenerativeModel(
-                        model_name=self.model_name or "gemini-2.0-flash",
-                        system_instruction=system_prompt,
-                    )
-                else:
-                    model = self.model
+            if system_prompt:
+                model = genai.GenerativeModel(
+                    model_name=self.model_name or "gemini-2.0-flash",
+                    system_instruction=system_prompt,
+                )
+            else:
+                model = self.model
 
-                gemini_history = []
-                if history:
-                    for msg in history:
-                        role = "model" if msg["role"] == "assistant" else msg["role"]
-                        if role not in ["user", "model"]:
-                            continue
-                        gemini_history.append({"role": role, "parts": [msg["content"]]})
+            gemini_history = []
+            if history:
+                for msg in history:
+                    role = "model" if msg["role"] == "assistant" else msg["role"]
+                    if role not in ["user", "model"]:
+                        continue
+                    gemini_history.append({"role": role, "parts": [msg["content"]]})
 
-                chat = model.start_chat(history=gemini_history)
-                response = chat.send_message(user_message, stream=True)
+            chat = model.start_chat(history=gemini_history)
+            response = chat.send_message(user_message, stream=True)
 
-                for chunk in response:
-                    if chunk.text:
-                        yield chunk.text
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
         except Exception as e:
             logger.error(f"[{self.provider_id}] Stream error: {e}")
             yield "Извините, произошла техническая ошибка."

@@ -59,6 +59,7 @@ const customModelName = ref('')
 const vlessUrlsText = ref('')
 const vlessTestResults = ref<Array<{ success?: boolean; message?: string; error?: string; remark?: string }>>([])
 const testingAllProxies = ref(false)
+const testingProviderId = ref<string | null>(null)
 
 // Queries
 const { data: backendData, isLoading: backendLoading } = useQuery({
@@ -174,8 +175,12 @@ const deleteProviderMutation = useMutation({
 })
 
 const testProviderMutation = useMutation({
-  mutationFn: (id: string) => llmApi.testProvider(id),
+  mutationFn: (id: string) => {
+    testingProviderId.value = id
+    return llmApi.testProvider(id)
+  },
   onSuccess: (data) => {
+    testingProviderId.value = null
     if (data.available) {
       toast.success(`Connection OK: ${data.test_response?.substring(0, 50)}`)
     } else {
@@ -183,6 +188,7 @@ const testProviderMutation = useMutation({
     }
   },
   onError: (error: Error) => {
+    testingProviderId.value = null
     toast.error(`Test failed: ${error.message}`)
   },
 })
@@ -573,12 +579,12 @@ function switchToCloudProvider(providerId: string) {
 
               <div class="flex items-center gap-2">
                 <button
-                  :disabled="testProviderMutation.isPending.value"
+                  :disabled="testingProviderId !== null"
                   class="p-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
                   title="Test connection"
                   @click="testProviderMutation.mutate(provider.id)"
                 >
-                  <Loader2 v-if="testProviderMutation.isPending.value" class="w-4 h-4 animate-spin" />
+                  <Loader2 v-if="testingProviderId === provider.id" class="w-4 h-4 animate-spin" />
                   <Play v-else class="w-4 h-4" />
                 </button>
                 <button
