@@ -140,6 +140,10 @@ class VLLMLLMService:
             timeout: Таймаут запросов в секундах
         """
         self.api_url = api_url or os.getenv("VLLM_API_URL", "http://localhost:11434")
+        # Нормализуем URL - удаляем trailing /v1 если есть (код добавит его сам)
+        self.api_url = self.api_url.rstrip("/")
+        if self.api_url.endswith("/v1"):
+            self.api_url = self.api_url[:-3]
         # Приоритет: аргумент > env var > auto-detect
         self.model_name = model_name or os.getenv("VLLM_MODEL_NAME", "")
         self.timeout = timeout
@@ -621,7 +625,8 @@ class VLLMLLMService:
     def is_available(self) -> bool:
         """Проверяет доступность vLLM"""
         try:
-            response = self.client.get(f"{self.api_url}/health", timeout=5.0)
+            # vLLM не имеет /health endpoint, используем /v1/models
+            response = self.client.get(f"{self.api_url}/v1/models", timeout=5.0)
             return response.status_code == 200
         except Exception:
             return False

@@ -301,8 +301,15 @@ class ServiceManager:
                 environment={
                     "HUGGING_FACE_HUB_TOKEN": os.getenv("HF_TOKEN", ""),
                     "VLLM_LOGGING_LEVEL": "WARNING",
+                    # Note: CUDA_VISIBLE_DEVICES not needed - DeviceIDs handles GPU selection
                 },
-                device_requests=[{"Driver": "nvidia", "Count": 1, "Capabilities": [["gpu"]]}],
+                device_requests=[
+                    {
+                        "Driver": "nvidia",
+                        "DeviceIDs": [os.getenv("VLLM_GPU_ID", "1")],  # Use RTX 3060 (CC 8.6)
+                        "Capabilities": [["gpu"]],
+                    }
+                ],
                 detach=True,
                 restart_policy={"Name": "unless-stopped"},
             )
