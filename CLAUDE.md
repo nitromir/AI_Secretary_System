@@ -170,7 +170,7 @@ app/
 | `voice_clone_service.py` | XTTS v2 with custom presets + streaming synthesis |
 | `piper_tts_service.py` | Piper TTS (CPU) with Dmitri/Irina voices, auto-discovers models dir |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
-| `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots |
+| `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots (auto-start on app launch) |
 | `app/services/audio_pipeline.py` | GSM telephony audio processing (8kHz, PCM16, G.711) |
 
 ### Admin Panel (Vue 3)
@@ -188,7 +188,7 @@ admin/src/
 
 **Location:** `data/secretary.db`
 
-**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances`, `widget_instances`
+**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`), `widget_instances`
 
 **Redis (optional):** Used for caching with graceful fallback if unavailable.
 
@@ -211,6 +211,9 @@ db/
     ├── preset.py         # PresetRepository
     ├── config.py         # ConfigRepository
     ├── telegram.py       # TelegramRepository
+    ├── bot_instance.py   # BotInstanceRepository (Telegram bots)
+    ├── widget_instance.py # WidgetInstanceRepository
+    ├── cloud_provider.py # CloudProviderRepository
     └── audit.py          # AuditRepository
 ```
 
@@ -218,8 +221,9 @@ db/
 
 ```bash
 LLM_BACKEND=vllm                    # "vllm", "gemini", or "cloud:{provider_id}"
-VLLM_API_URL=http://localhost:11434
+VLLM_API_URL=http://localhost:11434 # Base URL without /v1 suffix (auto-normalized)
 VLLM_MODEL_NAME=lydia               # LoRA adapter name
+VLLM_GPU_ID=1                       # GPU ID for vLLM Docker container (default: 1)
 SECRETARY_PERSONA=gulya             # "gulya" or "lidia"
 GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
@@ -300,7 +304,7 @@ Key patterns:
 3. **GPU memory sharing** — vLLM 50% (~6GB) + XTTS ~5GB on 12GB GPU
 4. **OpenWebUI Docker** — Use `172.17.0.1` not `localhost` for API URL
 5. **Ruff ignores Cyrillic** — RUF001/002/003 disabled to allow Russian strings in code
-6. **Docker + vLLM** — vLLM автоматически запускается как контейнер при переключении в админке. Первый раз нужно скачать образ: `docker pull vllm/vllm-openai:latest` (~9GB)
+6. **Docker + vLLM** — vLLM автоматически запускается как контейнер при переключении в админке. Первый раз нужно скачать образ: `docker pull vllm/vllm-openai:latest` (~9GB). **Note:** `VLLM_API_URL` is auto-normalized — trailing `/v1` is stripped (code adds it internally)
 7. **xray-core for VLESS** — Included in Docker image. For local dev, download to `./bin/xray`:
    ```bash
    mkdir -p bin && cd bin
@@ -339,8 +343,9 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 | **Kimi** | — | `kimi-k2`, `moonshot-v1-128k` |
 
 **Usage in Telegram bots:**
-- Set `llm_backend` in bot config: `"vllm"`, `"gemini"`, or `"cloud:{provider_id}"`
+- Set `llm_backend` in bot config: `"vllm"` or `"cloud:{provider_id}"` (dynamic dropdown in UI)
 - Action buttons can override LLM per-mode (e.g., creative mode uses different model)
+- LLM dropdown dynamically loads all enabled cloud providers from database
 
 **Per-session LLM override in Chat:**
 - Chat view has an LLM selector dropdown in the header
@@ -407,3 +412,49 @@ GeminiProvider → XrayProxyManagerWithFallback → xray-core (SOCKS5/HTTP) → 
 - Proxy fails → Auto-switch to next proxy (if multiple configured)
 - All proxies fail → Fallback to direct connection
 - VLESS server unreachable → SDK timeout, error returned to user
+
+## Telegram Bot Auto-Start
+
+Telegram bots persist their running state and automatically restart after app/container restart.
+
+**How it works:**
+1. When bot is started via UI → `auto_start=true` saved in DB
+2. When bot is stopped via UI → `auto_start=false` saved in DB
+3. On app startup → all bots with `auto_start=true` automatically start
+
+**Startup logs:**
+```
+📱 Auto-started Telegram bot: MyBot
+📱 Auto-started 2/2 Telegram bots
+```
+
+**Migration for existing databases:**
+```sql
+ALTER TABLE bot_instances ADD COLUMN auto_start BOOLEAN DEFAULT 0;
+```
+
+## Local Model Discovery
+
+The system automatically discovers downloaded HuggingFace models in `~/.cache/huggingface/hub/`.
+
+**Supported model types:**
+- Qwen, Llama, DeepSeek, Mistral, Phi, Gemma, Yi
+
+**Detected quantization formats:**
+- AWQ, GPTQ, GGUF, BNB-4bit, EXL2, FP16
+
+**API response:**
+```json
+{
+  "available_models": {
+    "qwen2_5_7b_instruct_awq": {
+      "full_name": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+      "downloaded": true,
+      "quant_type": "AWQ",
+      "lora_support": true
+    }
+  }
+}
+```
+
+**Models tab** in admin panel shows all local models with download status and quantization type
