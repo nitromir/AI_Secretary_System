@@ -62,6 +62,7 @@ class BotInstanceCreateRequest(BaseModel):
     tts_engine: str = "xtts"
     tts_voice: str = "gulya"
     tts_preset: Optional[str] = None
+    action_buttons: Optional[List[dict]] = None
 
 
 class BotInstanceUpdateRequest(BaseModel):
@@ -82,6 +83,7 @@ class BotInstanceUpdateRequest(BaseModel):
     tts_engine: Optional[str] = None
     tts_voice: Optional[str] = None
     tts_preset: Optional[str] = None
+    action_buttons: Optional[List[dict]] = None
 
 
 # ============== Legacy Config Endpoints ==============
