@@ -28,7 +28,8 @@ class LLMPresetRepository(BaseRepository[LLMPreset]):
     async def get_default(self) -> Optional[LLMPreset]:
         """Get the default preset"""
         result = await self.session.execute(select(LLMPreset).where(LLMPreset.is_default == True))
-        return result.scalar_one_or_none()
+        preset: Optional[LLMPreset] = result.scalar_one_or_none()
+        return preset
 
     async def set_default(self, preset_id: str) -> bool:
         """Set a preset as default (unset others)"""

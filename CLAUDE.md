@@ -155,7 +155,7 @@ app/
 │   ├── llm.py               # 27 endpoints - Backend, persona, cloud providers, VLESS proxy
 │   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
 │   ├── chat.py              # 12 endpoints - Sessions (CRUD, bulk delete, grouping), messages, streaming
-│   ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
+│   ├── telegram.py          # 25 endpoints - Bot instances CRUD, control, payments
 │   ├── widget.py            # 7 endpoints  - Widget instances CRUD
 │   └── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
 └── services/
@@ -189,13 +189,14 @@ admin/src/
 
 **Location:** `data/secretary.db`
 
-**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`), `widget_instances`
+**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`, payment fields), `widget_instances`, `payment_log`
 
 **Redis (optional):** Used for caching with graceful fallback if unavailable.
 
 ```bash
 python scripts/migrate_json_to_db.py      # First-time migration
 python scripts/migrate_to_instances.py    # Multi-instance migration
+python scripts/migrate_add_payment_fields.py  # Payment fields migration
 ```
 
 **Repository pattern:**
@@ -213,6 +214,7 @@ db/
     ├── config.py         # ConfigRepository
     ├── telegram.py       # TelegramRepository
     ├── bot_instance.py   # BotInstanceRepository (Telegram bots)
+    ├── payment.py        # PaymentRepository (payment logging)
     ├── widget_instance.py # WidgetInstanceRepository
     ├── cloud_provider.py # CloudProviderRepository
     └── audit.py          # AuditRepository
@@ -476,6 +478,36 @@ Telegram bots persist their running state and automatically restart after app/co
 **Migration for existing databases:**
 ```sql
 ALTER TABLE bot_instances ADD COLUMN auto_start BOOLEAN DEFAULT 0;
+```
+
+## Telegram Bot Payments
+
+Telegram bots support accepting payments via YooKassa (RUB) and Telegram Stars (XTR).
+
+**Supported payment methods:**
+- **YooKassa** — Russian payment provider, requires provider token from BotFather
+- **Telegram Stars (XTR)** — Telegram's native digital currency, no provider token needed
+
+**How it works:**
+1. Configure payment in Admin Panel → Telegram → Edit bot → Payments section
+2. Enable payments, add products (title, description, price in RUB/Stars)
+3. Bot shows "Оплата" button in keyboard and responds to `/pay` command
+4. User selects product → Telegram sends invoice → payment processed
+5. Payment logged to `payment_log` table, visible in admin panel
+
+**Payment flow:**
+```
+/pay or "Оплата" button → send_invoice() → PreCheckoutQuery (auto-approved) → SuccessfulPayment → log to DB
+```
+
+**API endpoints:**
+- `POST /admin/telegram/instances/{id}/payments` — Log payment (internal, from bot)
+- `GET /admin/telegram/instances/{id}/payments` — Payment history (admin UI)
+- `GET /admin/telegram/instances/{id}/payments/stats` — Payment statistics
+
+**Migration for existing databases:**
+```bash
+python scripts/migrate_add_payment_fields.py
 ```
 
 ## Local Model Discovery

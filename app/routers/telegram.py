@@ -16,6 +16,7 @@ from db.integration import (
     async_audit_logger,
     async_bot_instance_manager,
     async_config_manager,
+    async_payment_manager,
     async_telegram_manager,
 )
 from multi_bot_manager import multi_bot_manager
@@ -63,6 +64,11 @@ class BotInstanceCreateRequest(BaseModel):
     tts_voice: str = "gulya"
     tts_preset: Optional[str] = None
     action_buttons: Optional[List[dict]] = None
+    payment_enabled: bool = False
+    yookassa_provider_token: Optional[str] = None
+    stars_enabled: bool = False
+    payment_products: Optional[list] = None
+    payment_success_message: Optional[str] = None
 
 
 class BotInstanceUpdateRequest(BaseModel):
@@ -84,6 +90,11 @@ class BotInstanceUpdateRequest(BaseModel):
     tts_voice: Optional[str] = None
     tts_preset: Optional[str] = None
     action_buttons: Optional[List[dict]] = None
+    payment_enabled: Optional[bool] = None
+    yookassa_provider_token: Optional[str] = None
+    stars_enabled: Optional[bool] = None
+    payment_products: Optional[list] = None
+    payment_success_message: Optional[str] = None
 
 
 # ============== Legacy Config Endpoints ==============
@@ -524,3 +535,61 @@ async def admin_get_bot_instance_logs(instance_id: str, lines: int = 100):
     """Get recent logs for a bot instance"""
     logs = await multi_bot_manager.get_recent_logs(instance_id, lines)
     return {"logs": logs}
+
+
+# ============== Payment Endpoints ==============
+
+
+class PaymentLogRequest(BaseModel):
+    user_id: int
+    username: Optional[str] = None
+    payment_type: str
+    product_id: str
+    amount: int
+    currency: str
+    telegram_payment_id: Optional[str] = None
+    provider_payment_id: Optional[str] = None
+
+
+@router.post("/instances/{instance_id}/payments")
+async def admin_log_payment(instance_id: str, request: PaymentLogRequest):
+    """Log a payment from telegram_bot_service (internal use)."""
+    instance = await async_bot_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    payment = await async_payment_manager.log_payment(
+        bot_id=instance_id,
+        user_id=request.user_id,
+        username=request.username,
+        payment_type=request.payment_type,
+        product_id=request.product_id,
+        amount=request.amount,
+        currency=request.currency,
+        telegram_payment_id=request.telegram_payment_id,
+        provider_payment_id=request.provider_payment_id,
+    )
+
+    return {"status": "ok", "payment": payment}
+
+
+@router.get("/instances/{instance_id}/payments")
+async def admin_get_payments(instance_id: str, limit: int = 100):
+    """Get payment history for a bot instance."""
+    instance = await async_bot_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    payments = await async_payment_manager.get_payments_for_bot(instance_id, limit)
+    return {"payments": payments}
+
+
+@router.get("/instances/{instance_id}/payments/stats")
+async def admin_get_payment_stats(instance_id: str):
+    """Get payment statistics for a bot instance."""
+    instance = await async_bot_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    stats = await async_payment_manager.get_payment_stats(instance_id)
+    return {"stats": stats}

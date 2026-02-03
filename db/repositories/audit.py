@@ -4,7 +4,7 @@ Audit repository for system audit trail.
 
 import json
 from datetime import datetime, timedelta
-from typing import List
+from typing import Any, List, Optional
 
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,10 +23,10 @@ class AuditRepository(BaseRepository[AuditLog]):
         self,
         action: str,
         resource: str,
-        resource_id: str = None,
-        user_id: str = None,
-        user_ip: str = None,
-        details: dict = None,
+        resource_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        user_ip: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> AuditLog:
         """Log an audit event."""
         entry = AuditLog(
@@ -47,11 +47,11 @@ class AuditRepository(BaseRepository[AuditLog]):
 
     async def get_logs(
         self,
-        action: str = None,
-        resource: str = None,
-        user_id: str = None,
-        from_date: datetime = None,
-        to_date: datetime = None,
+        action: Optional[str] = None,
+        resource: Optional[str] = None,
+        user_id: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[dict]:
@@ -89,7 +89,7 @@ class AuditRepository(BaseRepository[AuditLog]):
         cutoff = datetime.utcnow() - timedelta(days=days)
         result = await self.session.execute(delete(AuditLog).where(AuditLog.timestamp < cutoff))
         await self.session.commit()
-        return result.rowcount
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     async def get_stats(self) -> dict:
         """Get audit log statistics."""
@@ -101,13 +101,13 @@ class AuditRepository(BaseRepository[AuditLog]):
         result = await self.session.execute(
             select(AuditLog.action, func.count()).group_by(AuditLog.action)
         )
-        by_action = dict(result.all())
+        by_action: dict[str, int] = dict(result.all())  # type: ignore[arg-type]
 
         # Count by resource
         result = await self.session.execute(
             select(AuditLog.resource, func.count()).group_by(AuditLog.resource)
         )
-        by_resource = dict(result.all())
+        by_resource: dict[str, int] = dict(result.all())  # type: ignore[arg-type]
 
         # Count last 24 hours
         from_date = datetime.utcnow() - timedelta(hours=24)
@@ -125,8 +125,8 @@ class AuditRepository(BaseRepository[AuditLog]):
 
     async def export_logs(
         self,
-        from_date: datetime = None,
-        to_date: datetime = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
     ) -> List[dict]:
         """Export all logs for the given date range."""
         return await self.get_logs(

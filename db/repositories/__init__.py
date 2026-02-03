@@ -12,6 +12,7 @@ from db.repositories.chat import ChatRepository
 from db.repositories.cloud_provider import CloudProviderRepository
 from db.repositories.config import ConfigRepository
 from db.repositories.faq import FAQRepository
+from db.repositories.payment import PaymentRepository
 from db.repositories.preset import PresetRepository
 from db.repositories.telegram import TelegramRepository
 from db.repositories.widget_instance import WidgetInstanceRepository
@@ -25,6 +26,7 @@ __all__ = [
     "CloudProviderRepository",
     "ConfigRepository",
     "FAQRepository",
+    "PaymentRepository",
     "PresetRepository",
     "TelegramRepository",
     "WidgetInstanceRepository",

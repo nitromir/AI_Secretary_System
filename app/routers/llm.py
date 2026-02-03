@@ -770,57 +770,88 @@ async def admin_set_default_cloud_provider(
 
 @router.get("/personas")
 async def admin_get_personas():
-    """Получить список доступных персон"""
-    container = get_container()
-    llm_service = container.llm_service
-    if llm_service and hasattr(llm_service, "get_available_personas"):
-        return {"personas": llm_service.get_available_personas()}
+    """Получить список доступных персон (из БД)"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
 
-    # Fallback для Gemini LLM Service
-    from vllm_llm_service import SECRETARY_PERSONAS
-
-    return {
-        "personas": {
-            pid: {"name": p["name"], "full_name": p.get("full_name", p["name"])}
-            for pid, p in SECRETARY_PERSONAS.items()
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        await repo.ensure_defaults()
+        presets = await repo.get_all_enabled()
+        return {
+            "personas": {
+                p.id: {"name": p.name, "full_name": p.name, "description": p.description}
+                for p in presets
+            }
         }
-    }
 
 
 @router.get("/persona")
 async def admin_get_current_persona():
-    """Получить текущую персону"""
+    """Получить текущую персону (из БД)"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
     container = get_container()
     llm_service = container.llm_service
-    if llm_service:
-        persona_id = getattr(llm_service, "persona_id", "gulya")
-        persona = getattr(llm_service, "persona", {})
-        return {
-            "id": persona_id,
-            "name": persona.get("name", "Unknown"),
-        }
-    return {"id": "none", "error": "LLM service not initialized"}
+    current_id = "gulya"
+    if llm_service and hasattr(llm_service, "persona_id"):
+        current_id = llm_service.persona_id
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        await repo.ensure_defaults()
+        preset = await repo.get_by_id(current_id)
+        if preset:
+            return {"id": preset.id, "name": preset.name}
+
+        # Fallback to default
+        default = await repo.get_default()
+        if default:
+            return {"id": default.id, "name": default.name}
+
+    return {"id": "none", "error": "No preset found"}
 
 
 @router.post("/persona")
 async def admin_set_persona(request: AdminPersonaRequest, user: User = Depends(get_current_user)):
-    """Установить персону"""
-    container = get_container()
-    llm_service = container.llm_service
-    if llm_service and hasattr(llm_service, "set_persona"):
-        success = llm_service.set_persona(request.persona)
-        if success:
-            # Audit log
-            await async_audit_logger.log(
-                action="update",
-                resource="config",
-                resource_id="llm_persona",
-                user_id=user.username,
-                details={"persona": request.persona},
-            )
-            return {"status": "ok", "persona": request.persona}
-        raise HTTPException(status_code=400, detail=f"Persona not found: {request.persona}")
-    raise HTTPException(status_code=503, detail="LLM service does not support personas")
+    """Установить персону (из БД)"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(request.persona)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Persona not found: {request.persona}")
+
+        # Set as default in DB
+        await repo.set_default(request.persona)
+
+        # Update llm_service with DB data
+        container = get_container()
+        llm_service = container.llm_service
+        if llm_service and hasattr(llm_service, "set_persona"):
+            persona_data = {
+                "name": preset.name,
+                "description": preset.description,
+                "system_prompt": preset.system_prompt,
+                "temperature": preset.temperature,
+                "max_tokens": preset.max_tokens,
+                "top_p": preset.top_p,
+                "repetition_penalty": preset.repetition_penalty,
+            }
+            llm_service.set_persona(request.persona, persona_data=persona_data)
+
+        # Audit log
+        await async_audit_logger.log(
+            action="update",
+            resource="config",
+            resource_id="llm_persona",
+            user_id=user.username,
+            details={"persona": request.persona},
+        )
+        return {"status": "ok", "persona": request.persona}
 
 
 # ============== Params Endpoints ==============
@@ -866,28 +897,29 @@ async def admin_set_llm_params(request: AdminLLMParamsRequest):
 
 @router.get("/prompt/{persona}")
 async def admin_get_persona_prompt(persona: str):
-    """Получить системный промпт для персоны"""
-    try:
-        from vllm_llm_service import SECRETARY_PERSONAS
+    """Получить системный промпт для персоны (из БД)"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
 
-        if persona in SECRETARY_PERSONAS:
-            return {"persona": persona, "prompt": SECRETARY_PERSONAS[persona]["prompt"]}
-        raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
-    except ImportError:
-        raise HTTPException(status_code=503, detail="vLLM service not available")
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.get_by_id(persona)
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
+        return {"persona": persona, "prompt": preset.system_prompt or ""}
 
 
 @router.post("/prompt/{persona}")
 async def admin_set_persona_prompt(persona: str, request: AdminLLMPromptRequest):
-    """Установить системный промпт для персоны"""
-    try:
-        from vllm_llm_service import SECRETARY_PERSONAS
+    """Установить системный промпт для персоны (в БД)"""
+    from db.database import get_session_context
+    from db.repositories.llm_preset import LLMPresetRepository
 
-        if persona not in SECRETARY_PERSONAS:
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.update_prompt(persona, request.prompt)
+        if not preset:
             raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
-
-        # Обновляем промпт
-        SECRETARY_PERSONAS[persona]["prompt"] = request.prompt
 
         # Если это текущая персона - обновляем в сервисе
         container = get_container()
@@ -896,15 +928,40 @@ async def admin_set_persona_prompt(persona: str, request: AdminLLMPromptRequest)
             llm_service.system_prompt = request.prompt
 
         return {"status": "ok", "persona": persona}
-    except ImportError:
-        raise HTTPException(status_code=503, detail="vLLM service not available")
 
 
 @router.post("/prompt/{persona}/reset")
-async def admin_reset_persona_prompt(persona: str):
+async def admin_reset_persona_prompt(persona: str, user: User = Depends(get_current_user)):
     """Сбросить системный промпт персоны на значение по умолчанию"""
-    # TODO: Реализовать хранение оригинальных промптов
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    from db.database import get_session_context
+    from db.models import DEFAULT_LLM_PRESETS
+    from db.repositories.llm_preset import LLMPresetRepository
+
+    # Ищем дефолтный промпт
+    default_data = next((p for p in DEFAULT_LLM_PRESETS if p["id"] == persona), None)
+    if not default_data:
+        raise HTTPException(status_code=400, detail=f"No default prompt for persona: {persona}")
+
+    async with get_session_context() as session:
+        repo = LLMPresetRepository(session)
+        preset = await repo.update_prompt(persona, default_data["system_prompt"])
+        if not preset:
+            raise HTTPException(status_code=404, detail=f"Persona not found: {persona}")
+
+        # Обновляем в сервисе если текущая персона
+        container = get_container()
+        llm_service = container.llm_service
+        if llm_service and hasattr(llm_service, "persona_id") and llm_service.persona_id == persona:
+            llm_service.system_prompt = default_data["system_prompt"]
+
+        await async_audit_logger.log(
+            action="reset",
+            resource="llm_preset",
+            resource_id=persona,
+            user_id=user.username,
+        )
+
+        return {"status": "ok", "persona": persona, "prompt": default_data["system_prompt"]}
 
 
 # ============== VLESS Proxy Endpoints ==============
@@ -1303,7 +1360,7 @@ async def admin_delete_llm_preset(preset_id: str, user: User = Depends(get_curre
         if not preset:
             raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
 
-        await repo.delete(preset_id)
+        await repo.delete(preset)
 
         await async_audit_logger.log(
             action="delete",

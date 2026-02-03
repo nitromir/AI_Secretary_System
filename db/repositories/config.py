@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default configurations
-DEFAULT_CONFIGS = {
+DEFAULT_CONFIGS: Dict[str, Dict[str, Any]] = {
     "telegram": {
         "enabled": False,
         "bot_token": "",
@@ -121,7 +121,7 @@ class ConfigRepository(BaseRepository[SystemConfig]):
         result = await self.session.execute(delete(SystemConfig).where(SystemConfig.key == key))
         await self.session.commit()
         await invalidate_config_cache(key)
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def get_all_configs(self) -> Dict[str, Any]:
         """Get all configuration as dict."""
@@ -149,7 +149,8 @@ class ConfigRepository(BaseRepository[SystemConfig]):
 
     async def get_telegram_config(self) -> dict:
         """Get Telegram bot configuration."""
-        return await self.get_config("telegram", DEFAULT_CONFIGS["telegram"])
+        result: dict[str, Any] = await self.get_config("telegram", DEFAULT_CONFIGS["telegram"])
+        return result
 
     async def set_telegram_config(self, config: dict) -> bool:
         """Set Telegram bot configuration."""
@@ -161,7 +162,8 @@ class ConfigRepository(BaseRepository[SystemConfig]):
 
     async def get_widget_config(self) -> dict:
         """Get widget configuration."""
-        return await self.get_config("widget", DEFAULT_CONFIGS["widget"])
+        result: dict[str, Any] = await self.get_config("widget", DEFAULT_CONFIGS["widget"])
+        return result
 
     async def set_widget_config(self, config: dict) -> bool:
         """Set widget configuration."""
@@ -173,7 +175,8 @@ class ConfigRepository(BaseRepository[SystemConfig]):
 
     async def get_llm_config(self) -> dict:
         """Get LLM configuration."""
-        return await self.get_config("llm", DEFAULT_CONFIGS["llm"])
+        result: dict[str, Any] = await self.get_config("llm", DEFAULT_CONFIGS["llm"])
+        return result
 
     async def set_llm_config(self, config: dict) -> bool:
         """Set LLM configuration."""
@@ -185,7 +188,8 @@ class ConfigRepository(BaseRepository[SystemConfig]):
 
     async def get_tts_config(self) -> dict:
         """Get TTS configuration."""
-        return await self.get_config("tts", DEFAULT_CONFIGS["tts"])
+        result: dict[str, Any] = await self.get_config("tts", DEFAULT_CONFIGS["tts"])
+        return result
 
     async def set_tts_config(self, config: dict) -> bool:
         """Set TTS configuration."""

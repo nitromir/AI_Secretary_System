@@ -2,7 +2,7 @@
 Base repository class with common database operations.
 """
 
-from typing import Generic, List, Optional, Type, TypeVar
+from typing import Any, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,9 +19,10 @@ class BaseRepository(Generic[T]):
         self.session = session
         self.model = model
 
-    async def get_by_id(self, id_value) -> Optional[T]:
+    async def get_by_id(self, id_value: Any) -> Optional[T]:
         """Get entity by primary key."""
-        return await self.session.get(self.model, id_value)
+        result: Optional[T] = await self.session.get(self.model, id_value)
+        return result
 
     async def get_all(self, limit: int = 1000, offset: int = 0) -> List[T]:
         """Get all entities with pagination."""
@@ -47,7 +48,7 @@ class BaseRepository(Generic[T]):
         await self.session.commit()
         return True
 
-    async def delete_by_id(self, id_value) -> bool:
+    async def delete_by_id(self, id_value: Any) -> bool:
         """Delete entity by primary key."""
         entity = await self.get_by_id(id_value)
         if entity:
@@ -62,7 +63,7 @@ class BaseRepository(Generic[T]):
         result = await self.session.execute(select(func.count()).select_from(self.model))
         return result.scalar() or 0
 
-    async def exists(self, id_value) -> bool:
+    async def exists(self, id_value: Any) -> bool:
         """Check if entity exists by primary key."""
         entity = await self.get_by_id(id_value)
         return entity is not None

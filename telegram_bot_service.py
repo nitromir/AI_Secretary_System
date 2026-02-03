@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import aiohttp
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import KeyboardButton, LabeledPrice, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -106,6 +107,15 @@ class TelegramBotService:
                         "tts_voice": instance.get("tts_voice", "gulya"),
                         # Action buttons
                         "action_buttons": instance.get("action_buttons", []),
+                        # Payment
+                        "payment_enabled": instance.get("payment_enabled", False),
+                        "yookassa_provider_token": instance.get("yookassa_provider_token"),
+                        "stars_enabled": instance.get("stars_enabled", False),
+                        "payment_products": instance.get("payment_products", []),
+                        "payment_success_message": instance.get(
+                            "payment_success_message",
+                            "Спасибо за оплату! Ваш платёж успешно обработан.",
+                        ),
                     }
 
                     logger.info(f"Loaded config from API for instance {self.instance_id}")
@@ -201,7 +211,13 @@ class TelegramBotService:
     def get_main_keyboard(self) -> Optional[ReplyKeyboardMarkup]:
         """Build reply keyboard with enabled action buttons."""
         enabled_buttons = [b for b in self.action_buttons if b.get("enabled", True)]
-        if not enabled_buttons:
+
+        # Add payment button if payments are enabled
+        has_payment = self.config.get("payment_enabled") and (
+            self.config.get("stars_enabled") or self.config.get("yookassa_provider_token")
+        )
+
+        if not enabled_buttons and not has_payment:
             return None
 
         # Sort by order
@@ -219,6 +235,10 @@ class TelegramBotService:
                 row = []
         if row:
             keyboard.append(row)
+
+        # Add payment button as separate row
+        if has_payment:
+            keyboard.append([KeyboardButton("💳 Оплата")])
 
         return ReplyKeyboardMarkup(
             keyboard,
@@ -520,6 +540,11 @@ class TelegramBotService:
             await self.handle_action_button(user_id, button, update)
             return
 
+        # Check if payment button clicked
+        if message_text.strip() in ("💳 Оплата", "/pay"):
+            await self.handle_pay(update, context)
+            return
+
         logger.info(
             f"[{self.instance_id}] Message from {user_id} ({user.username}): {message_text[:50]}..."
         )
@@ -547,6 +572,7 @@ class TelegramBotService:
 
         # Split long messages
         max_length = self.config.get("max_message_length", 4096)
+        keyboard = self.get_main_keyboard()
         if len(response) > max_length:
             # Split by paragraphs or sentences
             parts = []
@@ -561,12 +587,128 @@ class TelegramBotService:
             if current_part:
                 parts.append(current_part)
 
-            for part in parts:
-                await update.message.reply_text(part)
+            for i, part in enumerate(parts):
+                # Attach keyboard to the last part only
+                if i == len(parts) - 1:
+                    await update.message.reply_text(part, reply_markup=keyboard)
+                else:
+                    await update.message.reply_text(part)
         else:
-            await update.message.reply_text(response)
+            await update.message.reply_text(response, reply_markup=keyboard)
 
         logger.info(f"Sent response to {user_id}: {response[:50]}...")
+
+    # ============== Payment Handlers ==============
+
+    async def handle_pay(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /pay command — show available payment products."""
+        user_id = update.effective_user.id
+        if not self.is_user_allowed(user_id):
+            return
+
+        if not self.config.get("payment_enabled"):
+            await update.message.reply_text(
+                "Оплата временно недоступна.",
+                reply_markup=self.get_main_keyboard(),
+            )
+            return
+
+        products = self.config.get("payment_products", [])
+        if not products:
+            await update.message.reply_text(
+                "Нет доступных услуг для оплаты.",
+                reply_markup=self.get_main_keyboard(),
+            )
+            return
+
+        for product in products:
+            if self.config.get("stars_enabled"):
+                await self._send_stars_invoice(update, product)
+            elif self.config.get("yookassa_provider_token"):
+                await self._send_yookassa_invoice(update, product)
+            else:
+                await update.message.reply_text(
+                    "Платёжная система не настроена.",
+                    reply_markup=self.get_main_keyboard(),
+                )
+                return
+
+    async def _send_stars_invoice(self, update: Update, product: dict):
+        """Send Telegram Stars invoice."""
+        price_stars = product.get("price_stars", 100)
+        await update.message.reply_invoice(
+            title=product.get("title", "Услуга"),
+            description=product.get("description", ""),
+            payload=f"stars_{product.get('id', 'unknown')}_{update.effective_user.id}",
+            provider_token="",  # Empty string for Telegram Stars
+            currency="XTR",
+            prices=[LabeledPrice(label=product.get("title", "Услуга"), amount=price_stars)],
+        )
+
+    async def _send_yookassa_invoice(self, update: Update, product: dict):
+        """Send YooKassa invoice."""
+        provider_token = self.config.get("yookassa_provider_token", "")
+        price_rub = product.get("price_rub", 50000)  # in kopecks (500.00 RUB)
+        await update.message.reply_invoice(
+            title=product.get("title", "Услуга"),
+            description=product.get("description", ""),
+            payload=f"yookassa_{product.get('id', 'unknown')}_{update.effective_user.id}",
+            provider_token=provider_token,
+            currency="RUB",
+            prices=[LabeledPrice(label=product.get("title", "Услуга"), amount=price_rub)],
+        )
+
+    async def handle_precheckout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle PreCheckoutQuery — MUST answer within 10 seconds."""
+        query = update.pre_checkout_query
+        await query.answer(ok=True)
+        logger.info(f"Pre-checkout approved for user {query.from_user.id}: {query.invoice_payload}")
+
+    async def handle_successful_payment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle successful payment confirmation."""
+        payment = update.message.successful_payment
+        user = update.effective_user
+
+        # Parse payload: "stars_consultation_12345" or "yookassa_consultation_12345"
+        payload = payment.invoice_payload
+        parts = payload.split("_", 2)
+        payment_type = parts[0] if parts else "unknown"
+        product_id = parts[1] if len(parts) > 1 else "unknown"
+
+        logger.info(
+            f"Payment received: user={user.id}, type={payment_type}, "
+            f"product={product_id}, amount={payment.total_amount} {payment.currency}"
+        )
+
+        # Log payment via API
+        try:
+            session = await self.get_http_session()
+            api_url = self.config.get("api_url", "http://localhost:8002")
+            await session.post(
+                f"{api_url}/admin/telegram/instances/{self.instance_id}/payments",
+                json={
+                    "user_id": user.id,
+                    "username": user.username,
+                    "payment_type": payment_type,
+                    "product_id": product_id,
+                    "amount": payment.total_amount,
+                    "currency": payment.currency,
+                    "telegram_payment_id": payment.telegram_payment_charge_id,
+                    "provider_payment_id": payment.provider_payment_charge_id,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to log payment: {e}")
+
+        # Send success message
+        success_msg = self.config.get(
+            "payment_success_message",
+            "Спасибо за оплату! Ваш платёж успешно обработан.",
+        )
+        await update.message.reply_text(
+            success_msg,
+            reply_markup=self.get_main_keyboard(),
+        )
 
     async def start(self):
         """Start the bot"""
@@ -593,6 +735,14 @@ class TelegramBotService:
             self.app.add_handler(CommandHandler("help", self.handle_help))
             self.app.add_handler(CommandHandler("new", self.handle_new))
             self.app.add_handler(CommandHandler("status", self.handle_status))
+            self.app.add_handler(CommandHandler("pay", self.handle_pay))
+
+            # Payment handlers (must be before general message handler)
+            self.app.add_handler(PreCheckoutQueryHandler(self.handle_precheckout))
+            self.app.add_handler(
+                MessageHandler(filters.SUCCESSFUL_PAYMENT, self.handle_successful_payment)
+            )
+
             self.app.add_handler(
                 MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
             )

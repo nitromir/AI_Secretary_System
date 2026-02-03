@@ -28,7 +28,7 @@ try:
 
     REDIS_AVAILABLE = True
 except ImportError:
-    redis = None
+    redis = None  # type: ignore[assignment]
     logger.warning("⚠️ Redis not available (redis package not installed)")
 
 # Global redis client
@@ -62,7 +62,7 @@ async def init_redis() -> bool:
         return False
 
 
-async def close_redis():
+async def close_redis() -> None:
     """Close Redis connection."""
     global redis_client
     if redis_client:
@@ -157,7 +157,8 @@ async def cache_delete_pattern(pattern: str) -> int:
     try:
         keys = await redis_client.keys(pattern)
         if keys:
-            return await redis_client.delete(*keys)
+            result: int = await redis_client.delete(*keys)
+            return result
         return 0
     except Exception as e:
         logger.debug(f"Cache delete pattern error for {pattern}: {e}")

@@ -16,7 +16,7 @@ Tables:
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -62,7 +62,7 @@ class ChatSession(Base):
     )
 
     def to_dict(self, include_messages: bool = True) -> dict:
-        result = {
+        result: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
             "system_prompt": self.system_prompt,
@@ -178,9 +178,10 @@ class TTSPreset(Base):
         }
 
     def get_params(self) -> dict:
-        return json.loads(self.params) if self.params else {}
+        result: dict = json.loads(self.params) if self.params else {}
+        return result
 
-    def set_params(self, params: dict):
+    def set_params(self, params: dict) -> None:
         self.params = json.dumps(params, ensure_ascii=False)
 
 
@@ -195,14 +196,15 @@ class SystemConfig(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
-    def get_value(self) -> any:
+    def get_value(self) -> Any:
         """Parse JSON value"""
         try:
-            return json.loads(self.value)
+            result: Any = json.loads(self.value)
+            return result
         except (json.JSONDecodeError, TypeError):
             return self.value
 
-    def set_value(self, value: any):
+    def set_value(self, value: Any) -> None:
         """Serialize value to JSON"""
         self.value = json.dumps(value, ensure_ascii=False)
 
@@ -310,6 +312,13 @@ class BotInstance(Base):
     tts_voice: Mapped[str] = mapped_column(String(50), default="gulya")
     tts_preset: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # Payment configuration
+    payment_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    yookassa_provider_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    stars_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    payment_products: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
+    payment_success_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Timestamps
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated: Mapped[datetime] = mapped_column(
@@ -320,33 +329,36 @@ class BotInstance(Base):
         if not self.allowed_users:
             return []
         try:
-            return json.loads(self.allowed_users)
+            result: List[int] = json.loads(self.allowed_users)
+            return result
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def set_allowed_users(self, users: List[int]):
+    def set_allowed_users(self, users: List[int]) -> None:
         self.allowed_users = json.dumps(users)
 
     def get_admin_users(self) -> List[int]:
         if not self.admin_users:
             return []
         try:
-            return json.loads(self.admin_users)
+            result: List[int] = json.loads(self.admin_users)
+            return result
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def set_admin_users(self, users: List[int]):
+    def set_admin_users(self, users: List[int]) -> None:
         self.admin_users = json.dumps(users)
 
     def get_llm_params(self) -> dict:
         if not self.llm_params:
             return {}
         try:
-            return json.loads(self.llm_params)
+            result: dict = json.loads(self.llm_params)
+            return result
         except (json.JSONDecodeError, TypeError):
             return {}
 
-    def set_llm_params(self, params: dict):
+    def set_llm_params(self, params: dict) -> None:
         self.llm_params = json.dumps(params, ensure_ascii=False)
 
     def get_action_buttons(self) -> List[dict]:
@@ -354,13 +366,28 @@ class BotInstance(Base):
         if not self.action_buttons:
             return []
         try:
-            return json.loads(self.action_buttons)
+            result: List[dict] = json.loads(self.action_buttons)
+            return result
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def set_action_buttons(self, buttons: List[dict]):
+    def set_action_buttons(self, buttons: List[dict]) -> None:
         """Set action buttons configuration."""
         self.action_buttons = json.dumps(buttons, ensure_ascii=False)
+
+    def get_payment_products(self) -> List[dict]:
+        """Get payment products configuration."""
+        if not self.payment_products:
+            return []
+        try:
+            result: List[dict] = json.loads(self.payment_products)
+            return result
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_payment_products(self, products: List[dict]) -> None:
+        """Set payment products configuration."""
+        self.payment_products = json.dumps(products, ensure_ascii=False)
 
     def to_dict(self, include_token: bool = False) -> dict:
         result = {
@@ -391,6 +418,14 @@ class BotInstance(Base):
             "tts_preset": self.tts_preset,
             # Action buttons
             "action_buttons": self.get_action_buttons(),
+            # Payment
+            "payment_enabled": self.payment_enabled,
+            "yookassa_provider_token_masked": "***" + self.yookassa_provider_token[-4:]
+            if self.yookassa_provider_token and len(self.yookassa_provider_token) > 4
+            else "",
+            "stars_enabled": self.stars_enabled,
+            "payment_products": self.get_payment_products(),
+            "payment_success_message": self.payment_success_message,
             # Timestamps
             "created": self.created.isoformat() if self.created else None,
             "updated": self.updated.isoformat() if self.updated else None,
@@ -442,22 +477,24 @@ class WidgetInstance(Base):
         if not self.allowed_domains:
             return []
         try:
-            return json.loads(self.allowed_domains)
+            result: List[str] = json.loads(self.allowed_domains)
+            return result
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def set_allowed_domains(self, domains: List[str]):
+    def set_allowed_domains(self, domains: List[str]) -> None:
         self.allowed_domains = json.dumps(domains)
 
     def get_llm_params(self) -> dict:
         if not self.llm_params:
             return {}
         try:
-            return json.loads(self.llm_params)
+            result: dict = json.loads(self.llm_params)
+            return result
         except (json.JSONDecodeError, TypeError):
             return {}
 
-    def set_llm_params(self, params: dict):
+    def set_llm_params(self, params: dict) -> None:
         self.llm_params = json.dumps(params, ensure_ascii=False)
 
     def to_dict(self) -> dict:
@@ -533,11 +570,12 @@ class CloudLLMProvider(Base):
         if not self.config:
             return {}
         try:
-            return json.loads(self.config)
+            result: dict = json.loads(self.config)
+            return result
         except (json.JSONDecodeError, TypeError):
             return {}
 
-    def set_config(self, config: dict):
+    def set_config(self, config: dict) -> None:
         """Set extended config from dict"""
         self.config = json.dumps(config, ensure_ascii=False)
 
@@ -668,6 +706,41 @@ DEFAULT_ACTION_BUTTONS = [
 ]
 
 
+class PaymentLog(Base):
+    """Payment transaction log for Telegram bot payments."""
+
+    __tablename__ = "payment_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bot_id: Mapped[str] = mapped_column(String(50), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    payment_type: Mapped[str] = mapped_column(String(20))  # "yookassa" | "stars"
+    product_id: Mapped[str] = mapped_column(String(100))
+    amount: Mapped[int] = mapped_column(Integer)  # kopecks for RUB, stars for XTR
+    currency: Mapped[str] = mapped_column(String(10))  # "RUB" | "XTR"
+    telegram_payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "bot_id": self.bot_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "payment_type": self.payment_type,
+            "product_id": self.product_id,
+            "amount": self.amount,
+            "currency": self.currency,
+            "telegram_payment_id": self.telegram_payment_id,
+            "provider_payment_id": self.provider_payment_id,
+            "status": self.status,
+            "created": self.created.isoformat() if self.created else None,
+        }
+
+
 class LLMPreset(Base):
     """LLM preset configuration for vLLM (generation parameters + system prompt)"""
 
@@ -724,16 +797,30 @@ class LLMPreset(Base):
         }
 
 
-# Default LLM presets (migrated from SECRETARY_PERSONAS)
+# Default LLM presets (synced with SECRETARY_PERSONAS from vllm_llm_service.py)
 DEFAULT_LLM_PRESETS = [
     {
         "id": "gulya",
         "name": "Гуля",
-        "description": "Гульнара - дружелюбная и профессиональная секретарь",
+        "description": "Гульнара - дружелюбная и профессиональная секретарь компании Shareware Digital",
         "system_prompt": (
-            "Ты - Гульнара (Гуля), виртуальная секретарь. "
-            "Ты дружелюбная, профессиональная и всегда готова помочь. "
-            "Отвечай кратко и по делу, используй вежливые формулировки."
+            "Ты — Гуля (Гульнара), цифровой секретарь компании Shareware Digital "
+            "и личный помощник Артёма Юрьевича.\n\n"
+            "ПРАВИЛА:\n"
+            "1. Отвечай кратко (2-3 предложения максимум)\n"
+            "2. Никакой разметки - только чистый текст\n"
+            '3. Используй букву "ё" (всё, идёт, пришлёт)\n'
+            "4. Числа пиши словами (пятьсот рублей)\n"
+            '5. ООО произноси как "о-о-о", IT как "ай-ти"\n\n'
+            "РОЛЬ:\n"
+            "- Фильтруй спам и продажи\n"
+            "- Записывай сообщения для Артёма Юрьевича\n"
+            "- Будь профессиональной и дружелюбной\n\n"
+            "ПРИМЕРЫ:\n"
+            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Гуля. '
+            'Слушаю вас."\n'
+            '- "Принято. Я передам Артёму Юрьевичу, что вы звонили."\n'
+            '- "К сожалению, это предложение сейчас не актуально. Всего доброго."'
         ),
         "temperature": 0.7,
         "max_tokens": 512,
@@ -744,11 +831,25 @@ DEFAULT_LLM_PRESETS = [
     {
         "id": "lidia",
         "name": "Лидия",
-        "description": "Лидия - строгая и формальная секретарь",
+        "description": "Лидия - строгая и формальная секретарь компании Shareware Digital",
         "system_prompt": (
-            "Ты - Лидия, виртуальная секретарь. "
-            "Ты строгая, формальная и профессиональная. "
-            "Отвечай чётко, структурированно, придерживайся делового стиля."
+            "Ты — Лидия, цифровой секретарь компании Shareware Digital "
+            "и личный помощник Артёма Юрьевича.\n\n"
+            "ПРАВИЛА:\n"
+            "1. Отвечай кратко (2-3 предложения максимум)\n"
+            "2. Никакой разметки - только чистый текст\n"
+            '3. Используй букву "ё" (всё, идёт, пришлёт)\n'
+            "4. Числа пиши словами (пятьсот рублей)\n"
+            '5. ООО произноси как "о-о-о", IT как "ай-ти"\n\n'
+            "РОЛЬ:\n"
+            "- Фильтруй спам и продажи\n"
+            "- Записывай сообщения для Артёма Юрьевича\n"
+            "- Будь профессиональной и дружелюбной\n\n"
+            "ПРИМЕРЫ:\n"
+            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Лидия. '
+            'Слушаю вас."\n'
+            '- "Принято. Я передам Артёму Юрьевичу, что вы звонили."\n'
+            '- "К сожалению, это предложение сейчас не актуально. Всего доброго."'
         ),
         "temperature": 0.5,
         "max_tokens": 512,

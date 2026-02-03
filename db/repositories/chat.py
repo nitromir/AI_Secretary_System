@@ -5,7 +5,7 @@ Chat repository for managing chat sessions and messages.
 import hashlib
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,7 +62,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         session = result.scalar_one_or_none()
 
         if session:
-            data = session.to_dict()
+            data: dict[str, Any] = session.to_dict()
             # Cache for 5 minutes
             await cache_session(session_id, data, ttl_seconds=300)
             return data
@@ -70,10 +70,10 @@ class ChatRepository(BaseRepository[ChatSession]):
 
     async def create_session(
         self,
-        title: str = None,
-        system_prompt: str = None,
-        source: str = None,
-        source_id: str = None,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        source: Optional[str] = None,
+        source_id: Optional[str] = None,
     ) -> dict:
         """Create new chat session."""
         session_id = self._generate_session_id()
@@ -108,8 +108,8 @@ class ChatRepository(BaseRepository[ChatSession]):
     async def update_session(
         self,
         session_id: str,
-        title: str = None,
-        system_prompt: str = None,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
     ) -> Optional[dict]:
         """Update session title or system prompt."""
         result = await self.session.execute(
@@ -131,14 +131,15 @@ class ChatRepository(BaseRepository[ChatSession]):
         await self.session.commit()
         await invalidate_session_cache(session_id)
 
-        return session.to_dict()
+        data_result: dict[str, Any] = session.to_dict()
+        return data_result
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and all its messages."""
         result = await self.session.execute(delete(ChatSession).where(ChatSession.id == session_id))
         await self.session.commit()
         await invalidate_session_cache(session_id)
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def delete_sessions_bulk(self, session_ids: List[str]) -> int:
         """Delete multiple sessions by ID list."""
@@ -154,7 +155,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         for sid in session_ids:
             await invalidate_session_cache(sid)
 
-        return result.rowcount
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     async def list_sessions_grouped(self) -> dict:
         """Get sessions grouped by source."""
@@ -165,7 +166,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         )
         sessions = result.scalars().all()
 
-        grouped = {
+        grouped: Dict[str, List[dict[str, Any]]] = {
             "admin": [],
             "telegram": [],
             "widget": [],
@@ -251,7 +252,8 @@ class ChatRepository(BaseRepository[ChatSession]):
         await self.session.commit()
         await invalidate_session_cache(session_id)
 
-        return message.to_dict()
+        msg_data: dict[str, Any] = message.to_dict()
+        return msg_data
 
     async def delete_message(
         self,
@@ -290,7 +292,7 @@ class ChatRepository(BaseRepository[ChatSession]):
     async def get_messages_for_llm(
         self,
         session_id: str,
-        system_prompt: str = None,
+        system_prompt: Optional[str] = None,
     ) -> List[dict]:
         """Get messages in LLM format (role, content)."""
         result = await self.session.execute(

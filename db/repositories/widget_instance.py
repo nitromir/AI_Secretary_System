@@ -5,7 +5,7 @@ Widget instance repository for managing website widget instances.
 import logging
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +54,8 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         result = await self.session.execute(
             select(WidgetInstance).where(WidgetInstance.name == name)
         )
-        return result.scalar_one_or_none()
+        instance: Optional[WidgetInstance] = result.scalar_one_or_none()
+        return instance
 
     async def list_instances(self, enabled_only: bool = False) -> List[dict]:
         """List all widget instances."""
@@ -71,7 +72,9 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         instance = await self.session.get(WidgetInstance, instance_id)
         return instance.to_dict() if instance else None
 
-    async def create_instance(self, name: str, description: str = None, **kwargs) -> dict:
+    async def create_instance(
+        self, name: str, description: Optional[str] = None, **kwargs: Any
+    ) -> dict:
         """Create new widget instance."""
         instance_id = kwargs.pop("id", None) or self._generate_id(name)
 
@@ -120,7 +123,7 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         logger.info(f"Created widget instance: {instance_id}")
         return instance.to_dict()
 
-    async def update_instance(self, instance_id: str, **kwargs) -> Optional[dict]:
+    async def update_instance(self, instance_id: str, **kwargs: Any) -> Optional[dict]:
         """Update widget instance."""
         instance = await self.session.get(WidgetInstance, instance_id)
         if not instance:
@@ -159,7 +162,8 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         await self.session.refresh(instance)
 
         logger.info(f"Updated widget instance: {instance_id}")
-        return instance.to_dict()
+        data: dict[str, Any] = instance.to_dict()
+        return data
 
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete widget instance."""
@@ -181,7 +185,7 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
             .values(enabled=enabled, updated=datetime.utcnow())
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def get_enabled_instances(self) -> List[dict]:
         """Get all enabled widget instances."""
@@ -196,7 +200,9 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         """Get total number of widget instances."""
         return await self.count()
 
-    async def import_from_legacy_config(self, config: dict, instance_id: str = "default") -> dict:
+    async def import_from_legacy_config(
+        self, config: dict[str, Any], instance_id: str = "default"
+    ) -> dict[str, Any]:
         """
         Import from legacy widget_config format.
         Creates a new instance or updates existing "default" instance.
@@ -205,7 +211,7 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
 
         if existing:
             # Update existing
-            return await self.update_instance(
+            update_result = await self.update_instance(
                 instance_id,
                 name=config.get("name", "Default Widget"),
                 enabled=config.get("enabled", False),
@@ -217,6 +223,7 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
                 allowed_domains=config.get("allowed_domains", []),
                 tunnel_url=config.get("tunnel_url", ""),
             )
+            return update_result or {}
         else:
             # Create new
             return await self.create_instance(

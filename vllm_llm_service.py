@@ -388,16 +388,36 @@ class VLLMLLMService:
         # Возвращаем промпт текущей персоны
         return self.persona["prompt"]
 
-    def set_persona(self, persona_id: str) -> bool:
+    def set_persona(self, persona_id: str, persona_data: Optional[Dict] = None) -> bool:
         """
         Меняет персону секретаря.
 
         Args:
-            persona_id: ID персоны (gulya, lidia)
+            persona_id: ID персоны (gulya, lidia, или любой из БД)
+            persona_data: Данные персоны из БД (name, prompt, и т.д.).
+                          Если не указано, ищет в SECRETARY_PERSONAS.
 
         Returns:
             True если персона успешно изменена
         """
+        if persona_data:
+            # Используем данные из БД
+            self.persona_id = persona_id
+            self.persona = {
+                "name": persona_data.get("name", persona_id),
+                "full_name": persona_data.get("name", persona_id),
+                "description": persona_data.get("description", ""),
+                "prompt": persona_data.get("system_prompt", ""),
+            }
+            self.system_prompt = persona_data.get("system_prompt", "")
+            # Обновляем runtime параметры если есть
+            for key in ("temperature", "max_tokens", "top_p", "repetition_penalty"):
+                if key in persona_data:
+                    self.runtime_params[key] = persona_data[key]
+            logger.info(f"👤 Персона изменена на: {self.persona['name']} ({persona_id}) [DB]")
+            return True
+
+        # Fallback на встроенные персоны
         if persona_id not in SECRETARY_PERSONAS:
             logger.warning(f"⚠️ Персона '{persona_id}' не найдена")
             return False
