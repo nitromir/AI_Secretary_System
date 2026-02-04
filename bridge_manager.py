@@ -111,10 +111,10 @@ class BridgeProcessManager:
 
             # Open log file
             log_fd = open(self._log_file, "a", encoding="utf-8")
-            log_fd.write(f"\n{'='*60}\n")
+            log_fd.write(f"\n{'=' * 60}\n")
             log_fd.write(f"Bridge starting at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             log_fd.write(f"Port: {port}, Permission: {permission_level}\n")
-            log_fd.write(f"{'='*60}\n")
+            log_fd.write(f"{'=' * 60}\n")
             log_fd.flush()
 
             # Set environment
