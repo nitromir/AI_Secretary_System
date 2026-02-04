@@ -59,7 +59,7 @@ async def check_cli_available(
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout, stderr = await asyncio.wait_for(
+        stdout, _stderr = await asyncio.wait_for(
             process.communicate(),
             timeout=25,
         )

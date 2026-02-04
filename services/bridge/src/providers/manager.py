@@ -58,7 +58,7 @@ class ProviderManager:
 
         # Check provider prefix (e.g., "claude:sonnet" -> claude provider)
         if ":" in model:
-            provider_name = model.split(":")[0]
+            provider_name = model.split(":", maxsplit=1)[0]
             return self._providers.get(provider_name)
 
         # Check if model name contains provider hint
