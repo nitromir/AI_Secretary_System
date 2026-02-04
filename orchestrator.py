@@ -42,6 +42,7 @@ from app.routers import (
     telegram,
     tts,
     widget,
+    yoomoney_webhook,
 )
 from auth_manager import (
     LoginRequest,
@@ -362,6 +363,7 @@ app.include_router(widget.router)
 app.include_router(gsm.router)
 app.include_router(bot_sales.router)
 app.include_router(github_webhook.router)
+app.include_router(yoomoney_webhook.router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0

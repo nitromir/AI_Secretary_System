@@ -134,15 +134,52 @@ async def _switch_to_cloud_provider(provider_id: str, stop_unused: bool, user: U
     if not provider_config.get("enabled"):
         raise HTTPException(status_code=400, detail=f"Provider {provider_id} is disabled")
 
-    if not provider_config.get("api_key"):
+    is_bridge = provider_config.get("provider_type") == "claude_bridge"
+
+    # Bridge doesn't need API key (uses local claude CLI auth)
+    if not is_bridge and not provider_config.get("api_key"):
         raise HTTPException(
             status_code=400, detail=f"Provider {provider_id} has no API key configured"
         )
 
     try:
+        # Auto-start bridge if provider_type is claude_bridge
+        if is_bridge:
+            from bridge_manager import bridge_manager
+
+            if not bridge_manager.is_running:
+                config = provider_config.get("config") or {}
+                port = config.get("bridge_port", 8787)
+                permission = config.get("permission_level", "chat")
+                result = await bridge_manager.start(port=port, permission_level=permission)
+                if result.get("status") != "ok":
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Bridge failed to start: {result.get('error')}",
+                    )
+
+            # Override base_url to actual bridge URL
+            provider_config["base_url"] = bridge_manager.get_base_url()
+            # Bridge doesn't need API key — set dummy for OpenAICompatibleProvider
+            if not provider_config.get("api_key"):
+                provider_config["api_key"] = "bridge-local"
+
         new_service = CloudLLMService(provider_config)
         if not new_service.is_available():
             raise HTTPException(status_code=503, detail=f"Provider {provider_id} is not responding")
+
+        # Stop bridge if switching away from claude_bridge
+        current_service = container.llm_service
+        if (
+            current_service
+            and getattr(current_service, "provider_type", None) == "claude_bridge"
+            and not is_bridge
+        ):
+            from bridge_manager import bridge_manager
+
+            if bridge_manager.is_running:
+                logger.info("🛑 Stopping bridge (switching to another provider)...")
+                await bridge_manager.stop()
 
         container.llm_service = new_service
         os.environ["LLM_BACKEND"] = f"cloud:{provider_id}"
@@ -351,6 +388,15 @@ async def admin_set_llm_backend(
 ):
     """Переключить LLM backend с горячей перезагрузкой сервиса"""
     container = get_container()
+
+    # Stop bridge if currently running and switching away from it
+    current_service = container.llm_service
+    if current_service and getattr(current_service, "provider_type", None) == "claude_bridge":
+        from bridge_manager import bridge_manager
+
+        if bridge_manager.is_running:
+            logger.info("🛑 Stopping bridge (switching backend)...")
+            await bridge_manager.stop()
 
     # Check if it's a cloud provider
     if request.backend.startswith("cloud:"):
@@ -713,12 +759,28 @@ async def admin_test_cloud_provider(provider_id: str, user: User = Depends(get_c
     if not provider_config:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    if not provider_config.get("api_key"):
+    is_bridge = provider_config.get("provider_type") == "claude_bridge"
+
+    if not is_bridge and not provider_config.get("api_key"):
         return {
             "status": "error",
             "available": False,
             "message": "No API key configured",
         }
+
+    # For bridge: ensure it's running and set URL
+    if is_bridge:
+        from bridge_manager import bridge_manager
+
+        if not bridge_manager.is_running:
+            return {
+                "status": "error",
+                "available": False,
+                "message": "Bridge is not running. Start it first.",
+            }
+        provider_config["base_url"] = bridge_manager.get_base_url()
+        if not provider_config.get("api_key"):
+            provider_config["api_key"] = "bridge-local"
 
     try:
         service = CloudLLMService(provider_config)
@@ -962,6 +1024,67 @@ async def admin_reset_persona_prompt(persona: str, user: User = Depends(get_curr
         )
 
         return {"status": "ok", "persona": persona, "prompt": default_data["system_prompt"]}
+
+
+# ============== Bridge Endpoints ==============
+
+
+@router.get("/bridge/status")
+async def admin_get_bridge_status():
+    """Get CLI-OpenAI Bridge process status."""
+    from bridge_manager import bridge_manager
+
+    return bridge_manager.get_status()
+
+
+@router.post("/bridge/start")
+async def admin_start_bridge(user: User = Depends(get_current_user)):
+    """Manually start the CLI-OpenAI Bridge."""
+    from bridge_manager import bridge_manager
+
+    if bridge_manager.is_running:
+        return {
+            "status": "ok",
+            "message": "Bridge is already running",
+            **bridge_manager.get_status(),
+        }
+
+    result = await bridge_manager.start()
+    if result.get("status") != "ok":
+        raise HTTPException(
+            status_code=503, detail=f"Bridge failed to start: {result.get('error')}"
+        )
+
+    await async_audit_logger.log(
+        action="create",
+        resource="bridge",
+        resource_id="bridge",
+        user_id=user.username,
+        details={"action": "start"},
+    )
+
+    return result
+
+
+@router.post("/bridge/stop")
+async def admin_stop_bridge(user: User = Depends(get_current_user)):
+    """Manually stop the CLI-OpenAI Bridge."""
+    from bridge_manager import bridge_manager
+
+    if not bridge_manager.is_running:
+        return {"status": "ok", "message": "Bridge is not running"}
+
+    result = await bridge_manager.stop()
+
+    await async_audit_logger.log(
+        action="delete",
+        resource="bridge",
+        resource_id="bridge",
+        user_id=user.username,
+        details={"action": "stop"},
+    )
+
+    return result
 
 
 # ============== VLESS Proxy Endpoints ==============

@@ -69,6 +69,10 @@ class BotInstanceCreateRequest(BaseModel):
     stars_enabled: bool = False
     payment_products: Optional[list] = None
     payment_success_message: Optional[str] = None
+    # YooMoney OAuth2
+    yoomoney_client_id: Optional[str] = None
+    yoomoney_client_secret: Optional[str] = None
+    yoomoney_redirect_uri: Optional[str] = None
 
 
 class BotInstanceUpdateRequest(BaseModel):
@@ -95,6 +99,10 @@ class BotInstanceUpdateRequest(BaseModel):
     stars_enabled: Optional[bool] = None
     payment_products: Optional[list] = None
     payment_success_message: Optional[str] = None
+    # YooMoney OAuth2
+    yoomoney_client_id: Optional[str] = None
+    yoomoney_client_secret: Optional[str] = None
+    yoomoney_redirect_uri: Optional[str] = None
 
 
 # ============== Legacy Config Endpoints ==============
@@ -593,3 +601,150 @@ async def admin_get_payment_stats(instance_id: str):
 
     stats = await async_payment_manager.get_payment_stats(instance_id)
     return {"stats": stats}
+
+
+# ============== YooMoney OAuth2 Endpoints ==============
+
+
+@router.get("/instances/{instance_id}/yoomoney/auth-url")
+async def admin_yoomoney_auth_url(instance_id: str, user: User = Depends(get_current_user)):
+    """Generate YooMoney OAuth2 authorization URL."""
+    from app.services.yoomoney_service import build_auth_url
+
+    instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    client_id = instance.get("yoomoney_client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="yoomoney_client_id not configured")
+
+    redirect_uri = instance.get("yoomoney_redirect_uri")
+    if not redirect_uri:
+        # Default: current orchestrator URL + callback path
+        port = os.getenv("ORCHESTRATOR_PORT", "8002")
+        redirect_uri = (
+            f"http://localhost:{port}/admin/telegram/instances/{instance_id}/yoomoney/callback"
+        )
+
+    url = build_auth_url(
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        instance_name=instance.get("name", instance_id),
+    )
+    return {"auth_url": url, "redirect_uri": redirect_uri}
+
+
+@router.get("/instances/{instance_id}/yoomoney/callback")
+async def admin_yoomoney_callback(
+    instance_id: str, code: Optional[str] = None, error: Optional[str] = None
+):
+    """Handle YooMoney OAuth2 callback — exchange code for access_token."""
+    from app.services.yoomoney_service import exchange_code_for_token, get_account_info
+
+    if error:
+        return {"status": "error", "detail": f"YooMoney authorization denied: {error}"}
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    client_id = instance.get("yoomoney_client_id", "")
+    client_secret = instance.get("yoomoney_client_secret")
+    redirect_uri = instance.get("yoomoney_redirect_uri", "")
+    if not redirect_uri:
+        port = os.getenv("ORCHESTRATOR_PORT", "8002")
+        redirect_uri = (
+            f"http://localhost:{port}/admin/telegram/instances/{instance_id}/yoomoney/callback"
+        )
+
+    # Exchange code for token
+    result = exchange_code_for_token(
+        code=code,
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        client_secret=client_secret,
+    )
+    # Handle both sync and async
+    if asyncio.iscoroutine(result):
+        result = await result
+
+    if "error" in result:
+        return {"status": "error", "detail": result.get("error_description", result["error"])}
+
+    access_token = result["access_token"]
+
+    # Get wallet info
+    account = await get_account_info(access_token)
+    wallet_id = account.get("account", "") if account else ""
+
+    # Save to database
+    await async_bot_instance_manager.update_instance(
+        instance_id,
+        yoomoney_access_token=access_token,
+        yoomoney_wallet_id=wallet_id,
+    )
+
+    # Return HTML page that closes the popup
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(
+        f"""<!DOCTYPE html><html><body>
+        <h2>YooMoney подключён!</h2>
+        <p>Кошелёк: {wallet_id}</p>
+        <p>Это окно можно закрыть.</p>
+        <script>
+            if (window.opener) {{
+                window.opener.postMessage({{type: 'yoomoney_connected', wallet_id: '{wallet_id}'}}, '*');
+                setTimeout(() => window.close(), 2000);
+            }}
+        </script>
+        </body></html>"""
+    )
+
+
+@router.get("/instances/{instance_id}/yoomoney/status")
+async def admin_yoomoney_status(instance_id: str, user: User = Depends(get_current_user)):
+    """Check YooMoney connection status and wallet balance."""
+    from app.services.yoomoney_service import get_account_info
+
+    instance = await async_bot_instance_manager.get_instance_with_token(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    access_token = instance.get("yoomoney_access_token")
+    if not access_token:
+        return {
+            "connected": False,
+            "client_id": instance.get("yoomoney_client_id"),
+        }
+
+    account = await get_account_info(access_token)
+    if not account:
+        return {"connected": False, "error": "Token expired or invalid"}
+
+    return {
+        "connected": True,
+        "wallet_id": account.get("account"),
+        "balance": account.get("balance"),
+        "currency": account.get("currency", "RUB"),
+        "account_type": account.get("account_type"),
+    }
+
+
+@router.post("/instances/{instance_id}/yoomoney/disconnect")
+async def admin_yoomoney_disconnect(instance_id: str, user: User = Depends(get_current_user)):
+    """Disconnect YooMoney — remove access token."""
+    instance = await async_bot_instance_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+    await async_bot_instance_manager.update_instance(
+        instance_id,
+        yoomoney_access_token=None,
+        yoomoney_wallet_id=None,
+    )
+    return {"status": "disconnected"}

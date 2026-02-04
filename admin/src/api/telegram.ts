@@ -95,6 +95,12 @@ export interface BotInstance {
   stars_enabled: boolean
   payment_products: PaymentProduct[]
   payment_success_message?: string
+  // YooMoney
+  yoomoney_client_id?: string
+  yoomoney_client_secret?: string
+  yoomoney_redirect_uri?: string
+  yoomoney_configured?: boolean
+  yoomoney_wallet_id?: string
   // Status (added by API)
   running?: boolean
   pid?: number

@@ -1,0 +1,58 @@
+/* Dashboard Styles */
+
+/* Animations */
+.log-entry {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.typing {
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* Text formatting */
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Custom scrollbar */
+.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+    background: #161b22;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* Dark theme colors (matching Tailwind config) */
+.bg-dark-bg { background-color: #0d1117; }
+.bg-dark-card { background-color: #161b22; }
+.bg-dark-border { background-color: #30363d; }
+.text-dark-text { color: #c9d1d9; }
+.text-dark-muted { color: #8b949e; }
+.border-dark-border { border-color: #30363d; }

@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 15 tabs, i18n (ru/en), themes, ~150 API endpoints across 14 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features, and fine-tuning with project dataset generation.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 15 tabs, i18n (ru/en), themes, ~160 API endpoints across 15 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features and YooMoney/YooKassa/Stars payments, and fine-tuning with project dataset generation.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (14 modular routers, ~150 endpoints)     │
+│  orchestrator.py + app/routers/ (15 modular routers, ~160 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
 │  │              Vue 3 Admin Panel (14 tabs, PWA)                      │   │
@@ -145,30 +145,33 @@ python prepare_dataset.py && python train.py
 orchestrator.py              # FastAPI entry point, global state, legacy endpoints
 app/
 ├── dependencies.py          # ServiceContainer for DI
-├── routers/                 # 14 modular routers (~150 endpoints)
+├── routers/                 # 15 modular routers (~160 endpoints)
 │   ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
 │   ├── audit.py             # 4 endpoints  - Audit log viewing/export
 │   ├── services.py          # 6 endpoints  - vLLM start/stop/restart
 │   ├── monitor.py           # 7 endpoints  - GPU stats, health, SSE metrics
 │   ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
 │   ├── stt.py               # 4 endpoints  - STT status, transcribe
-│   ├── llm.py               # 27 endpoints - Backend, persona, cloud providers, VLESS proxy
+│   ├── llm.py               # 30 endpoints - Backend, persona, cloud providers, VLESS proxy, bridge
 │   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
 │   ├── chat.py              # 12 endpoints - Sessions (CRUD, bulk delete, grouping), messages, streaming
-│   ├── telegram.py          # 25 endpoints - Bot instances CRUD, control, payments
+│   ├── telegram.py          # 29 endpoints - Bot instances CRUD, control, payments, YooMoney
 │   ├── widget.py            # 7 endpoints  - Widget instances CRUD
 │   ├── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
 │   ├── bot_sales.py         # 20 endpoints - Sales bot (quiz, segments, funnels, testimonials)
-│   └── github_webhook.py    # 4 endpoints  - GitHub webhook (stars, releases)
+│   ├── github_webhook.py    # 4 endpoints  - GitHub webhook (stars, releases)
+│   └── yoomoney_webhook.py  # 2 endpoints  - YooMoney payment webhook
 └── services/
     ├── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
-    └── sales_funnel.py      # Sales funnel logic (segmentation, pricing, follow-ups)
+    ├── sales_funnel.py      # Sales funnel logic (segmentation, pricing, follow-ups)
+    └── yoomoney_service.py  # YooMoney OAuth & payment processing
 ```
 
 **Core Services:**
 | File | Purpose |
 |------|---------|
-| `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) |
+| `cloud_llm_service.py` | Cloud LLM factory (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter, Claude Bridge) |
+| `bridge_manager.py` | CLI-OpenAI Bridge process manager (auto-start/stop subprocess) |
 | `xray_proxy_manager.py` | VLESS proxy manager for Gemini (xray-core process, URL parsing) |
 | `vllm_llm_service.py` | vLLM API + `SECRETARY_PERSONAS` dict |
 | `voice_clone_service.py` | XTTS v2 with custom presets + streaming synthesis |
@@ -183,7 +186,7 @@ app/
 
 ```
 admin/src/
-├── views/                   # 14 tabs + LoginView
+├── views/                   # 15 tabs + LoginView
 ├── api/                     # API clients + SSE helpers
 ├── stores/                  # Pinia (auth, theme, toast, audit, services, llm)
 ├── composables/             # useSSE, useRealtimeMetrics, useExportImport
@@ -350,6 +353,7 @@ Supported providers (configured via Admin Panel → LLM → Cloud Providers):
 | **Anthropic** | — | `claude-opus-4.5`, `claude-sonnet-4` |
 | **DeepSeek** | — | `deepseek-chat`, `deepseek-coder` |
 | **Kimi** | — | `kimi-k2`, `moonshot-v1-128k` |
+| **Claude Bridge** | (uses local `claude` CLI) | `sonnet`, `opus`, `haiku` |
 
 **Usage in Telegram bots:**
 - Set `llm_backend` in bot config: `"vllm"` or `"cloud:{provider_id}"` (dynamic dropdown in UI)
@@ -422,6 +426,51 @@ GeminiProvider → XrayProxyManagerWithFallback → xray-core (SOCKS5/HTTP) → 
 - All proxies fail → Fallback to direct connection
 - VLESS server unreachable → SDK timeout, error returned to user
 
+## CLI-OpenAI Bridge (Claude Code)
+
+The Claude Bridge provider wraps the local `claude` CLI (Claude Code) into an OpenAI-compatible API via a bridge subprocess. This allows using Claude Code as an LLM backend without an API key.
+
+**How it works:**
+```
+Admin Panel → Select "Claude Bridge" provider → Click "Use"
+                                                      ↓
+                                              BridgeProcessManager.start()
+                                                      ↓
+                                          services/bridge/ (FastAPI on port 8787)
+                                                      ↓
+                                              claude CLI (subprocess)
+                                                      ↓
+                                          OpenAICompatibleProvider → /v1/chat/completions
+```
+
+**Setup:**
+1. Ensure `claude` CLI is installed and authenticated
+2. In Admin → LLM → Cloud Providers → Add Provider
+3. Select type "Claude Bridge (Local CLI)"
+4. Configure permission level (chat/readonly/edit/full) and port
+5. Click "Use" — bridge auto-starts
+
+**Permission levels:**
+- `chat` — Chat only, no file access (safe, default)
+- `readonly` — Can read files
+- `edit` — Can edit files
+- `full` — Full access (dangerous)
+
+**API endpoints:**
+- `GET /admin/llm/bridge/status` — Bridge process status (running, pid, port, uptime)
+- `POST /admin/llm/bridge/start` — Manually start bridge
+- `POST /admin/llm/bridge/stop` — Manually stop bridge
+
+**Auto-management:**
+- Bridge auto-starts when switching to a `claude_bridge` provider
+- Bridge auto-stops when switching to another provider or backend
+- Bridge config stored in provider's `config` JSON: `{"bridge_port": 8787, "permission_level": "chat"}`
+
+**Key files:**
+- `bridge_manager.py` — Process manager (start/stop/status)
+- `services/bridge/` — Full bridge source (FastAPI server)
+- `services/bridge/.env` — Bridge configuration
+
 ## GSM Telephony (SIM7600E-H)
 
 Support for GSM telephony via SIM7600E-H 4G LTE module for voice calls and SMS.
@@ -488,10 +537,11 @@ ALTER TABLE bot_instances ADD COLUMN auto_start BOOLEAN DEFAULT 0;
 
 ## Telegram Bot Payments
 
-Telegram bots support accepting payments via YooKassa (RUB) and Telegram Stars (XTR).
+Telegram bots support accepting payments via YooKassa (RUB), YooMoney (OAuth), and Telegram Stars (XTR).
 
 **Supported payment methods:**
 - **YooKassa** — Russian payment provider, requires provider token from BotFather
+- **YooMoney** — Direct wallet payments via OAuth (no BotFather token needed)
 - **Telegram Stars (XTR)** — Telegram's native digital currency, no provider token needed
 
 **How it works:**
@@ -506,10 +556,20 @@ Telegram bots support accepting payments via YooKassa (RUB) and Telegram Stars (
 /pay or "Оплата" button → send_invoice() → PreCheckoutQuery (auto-approved) → SuccessfulPayment → log to DB
 ```
 
+**YooMoney OAuth flow:**
+1. Configure YooMoney client_id/secret in bot settings
+2. Click "Authorize YooMoney" → OAuth popup
+3. User grants access → callback stores access token
+4. Bot can now accept YooMoney payments
+
 **API endpoints:**
 - `POST /admin/telegram/instances/{id}/payments` — Log payment (internal, from bot)
 - `GET /admin/telegram/instances/{id}/payments` — Payment history (admin UI)
 - `GET /admin/telegram/instances/{id}/payments/stats` — Payment statistics
+- `GET /admin/telegram/instances/{id}/yoomoney/auth-url` — Get YooMoney OAuth URL
+- `GET /admin/telegram/instances/{id}/yoomoney/callback` — OAuth callback handler
+- `POST /admin/telegram/instances/{id}/yoomoney/disconnect` — Disconnect YooMoney
+- `POST /yoomoney/webhook` — YooMoney payment notification webhook
 
 **Migration for existing databases:**
 ```bash

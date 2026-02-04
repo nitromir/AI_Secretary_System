@@ -335,6 +335,13 @@ class BotInstance(Base):
     payment_products: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     payment_success_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # YooMoney OAuth2 configuration
+    yoomoney_client_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    yoomoney_client_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    yoomoney_access_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    yoomoney_wallet_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    yoomoney_redirect_uri: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     # Timestamps
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated: Mapped[datetime] = mapped_column(
@@ -442,6 +449,10 @@ class BotInstance(Base):
             "stars_enabled": self.stars_enabled,
             "payment_products": self.get_payment_products(),
             "payment_success_message": self.payment_success_message,
+            # YooMoney
+            "yoomoney_client_id": self.yoomoney_client_id,
+            "yoomoney_configured": bool(self.yoomoney_access_token),
+            "yoomoney_wallet_id": self.yoomoney_wallet_id,
             # Timestamps
             "created": self.created.isoformat() if self.created else None,
             "updated": self.updated.isoformat() if self.updated else None,
@@ -675,6 +686,12 @@ PROVIDER_TYPES = {
         "default_base_url": "",
         "default_models": [],
         "requires_base_url": True,
+    },
+    "claude_bridge": {
+        "name": "Claude Bridge (Local CLI)",
+        "default_base_url": "http://127.0.0.1:8787",
+        "default_models": ["sonnet", "opus", "haiku"],
+        "requires_base_url": False,
     },
 }
 

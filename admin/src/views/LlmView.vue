@@ -116,6 +116,13 @@ const { data: proxyStatusData } = useQuery({
   queryFn: () => llmApi.getProxyStatus(),
 })
 
+// Bridge status query
+const { data: bridgeStatusData, refetch: refetchBridgeStatus } = useQuery({
+  queryKey: ['bridge-status'],
+  queryFn: () => llmApi.getBridgeStatus(),
+  refetchInterval: 10000,
+})
+
 // Local state for params
 const localParams = ref<Partial<LlmParams>>({})
 
@@ -152,6 +159,13 @@ const currentCloudProviderId = computed(() => {
 
 // Check if current provider form is for Gemini
 const isGeminiProvider = computed(() => providerForm.value.provider_type === 'gemini')
+
+// Check if current provider form is for Bridge
+const isBridgeProvider = computed(() => providerForm.value.provider_type === 'claude_bridge')
+
+// Bridge-specific state
+const bridgePort = ref(8787)
+const bridgePermission = ref('chat')
 
 // Proxy status
 const proxyStatus = computed(() => proxyStatusData.value?.proxy)
@@ -484,6 +498,8 @@ function openCreateProviderModal() {
   customModelName.value = ''
   vlessUrlsText.value = ''
   vlessTestResults.value = []
+  bridgePort.value = 8787
+  bridgePermission.value = 'chat'
   showProviderModal.value = true
 }
 
@@ -518,6 +534,10 @@ function openEditProviderModal(provider: CloudProvider) {
   }
   vlessTestResults.value = []
 
+  // Load bridge config if present
+  bridgePort.value = (provider.config?.bridge_port as number) || 8787
+  bridgePermission.value = (provider.config?.permission_level as string) || 'chat'
+
   showProviderModal.value = true
 }
 
@@ -547,6 +567,15 @@ function saveProvider() {
 
   if (!data.api_key) {
     delete data.api_key // Don't update if empty
+  }
+
+  // Add bridge config for claude_bridge providers
+  if (providerForm.value.provider_type === 'claude_bridge') {
+    data.config = {
+      ...(editingProvider.value?.config || {}),
+      bridge_port: bridgePort.value,
+      permission_level: bridgePermission.value,
+    }
   }
 
   // Add VLESS URLs to config for Gemini providers
@@ -726,6 +755,18 @@ function switchToCloudProvider(providerId: string) {
                     :title="`${getProxyCount(provider.config)} VLESS proxy(ies) configured`"
                   >
                     <Shield class="w-3 h-3" /> {{ getProxyCount(provider.config) }} Proxy
+                  </span>
+                  <span
+                    v-if="provider.provider_type === 'claude_bridge'"
+                    :class="[
+                      'flex items-center gap-1 px-2 py-0.5 rounded text-xs',
+                      bridgeStatusData?.is_running
+                        ? 'bg-green-500/20 text-green-600'
+                        : 'bg-gray-500/20 text-gray-500'
+                    ]"
+                  >
+                    <Cpu class="w-3 h-3" />
+                    {{ bridgeStatusData?.is_running ? t('llm.bridgeRunning') : t('llm.bridgeStopped') }}
                   </span>
                 </div>
                 <p class="text-sm text-muted-foreground">
@@ -1285,7 +1326,7 @@ function switchToCloudProvider(providerId: string) {
             </select>
           </div>
 
-          <div>
+          <div v-if="!isBridgeProvider">
             <label class="block text-sm font-medium mb-1">API Key</label>
             <input
               v-model="providerForm.api_key"
@@ -1434,6 +1475,56 @@ vless://uuid@host2:port?security=reality&pbk=...#proxy2"
                 <AlertCircle class="w-3 h-3 inline mr-1" />
                 xray-core binary not found. Install it to use VLESS proxy.
               </p>
+            </div>
+          </div>
+
+          <!-- Bridge Settings (claude_bridge only) -->
+          <div v-if="isBridgeProvider" class="border-t border-border pt-4 mt-2">
+            <div class="flex items-center gap-2 mb-3">
+              <Cpu class="w-4 h-4 text-blue-500" />
+              <span class="text-sm font-medium">{{ t('llm.bridgeSettings') }}</span>
+              <span
+                v-if="bridgeStatusData?.is_running"
+                class="px-2 py-0.5 bg-green-500/20 text-green-600 rounded text-xs"
+              >
+                {{ t('llm.bridgeRunning') }}
+              </span>
+              <span
+                v-else
+                class="px-2 py-0.5 bg-red-500/20 text-red-600 rounded text-xs"
+              >
+                {{ t('llm.bridgeStopped') }}
+              </span>
+            </div>
+
+            <p class="text-xs text-muted-foreground mb-3">
+              {{ t('llm.bridgeDescription') }}
+            </p>
+
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('llm.bridgePermission') }}</label>
+                <select
+                  v-model="bridgePermission"
+                  class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="chat">{{ t('llm.bridgePermissionChat') }}</option>
+                  <option value="readonly">{{ t('llm.bridgePermissionReadonly') }}</option>
+                  <option value="edit">{{ t('llm.bridgePermissionEdit') }}</option>
+                  <option value="full">{{ t('llm.bridgePermissionFull') }}</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('llm.bridgePort') }}</label>
+                <input
+                  v-model.number="bridgePort"
+                  type="number"
+                  min="1024"
+                  max="65535"
+                  class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
             </div>
           </div>
 

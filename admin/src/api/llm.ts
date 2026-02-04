@@ -257,6 +257,18 @@ export const llmApi = {
   switchToNextProxy: () =>
     api.post<{ status: string; proxy: ProxyStatus }>('/admin/llm/proxy/switch-next'),
 
+  // Bridge API
+  getBridgeStatus: () =>
+    api.get<{ is_running: boolean; pid: number | null; port: number; url: string; uptime: number | null; permission_level: string }>(
+      '/admin/llm/bridge/status'
+    ),
+
+  startBridge: () =>
+    api.post<{ status: string; message?: string; error?: string }>('/admin/llm/bridge/start'),
+
+  stopBridge: () =>
+    api.post<{ status: string; message?: string }>('/admin/llm/bridge/stop'),
+
   // LLM Presets API
   getPresets: () =>
     api.get<{ presets: LlmPreset[] }>('/admin/llm/presets'),

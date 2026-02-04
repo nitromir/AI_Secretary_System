@@ -125,14 +125,13 @@ async def _broadcast_to_subscribers(
     from datetime import datetime
     from pathlib import Path
 
-    import aiofiles
-
     queue_dir = Path("data") / "broadcast_queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{bot_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
 
-    async with aiofiles.open(queue_dir / filename, "w") as f:
-        await f.write(json.dumps(broadcast_data, ensure_ascii=False))
+    (queue_dir / filename).write_text(
+        json.dumps(broadcast_data, ensure_ascii=False), encoding="utf-8"
+    )
 
     logger.info(
         f"Queued broadcast for {len(user_ids)} subscribers: bot_id={bot_id}, file={filename}"

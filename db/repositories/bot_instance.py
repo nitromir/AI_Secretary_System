@@ -171,6 +171,12 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             "yookassa_provider_token",
             "stars_enabled",
             "payment_success_message",
+            # YooMoney
+            "yoomoney_client_id",
+            "yoomoney_client_secret",
+            "yoomoney_access_token",
+            "yoomoney_wallet_id",
+            "yoomoney_redirect_uri",
         ]
         for field in simple_fields:
             if field in kwargs:
