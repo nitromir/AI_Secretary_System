@@ -1,0 +1,802 @@
+# app/routers/bot_sales.py
+"""Sales bot router — CRUD for agent prompts, quiz, segments, followups,
+testimonials, hardware specs, A/B tests, subscribers, GitHub config, events/funnel."""
+
+import logging
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from auth_manager import User, get_current_user
+from db.database import AsyncSessionLocal
+from db.integration import async_audit_logger, async_bot_instance_manager
+from db.repositories.bot_ab_test import BotAbTestRepository
+from db.repositories.bot_agent_prompt import BotAgentPromptRepository
+from db.repositories.bot_discovery import BotDiscoveryRepository
+from db.repositories.bot_event import BotEventRepository
+from db.repositories.bot_followup import BotFollowupQueueRepository, BotFollowupRuleRepository
+from db.repositories.bot_github import BotGithubRepository
+from db.repositories.bot_hardware import BotHardwareRepository
+from db.repositories.bot_quiz import BotQuizRepository
+from db.repositories.bot_segment import BotSegmentRepository
+from db.repositories.bot_subscriber import BotSubscriberRepository
+from db.repositories.bot_testimonial import BotTestimonialRepository
+from db.repositories.bot_user_profile import BotUserProfileRepository
+
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/admin/telegram/instances/{instance_id}", tags=["bot-sales"])
+
+
+# ============== Helper ==============
+
+
+async def _check_instance(instance_id: str) -> None:
+    """Raise 404 if instance doesn't exist."""
+    exists = await async_bot_instance_manager.instance_exists(instance_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Bot instance not found")
+
+
+# ============== Agent Prompts ==============
+
+
+class AgentPromptRequest(BaseModel):
+    prompt_key: str
+    name: str
+    description: Optional[str] = None
+    system_prompt: str
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    enabled: bool = True
+    order: int = 0
+
+
+class AgentPromptUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    enabled: Optional[bool] = None
+    order: Optional[int] = None
+
+
+@router.get("/prompts")
+async def list_prompts(instance_id: str):
+    """List all agent prompts for bot instance."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAgentPromptRepository(session)
+        prompts = await repo.list_by_bot(instance_id)
+    return {"prompts": prompts}
+
+
+@router.post("/prompts")
+async def create_prompt(
+    instance_id: str, request: AgentPromptRequest, user: User = Depends(get_current_user)
+):
+    """Create agent prompt."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAgentPromptRepository(session)
+        prompt = await repo.create_prompt(bot_id=instance_id, **request.model_dump())
+    await async_audit_logger.log(
+        action="create",
+        resource="bot_agent_prompt",
+        resource_id=request.prompt_key,
+        user_id=user.username,
+    )
+    return {"prompt": prompt}
+
+
+@router.put("/prompts/{prompt_id}")
+async def update_prompt(
+    instance_id: str,
+    prompt_id: int,
+    request: AgentPromptUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update agent prompt."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotAgentPromptRepository(session)
+        prompt = await repo.update_prompt(prompt_id, **kwargs)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return {"prompt": prompt}
+
+
+@router.delete("/prompts/{prompt_id}")
+async def delete_prompt(instance_id: str, prompt_id: int, user: User = Depends(get_current_user)):
+    """Delete agent prompt."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAgentPromptRepository(session)
+        ok = await repo.delete_prompt(prompt_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return {"status": "ok"}
+
+
+# ============== Quiz Questions ==============
+
+
+class QuizQuestionRequest(BaseModel):
+    question_key: str
+    text: str
+    order: int = 0
+    enabled: bool = True
+    options: List[dict] = []
+
+
+class QuizQuestionUpdateRequest(BaseModel):
+    text: Optional[str] = None
+    order: Optional[int] = None
+    enabled: Optional[bool] = None
+    options: Optional[List[dict]] = None
+
+
+@router.get("/quiz")
+async def list_quiz_questions(instance_id: str):
+    """List all quiz questions for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotQuizRepository(session)
+        questions = await repo.list_by_bot(instance_id)
+    return {"questions": questions}
+
+
+@router.post("/quiz")
+async def create_quiz_question(
+    instance_id: str, request: QuizQuestionRequest, user: User = Depends(get_current_user)
+):
+    """Create quiz question."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotQuizRepository(session)
+        question = await repo.create_question(bot_id=instance_id, **request.model_dump())
+    return {"question": question}
+
+
+@router.put("/quiz/{question_id}")
+async def update_quiz_question(
+    instance_id: str,
+    question_id: int,
+    request: QuizQuestionUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update quiz question."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotQuizRepository(session)
+        question = await repo.update_question(question_id, **kwargs)
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return {"question": question}
+
+
+@router.delete("/quiz/{question_id}")
+async def delete_quiz_question(
+    instance_id: str, question_id: int, user: User = Depends(get_current_user)
+):
+    """Delete quiz question."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotQuizRepository(session)
+        ok = await repo.delete_question(question_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return {"status": "ok"}
+
+
+# ============== Segments ==============
+
+
+class SegmentRequest(BaseModel):
+    segment_key: str
+    name: str
+    description: Optional[str] = None
+    path: str  # diy, basic, custom
+    match_rules: dict = {}
+    priority: int = 0
+    agent_prompt_key: Optional[str] = None
+    enabled: bool = True
+
+
+class SegmentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    path: Optional[str] = None
+    match_rules: Optional[dict] = None
+    priority: Optional[int] = None
+    agent_prompt_key: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@router.get("/segments")
+async def list_segments(instance_id: str):
+    """List all segments for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSegmentRepository(session)
+        segments = await repo.list_by_bot(instance_id)
+    return {"segments": segments}
+
+
+@router.post("/segments")
+async def create_segment(
+    instance_id: str, request: SegmentRequest, user: User = Depends(get_current_user)
+):
+    """Create segment."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSegmentRepository(session)
+        segment = await repo.create_segment(bot_id=instance_id, **request.model_dump())
+    return {"segment": segment}
+
+
+@router.put("/segments/{segment_id}")
+async def update_segment(
+    instance_id: str,
+    segment_id: int,
+    request: SegmentUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update segment."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotSegmentRepository(session)
+        segment = await repo.update_segment(segment_id, **kwargs)
+    if not segment:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return {"segment": segment}
+
+
+@router.delete("/segments/{segment_id}")
+async def delete_segment(instance_id: str, segment_id: int, user: User = Depends(get_current_user)):
+    """Delete segment."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSegmentRepository(session)
+        ok = await repo.delete_segment(segment_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return {"status": "ok"}
+
+
+# ============== Follow-up Rules ==============
+
+
+class FollowupRuleRequest(BaseModel):
+    name: str
+    trigger: str
+    delay_hours: int = 24
+    segment_filter: Optional[str] = None
+    message_template: str
+    buttons: List[dict] = []
+    max_sends: int = 2
+    enabled: bool = True
+    order: int = 0
+
+
+class FollowupRuleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    trigger: Optional[str] = None
+    delay_hours: Optional[int] = None
+    segment_filter: Optional[str] = None
+    message_template: Optional[str] = None
+    buttons: Optional[List[dict]] = None
+    max_sends: Optional[int] = None
+    enabled: Optional[bool] = None
+    order: Optional[int] = None
+
+
+@router.get("/followups")
+async def list_followup_rules(instance_id: str):
+    """List all follow-up rules for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotFollowupRuleRepository(session)
+        rules = await repo.list_rules_by_bot(instance_id)
+    return {"rules": rules}
+
+
+@router.post("/followups")
+async def create_followup_rule(
+    instance_id: str, request: FollowupRuleRequest, user: User = Depends(get_current_user)
+):
+    """Create follow-up rule."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotFollowupRuleRepository(session)
+        rule = await repo.create_rule(bot_id=instance_id, **request.model_dump())
+    return {"rule": rule}
+
+
+@router.put("/followups/{rule_id}")
+async def update_followup_rule(
+    instance_id: str,
+    rule_id: int,
+    request: FollowupRuleUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update follow-up rule."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotFollowupRuleRepository(session)
+        rule = await repo.update_rule(rule_id, **kwargs)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"rule": rule}
+
+
+@router.delete("/followups/{rule_id}")
+async def delete_followup_rule(
+    instance_id: str, rule_id: int, user: User = Depends(get_current_user)
+):
+    """Delete follow-up rule."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotFollowupRuleRepository(session)
+        ok = await repo.delete_rule(rule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "ok"}
+
+
+@router.get("/followups/queue")
+async def get_followup_queue(instance_id: str, status: str = "pending"):
+    """Get follow-up queue for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotFollowupQueueRepository(session)
+        queue = await repo.get_queue_by_bot(instance_id, status=status)
+    return {"queue": queue}
+
+
+# ============== Testimonials ==============
+
+
+class TestimonialRequest(BaseModel):
+    text: str
+    author: str = "***"
+    rating: int = 5
+    enabled: bool = True
+    order: int = 0
+
+
+class TestimonialUpdateRequest(BaseModel):
+    text: Optional[str] = None
+    author: Optional[str] = None
+    rating: Optional[int] = None
+    enabled: Optional[bool] = None
+    order: Optional[int] = None
+
+
+@router.get("/testimonials")
+async def list_testimonials(instance_id: str):
+    """List all testimonials for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotTestimonialRepository(session)
+        testimonials = await repo.list_by_bot(instance_id)
+    return {"testimonials": testimonials}
+
+
+@router.post("/testimonials")
+async def create_testimonial(
+    instance_id: str, request: TestimonialRequest, user: User = Depends(get_current_user)
+):
+    """Create testimonial."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotTestimonialRepository(session)
+        testimonial = await repo.create_testimonial(bot_id=instance_id, **request.model_dump())
+    return {"testimonial": testimonial}
+
+
+@router.put("/testimonials/{testimonial_id}")
+async def update_testimonial(
+    instance_id: str,
+    testimonial_id: int,
+    request: TestimonialUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update testimonial."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotTestimonialRepository(session)
+        testimonial = await repo.update_testimonial(testimonial_id, **kwargs)
+    if not testimonial:
+        raise HTTPException(status_code=404, detail="Testimonial not found")
+    return {"testimonial": testimonial}
+
+
+@router.delete("/testimonials/{testimonial_id}")
+async def delete_testimonial(
+    instance_id: str, testimonial_id: int, user: User = Depends(get_current_user)
+):
+    """Delete testimonial."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotTestimonialRepository(session)
+        ok = await repo.delete_testimonial(testimonial_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Testimonial not found")
+    return {"status": "ok"}
+
+
+# ============== Hardware Specs ==============
+
+
+class HardwareSpecRequest(BaseModel):
+    gpu_name: str
+    gpu_vram_gb: int
+    gpu_family: str
+    recommended_llm: str
+    recommended_tts: str = "xtts"
+    recommended_stt: str = "whisper"
+    quality_stars: int = 3
+    speed_note: Optional[str] = None
+    notes: Optional[str] = None
+    enabled: bool = True
+    order: int = 0
+
+
+class HardwareSpecUpdateRequest(BaseModel):
+    gpu_name: Optional[str] = None
+    gpu_vram_gb: Optional[int] = None
+    gpu_family: Optional[str] = None
+    recommended_llm: Optional[str] = None
+    recommended_tts: Optional[str] = None
+    recommended_stt: Optional[str] = None
+    quality_stars: Optional[int] = None
+    speed_note: Optional[str] = None
+    notes: Optional[str] = None
+    enabled: Optional[bool] = None
+    order: Optional[int] = None
+
+
+@router.get("/hardware")
+async def list_hardware_specs(instance_id: str):
+    """List all hardware specs for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotHardwareRepository(session)
+        specs = await repo.list_by_bot(instance_id)
+    return {"specs": specs}
+
+
+@router.post("/hardware")
+async def create_hardware_spec(
+    instance_id: str, request: HardwareSpecRequest, user: User = Depends(get_current_user)
+):
+    """Create hardware spec."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotHardwareRepository(session)
+        spec = await repo.create_spec(bot_id=instance_id, **request.model_dump())
+    return {"spec": spec}
+
+
+@router.put("/hardware/{spec_id}")
+async def update_hardware_spec(
+    instance_id: str,
+    spec_id: int,
+    request: HardwareSpecUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update hardware spec."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotHardwareRepository(session)
+        spec = await repo.update_spec(spec_id, **kwargs)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Hardware spec not found")
+    return {"spec": spec}
+
+
+@router.delete("/hardware/{spec_id}")
+async def delete_hardware_spec(
+    instance_id: str, spec_id: int, user: User = Depends(get_current_user)
+):
+    """Delete hardware spec."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotHardwareRepository(session)
+        ok = await repo.delete_spec(spec_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Hardware spec not found")
+    return {"status": "ok"}
+
+
+@router.get("/hardware/audit")
+async def audit_hardware(instance_id: str, gpu: str):
+    """Find hardware spec by GPU name (fuzzy match)."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotHardwareRepository(session)
+        specs = await repo.find_by_gpu(instance_id, gpu)
+    return {"specs": specs}
+
+
+# ============== A/B Tests ==============
+
+
+class AbTestRequest(BaseModel):
+    name: str
+    test_key: str
+    variants: dict = {}
+    metric: str = ""
+    min_sample: int = 100
+    active: bool = True
+
+
+class AbTestUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    variants: Optional[dict] = None
+    metric: Optional[str] = None
+    min_sample: Optional[int] = None
+    active: Optional[bool] = None
+    results: Optional[dict] = None
+
+
+@router.get("/abtests")
+async def list_ab_tests(instance_id: str):
+    """List all A/B tests for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAbTestRepository(session)
+        tests = await repo.list_by_bot(instance_id)
+    return {"tests": tests}
+
+
+@router.post("/abtests")
+async def create_ab_test(
+    instance_id: str, request: AbTestRequest, user: User = Depends(get_current_user)
+):
+    """Create A/B test."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAbTestRepository(session)
+        test = await repo.create_test(bot_id=instance_id, **request.model_dump())
+    return {"test": test}
+
+
+@router.put("/abtests/{test_id}")
+async def update_ab_test(
+    instance_id: str,
+    test_id: int,
+    request: AbTestUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update A/B test."""
+    await _check_instance(instance_id)
+    kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    async with AsyncSessionLocal() as session:
+        repo = BotAbTestRepository(session)
+        test = await repo.update_test(test_id, **kwargs)
+    if not test:
+        raise HTTPException(status_code=404, detail="A/B test not found")
+    return {"test": test}
+
+
+@router.delete("/abtests/{test_id}")
+async def delete_ab_test(instance_id: str, test_id: int, user: User = Depends(get_current_user)):
+    """Delete A/B test."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotAbTestRepository(session)
+        ok = await repo.delete_test(test_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="A/B test not found")
+    return {"status": "ok"}
+
+
+# ============== Subscribers ==============
+
+
+@router.get("/subscribers")
+async def list_subscribers(instance_id: str):
+    """List all subscribers for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSubscriberRepository(session)
+        subscribers = await repo.list_by_bot(instance_id)
+    return {"subscribers": subscribers}
+
+
+@router.get("/subscribers/stats")
+async def get_subscriber_stats(instance_id: str):
+    """Get subscriber stats."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSubscriberRepository(session)
+        count = await repo.count_subscribers(instance_id)
+    return {"stats": {"total_active": count}}
+
+
+class BroadcastRequest(BaseModel):
+    message: str
+    buttons: List[dict] = []
+
+
+@router.post("/broadcast")
+async def broadcast_message(
+    instance_id: str, request: BroadcastRequest, user: User = Depends(get_current_user)
+):
+    """Get subscriber list for manual broadcast (actual send is done by bot service)."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotSubscriberRepository(session)
+        user_ids = await repo.get_active_subscribers(instance_id)
+    return {
+        "status": "ok",
+        "subscriber_count": len(user_ids),
+        "user_ids": user_ids,
+        "message": request.message,
+        "buttons": request.buttons,
+    }
+
+
+# ============== GitHub Config ==============
+
+
+class GithubConfigRequest(BaseModel):
+    repo_owner: str = "ShaerWare"
+    repo_name: str = "AI_Secretary_System"
+    github_token: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    comment_enabled: bool = True
+    broadcast_enabled: bool = True
+    comment_prompt: Optional[str] = None
+    broadcast_prompt: Optional[str] = None
+    events: List[str] = ["opened", "merged"]
+
+
+@router.get("/github-config")
+async def get_github_config(instance_id: str):
+    """Get GitHub config for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotGithubRepository(session)
+        config = await repo.get_config(instance_id)
+    return {"config": config}
+
+
+@router.put("/github-config")
+async def save_github_config(
+    instance_id: str, request: GithubConfigRequest, user: User = Depends(get_current_user)
+):
+    """Save GitHub config for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotGithubRepository(session)
+        config = await repo.save_config(bot_id=instance_id, **request.model_dump())
+    await async_audit_logger.log(
+        action="update",
+        resource="bot_github_config",
+        resource_id=instance_id,
+        user_id=user.username,
+    )
+    return {"config": config}
+
+
+# ============== User Profiles ==============
+
+
+@router.get("/users")
+async def list_user_profiles(
+    instance_id: str, segment: Optional[str] = None, state: Optional[str] = None
+):
+    """List user profiles for bot, optionally filtered."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotUserProfileRepository(session)
+        profiles = await repo.list_by_bot(instance_id, segment=segment, state=state)
+    return {"users": profiles}
+
+
+@router.get("/users/{user_id}")
+async def get_user_profile(instance_id: str, user_id: int):
+    """Get specific user profile."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotUserProfileRepository(session)
+        profile = await repo.get_or_create(instance_id, user_id)
+    return {"user": profile}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user_profile(
+    instance_id: str, user_id: int, user: User = Depends(get_current_user)
+):
+    """Delete user profile."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotUserProfileRepository(session)
+        ok = await repo.delete_by_bot_user(instance_id, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    return {"status": "ok"}
+
+
+# ============== Events / Funnel Analytics ==============
+
+
+@router.get("/events")
+async def list_events(instance_id: str, event_type: Optional[str] = None, days: int = 30):
+    """List events for bot."""
+    await _check_instance(instance_id)
+    date_from = datetime.utcnow() - timedelta(days=days)
+    async with AsyncSessionLocal() as session:
+        repo = BotEventRepository(session)
+        events = await repo.get_events_by_bot(
+            instance_id, date_from=date_from, event_type=event_type
+        )
+    return {"events": events}
+
+
+@router.get("/funnel")
+async def get_funnel(instance_id: str, days: int = 30):
+    """Get funnel analytics for bot."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotEventRepository(session)
+        funnel = await repo.get_funnel(instance_id, days=days)
+    return {"funnel": funnel}
+
+
+@router.get("/funnel/daily")
+async def get_daily_report(instance_id: str):
+    """Get daily report summary."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        event_repo = BotEventRepository(session)
+        subscriber_repo = BotSubscriberRepository(session)
+        profile_repo = BotUserProfileRepository(session)
+
+        funnel = await event_repo.get_funnel(instance_id, days=1)
+        subscriber_count = await subscriber_repo.count_subscribers(instance_id)
+        segment_counts = await profile_repo.count_by_segment(instance_id)
+
+    return {
+        "report": {
+            "funnel": funnel,
+            "subscribers": subscriber_count,
+            "segments": segment_counts,
+        }
+    }
+
+
+# ============== Discovery Responses ==============
+
+
+@router.get("/discovery/{user_id}")
+async def get_discovery_responses(instance_id: str, user_id: int):
+    """Get discovery responses for a specific user."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotDiscoveryRepository(session)
+        responses = await repo.get_responses(instance_id, user_id)
+    return {"responses": responses}
+
+
+@router.get("/discovery")
+async def list_all_discovery_responses(instance_id: str):
+    """List all discovery responses for bot (admin view)."""
+    await _check_instance(instance_id)
+    async with AsyncSessionLocal() as session:
+        repo = BotDiscoveryRepository(session)
+        responses = await repo.list_all_by_bot(instance_id)
+    return {"responses": responses}

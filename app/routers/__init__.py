@@ -4,8 +4,10 @@
 from app.routers import (
     audit,
     auth,
+    bot_sales,
     chat,
     faq,
+    github_webhook,
     gsm,
     llm,
     monitor,
@@ -30,4 +32,6 @@ __all__ = [
     "telegram",
     "widget",
     "gsm",
+    "bot_sales",
+    "github_webhook",
 ]

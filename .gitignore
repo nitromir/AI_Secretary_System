@@ -114,3 +114,7 @@ alembic/versions/*.pyc
 # JSON configs with sensitive data
 telegram_config.json
 widget_config.json
+
+# docs
+docs/tz/tz_tg_bot.md
+docs/tz/

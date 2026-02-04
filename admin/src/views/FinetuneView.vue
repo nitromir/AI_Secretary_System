@@ -21,7 +21,12 @@ import {
   AudioWaveform,
   Edit3,
   Save,
-  X
+  X,
+  BookOpen,
+  GraduationCap,
+  ShieldAlert,
+  FileText,
+  Zap
 } from 'lucide-vue-next'
 import { ref, computed, watch, onUnmounted } from 'vue'
 
@@ -41,6 +46,20 @@ const datasetConfig = ref<Partial<DatasetConfig>>({
   output_name: 'dataset'
 })
 let logEventSource: { close: () => void } | null = null
+
+// ============== Project Dataset State ==============
+const projectDatasetConfig = ref({
+  include_tz: true,
+  include_faq: true,
+  include_docs: true,
+  include_escalation: true,
+  output_name: 'project_dataset'
+})
+const projectDatasetResult = ref<{
+  total_dialogs: number
+  total_messages: number
+  sources: Record<string, number>
+} | null>(null)
 
 // ============== TTS Training State ==============
 const uploadingVoiceSamples = ref<File[]>([])
@@ -180,6 +199,17 @@ const activateAdapterMutation = useMutation({
 const deleteAdapterMutation = useMutation({
   mutationFn: (name: string) => finetuneApi.deleteAdapter(name),
   onSuccess: () => refetchAdapters(),
+})
+
+const generateProjectMutation = useMutation({
+  mutationFn: (config: typeof projectDatasetConfig.value) => finetuneApi.generateProjectDataset(config),
+  onSuccess: (data) => {
+    if (data.stats) {
+      projectDatasetResult.value = data.stats
+    }
+    refetchStats()
+    refetchDatasets()
+  },
 })
 
 // ============== TTS Mutations ==============
@@ -390,12 +420,106 @@ onUnmounted(() => {
 
     <!-- ============== LLM TAB ============== -->
     <template v-if="activeTab === 'llm'">
-      <!-- Dataset Section -->
+      <!-- Project Dataset Generator -->
+      <div class="bg-card rounded-lg border border-border">
+        <div class="p-4 border-b border-border">
+          <h2 class="text-lg font-semibold flex items-center gap-2">
+            <GraduationCap class="w-5 h-5" />
+            Датасет из проекта
+          </h2>
+          <p class="text-sm text-muted-foreground mt-1">
+            Генерация обучающих данных из ТЗ, FAQ, документации и шаблонов эскалации
+          </p>
+        </div>
+
+        <div class="p-4 space-y-4">
+          <!-- Sources checkboxes -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
+              <input v-model="projectDatasetConfig.include_tz" type="checkbox" class="w-4 h-4 rounded" />
+              <BookOpen class="w-5 h-5 text-blue-500 flex-shrink-0" />
+              <div>
+                <p class="text-sm font-medium">Продажные сценарии (ТЗ)</p>
+                <p class="text-xs text-muted-foreground">Тарифы, возражения, кейсы, воронка</p>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
+              <input v-model="projectDatasetConfig.include_faq" type="checkbox" class="w-4 h-4 rounded" />
+              <MessageSquare class="w-5 h-5 text-green-500 flex-shrink-0" />
+              <div>
+                <p class="text-sm font-medium">FAQ из базы данных</p>
+                <p class="text-xs text-muted-foreground">Типовые вопросы-ответы</p>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
+              <input v-model="projectDatasetConfig.include_docs" type="checkbox" class="w-4 h-4 rounded" />
+              <FileText class="w-5 h-5 text-purple-500 flex-shrink-0" />
+              <div>
+                <p class="text-sm font-medium">Техническая документация</p>
+                <p class="text-xs text-muted-foreground">Установка, настройка, API, модели</p>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
+              <input v-model="projectDatasetConfig.include_escalation" type="checkbox" class="w-4 h-4 rounded" />
+              <ShieldAlert class="w-5 h-5 text-orange-500 flex-shrink-0" />
+              <div>
+                <p class="text-sm font-medium">Шаблоны эскалации</p>
+                <p class="text-xs text-muted-foreground">Передача на старший уровень поддержки</p>
+              </div>
+            </label>
+          </div>
+
+          <!-- Output name -->
+          <div>
+            <label class="block text-sm mb-1">Имя выходного файла</label>
+            <input
+              v-model="projectDatasetConfig.output_name" type="text" placeholder="project_dataset"
+              class="w-full px-3 py-2 bg-secondary rounded-lg text-sm max-w-xs" />
+          </div>
+
+          <!-- Result stats -->
+          <div v-if="projectDatasetResult" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <p class="text-xs text-muted-foreground">Диалогов</p>
+              <p class="text-xl font-bold text-green-500">{{ projectDatasetResult.total_dialogs }}</p>
+            </div>
+            <div class="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p class="text-xs text-muted-foreground">Сообщений</p>
+              <p class="text-xl font-bold text-blue-500">{{ projectDatasetResult.total_messages }}</p>
+            </div>
+            <div v-for="(count, source) in projectDatasetResult.sources" :key="source" class="p-3 bg-secondary rounded-lg">
+              <p class="text-xs text-muted-foreground">{{ source }}</p>
+              <p class="text-xl font-bold">{{ count }}</p>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div v-if="generateProjectMutation.error.value" class="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">
+            <AlertCircle class="w-4 h-4 flex-shrink-0" />
+            {{ generateProjectMutation.error.value }}
+          </div>
+
+          <!-- Generate button -->
+          <button
+            :disabled="generateProjectMutation.isPending.value"
+            class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            @click="generateProjectMutation.mutate(projectDatasetConfig)">
+            <Loader2 v-if="generateProjectMutation.isPending.value" class="w-4 h-4 animate-spin" />
+            <Zap v-else class="w-4 h-4" />
+            Сгенерировать датасет из проекта
+          </button>
+        </div>
+      </div>
+
+      <!-- Dataset Section (Telegram export) -->
       <div class="bg-card rounded-lg border border-border">
         <div class="p-4 border-b border-border">
           <h2 class="text-lg font-semibold flex items-center gap-2">
             <Database class="w-5 h-5" />
-            Dataset
+            Dataset (Telegram Export)
           </h2>
         </div>
 

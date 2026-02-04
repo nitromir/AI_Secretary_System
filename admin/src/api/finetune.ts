@@ -109,6 +109,24 @@ export const finetuneApi = {
       '/admin/finetune/dataset/augment'
     ),
 
+  generateProjectDataset: (config?: {
+    include_tz?: boolean
+    include_faq?: boolean
+    include_docs?: boolean
+    include_escalation?: boolean
+    output_name?: string
+  }) =>
+    api.post<{
+      status: string
+      message: string
+      output_file?: string
+      stats?: {
+        total_dialogs: number
+        total_messages: number
+        sources: Record<string, number>
+      }
+    }>('/admin/finetune/dataset/generate-project', config),
+
   // Config
   getConfig: () =>
     api.get<{
