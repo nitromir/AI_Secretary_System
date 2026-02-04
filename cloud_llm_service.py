@@ -112,6 +112,12 @@ PROVIDER_TYPES = {
         "default_models": [],
         "requires_base_url": True,
     },
+    "claude_bridge": {
+        "name": "Claude Bridge (Local CLI)",
+        "default_base_url": "http://127.0.0.1:8787",
+        "default_models": ["sonnet", "opus", "haiku"],
+        "requires_base_url": False,
+    },
 }
 
 
@@ -559,6 +565,7 @@ class CloudLLMService:
         "deepseek": OpenAICompatibleProvider,
         "openrouter": OpenAICompatibleProvider,
         "custom": OpenAICompatibleProvider,
+        "claude_bridge": OpenAICompatibleProvider,
     }
 
     def __init__(self, provider_config: dict):

@@ -120,6 +120,9 @@ class TelegramBotService:
                             "payment_success_message",
                             "Спасибо за оплату! Ваш платёж успешно обработан.",
                         ),
+                        # YooMoney
+                        "yoomoney_wallet_id": instance.get("yoomoney_wallet_id"),
+                        "yoomoney_configured": instance.get("yoomoney_configured", False),
                     }
 
                     logger.info(f"Loaded config from API for instance {self.instance_id}")
@@ -218,7 +221,9 @@ class TelegramBotService:
 
         # Add payment button if payments are enabled
         has_payment = self.config.get("payment_enabled") and (
-            self.config.get("stars_enabled") or self.config.get("yookassa_provider_token")
+            self.config.get("stars_enabled")
+            or self.config.get("yookassa_provider_token")
+            or self.config.get("yoomoney_configured")
         )
 
         if not enabled_buttons and not has_payment:
@@ -714,6 +719,8 @@ class TelegramBotService:
                 await self._send_stars_invoice(update, product)
             elif self.config.get("yookassa_provider_token"):
                 await self._send_yookassa_invoice(update, product)
+            elif self.config.get("yoomoney_configured"):
+                await self._send_yoomoney_link(update, product)
             else:
                 await update.message.reply_text(
                     "Платёжная система не настроена.",
@@ -744,6 +751,52 @@ class TelegramBotService:
             provider_token=provider_token,
             currency="RUB",
             prices=[LabeledPrice(label=product.get("title", "Услуга"), amount=price_rub)],
+        )
+
+    async def _send_yoomoney_link(self, update: Update, product: dict):
+        """Send YooMoney quickpay link as inline button."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        from app.services.yoomoney_service import build_quickpay_url
+
+        wallet_id = self.config.get("yoomoney_wallet_id", "")
+        if not wallet_id:
+            await update.message.reply_text(
+                "Платёжная система настраивается. Попробуйте позже.",
+                reply_markup=self.get_main_keyboard(),
+            )
+            return
+
+        price_rub = product.get("price_rub", 50000)  # kopecks
+        amount = price_rub / 100  # convert to rubles
+        user_id = update.effective_user.id
+        label = f"{self.instance_id}_{product.get('id', 'pay')}_{user_id}"
+
+        pay_url = build_quickpay_url(
+            wallet_id=wallet_id,
+            amount=amount,
+            label=label,
+            target=product.get("title", "Оплата услуги"),
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        f"💳 Оплатить {amount:.0f} ₽ — {product.get('title', 'Услуга')}",
+                        url=pay_url,
+                    )
+                ]
+            ]
+        )
+
+        await update.message.reply_text(
+            f"💳 **{product.get('title', 'Услуга')}**\n\n"
+            f"{product.get('description', '')}\n\n"
+            f"Сумма: **{amount:.0f} ₽**\n\n"
+            "Нажмите кнопку ниже для оплаты через ЮMoney:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
         )
 
     async def handle_precheckout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

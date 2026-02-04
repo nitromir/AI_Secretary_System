@@ -36,6 +36,7 @@ import {
   TrendingUp,
   BarChart3,
   GitBranch,
+  Wallet,
 } from 'lucide-vue-next'
 import { botInstancesApi, botSalesApi, llmApi, type BotInstance, type BotInstanceSession, type ActionButton, type PaymentProduct } from '@/api'
 import type { AgentPrompt, QuizQuestion, Segment, FollowupRule, Testimonial, HardwareSpec, GithubConfig, FunnelData } from '@/api/bot-sales'
@@ -165,6 +166,11 @@ const formData = ref<Partial<BotInstance>>({
   stars_enabled: false,
   payment_products: [],
   payment_success_message: 'Спасибо за оплату! Ваш платёж успешно обработан.',
+  yoomoney_client_id: '',
+  yoomoney_client_secret: '',
+  yoomoney_redirect_uri: '',
+  yoomoney_configured: false,
+  yoomoney_wallet_id: '',
 })
 
 const newAllowedUser = ref('')
@@ -339,6 +345,11 @@ function openCreateDialog() {
     stars_enabled: false,
     payment_products: [],
     payment_success_message: 'Спасибо за оплату! Ваш платёж успешно обработан.',
+    yoomoney_client_id: '',
+    yoomoney_client_secret: '',
+    yoomoney_redirect_uri: '',
+    yoomoney_configured: false,
+    yoomoney_wallet_id: '',
   }
   showCreateDialog.value = true
 }
@@ -471,6 +482,54 @@ function addPaymentProduct() {
     price_stars: 100,
   })
   formData.value.payment_products = products
+}
+
+async function authorizeYoomoney() {
+  const instanceId = formData.value.id
+  if (!instanceId) return
+  try {
+    // First save the current form to persist client_id/secret/redirect_uri
+    await saveInstance()
+    const resp = await fetch(`/admin/telegram/instances/${instanceId}/yoomoney/auth-url`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}` },
+    })
+    const data = await resp.json()
+    if (data.auth_url) {
+      window.open(data.auth_url, 'yoomoney_auth', 'width=600,height=700')
+      // Listen for callback message
+      window.addEventListener('message', function handler(e: MessageEvent) {
+        if (e.data?.type === 'yoomoney_connected') {
+          formData.value.yoomoney_configured = true
+          formData.value.yoomoney_wallet_id = e.data.wallet_id
+          toast.success('YooMoney подключён!')
+          refetchInstances()
+          window.removeEventListener('message', handler)
+        }
+      })
+    } else {
+      toast.error(data.detail || 'Не удалось получить URL авторизации')
+    }
+  } catch (e) {
+    toast.error('Ошибка авторизации YooMoney')
+  }
+}
+
+async function disconnectYoomoney() {
+  const instanceId = formData.value.id
+  if (!instanceId) return
+  if (!confirm('Отключить YooMoney?')) return
+  try {
+    await fetch(`/admin/telegram/instances/${instanceId}/yoomoney/disconnect`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}` },
+    })
+    formData.value.yoomoney_configured = false
+    formData.value.yoomoney_wallet_id = ''
+    toast.success('YooMoney отключён')
+    refetchInstances()
+  } catch {
+    toast.error('Ошибка отключения YooMoney')
+  }
 }
 
 function toggleButtonEnabled(index: number) {
@@ -1620,6 +1679,69 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                       <EyeOff v-else class="w-4 h-4" />
                     </button>
                   </div>
+                </div>
+
+                <!-- YooMoney OAuth2 -->
+                <div class="p-3 bg-secondary rounded-lg space-y-3">
+                  <div class="flex items-center gap-2">
+                    <Wallet class="w-4 h-4 text-purple-500" />
+                    <p class="font-medium text-sm">{{ t('telegram.yoomoney') }}</p>
+                    <span
+                      v-if="formData.yoomoney_configured"
+                      class="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded-full"
+                    >
+                      {{ t('telegram.yoomoneyConnected') }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-muted-foreground">{{ t('telegram.yoomoneyDesc') }}</p>
+
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="text-xs text-muted-foreground">client_id</label>
+                      <input
+                        v-model="formData.yoomoney_client_id"
+                        class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="client_id"
+                      />
+                    </div>
+                    <div>
+                      <label class="text-xs text-muted-foreground">client_secret</label>
+                      <input
+                        v-model="formData.yoomoney_client_secret"
+                        type="password"
+                        class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="client_secret"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="text-xs text-muted-foreground">redirect_uri ({{ t('telegram.yoomoneyRedirectHint') }})</label>
+                    <input
+                      v-model="formData.yoomoney_redirect_uri"
+                      class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                      :placeholder="`https://your-domain.com/admin/telegram/instances/${formData.id || 'BOT_ID'}/yoomoney/callback`"
+                    />
+                  </div>
+
+                  <div v-if="formData.yoomoney_configured" class="flex items-center gap-2 text-sm">
+                    <span class="text-muted-foreground">{{ t('telegram.yoomoneyWallet') }}:</span>
+                    <span class="font-mono">{{ formData.yoomoney_wallet_id }}</span>
+                    <button
+                      class="ml-auto px-2 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30"
+                      @click="disconnectYoomoney"
+                    >
+                      {{ t('telegram.yoomoneyDisconnect') }}
+                    </button>
+                  </div>
+
+                  <button
+                    v-if="formData.yoomoney_client_id && !formData.yoomoney_configured"
+                    class="w-full px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    @click="authorizeYoomoney"
+                  >
+                    {{ t('telegram.yoomoneyAuthorize') }}
+                  </button>
                 </div>
 
                 <!-- Success Message -->
