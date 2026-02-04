@@ -42,7 +42,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-async def init_db():
+async def init_db() -> None:
     """
     Initialize database: create tables if they don't exist.
     Call this on application startup.
@@ -58,7 +58,7 @@ async def init_db():
     logger.info(f"📦 Database initialized at {DB_PATH}")
 
 
-async def close_db():
+async def close_db() -> None:
     """
     Close database connections.
     Call this on application shutdown.

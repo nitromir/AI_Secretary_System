@@ -11,6 +11,7 @@ import MonitoringView from './views/MonitoringView.vue'
 import ModelsView from './views/ModelsView.vue'
 import WidgetView from './views/WidgetView.vue'
 import TelegramView from './views/TelegramView.vue'
+import GSMView from './views/GSMView.vue'
 import AuditView from './views/AuditView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LoginView from './views/LoginView.vue'
@@ -89,6 +90,12 @@ const router = createRouter({
       name: 'telegram',
       component: TelegramView,
       meta: { title: 'Telegram', icon: 'Send' }
+    },
+    {
+      path: '/gsm',
+      name: 'gsm',
+      component: GSMView,
+      meta: { title: 'GSM Telephony', icon: 'Phone' }
     },
     {
       path: '/audit',

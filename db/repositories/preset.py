@@ -4,7 +4,7 @@ TTS Preset repository for managing voice presets.
 
 import json
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +22,12 @@ class PresetRepository(BaseRepository[TTSPreset]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, TTSPreset)
 
-    def _cache_key(self, name: str = None) -> str:
+    def _cache_key(self, name: Optional[str] = None) -> str:
         if name:
             return f"{CacheKey.TTS_PRESET}:{name}"
         return f"{CacheKey.TTS_PRESET}:all"
 
-    async def _invalidate_cache(self):
+    async def _invalidate_cache(self) -> None:
         """Invalidate all preset caches."""
         await cache_delete(self._cache_key())
 
@@ -37,7 +37,7 @@ class PresetRepository(BaseRepository[TTSPreset]):
         Uses Redis cache for performance.
         """
         # Try cache first
-        cached = await cache_get(self._cache_key())
+        cached: Optional[Dict[str, dict]] = await cache_get(self._cache_key())
         if cached:
             if not include_builtin:
                 return {k: v for k, v in cached.items() if not v.get("builtin", False)}
@@ -111,7 +111,8 @@ class PresetRepository(BaseRepository[TTSPreset]):
         await self.session.commit()
         await self._invalidate_cache()
 
-        return preset.to_dict()
+        data: dict[str, Any] = preset.to_dict()
+        return data
 
     async def delete_preset(self, name: str) -> bool:
         """Delete preset by name."""
@@ -122,7 +123,7 @@ class PresetRepository(BaseRepository[TTSPreset]):
         )
         await self.session.commit()
         await self._invalidate_cache()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def import_from_dict(self, presets: Dict[str, dict]) -> int:
         """

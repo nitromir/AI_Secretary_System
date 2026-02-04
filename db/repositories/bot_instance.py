@@ -5,7 +5,7 @@ Bot instance repository for managing Telegram bot instances.
 import logging
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,8 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
     async def get_by_name(self, name: str) -> Optional[BotInstance]:
         """Get bot instance by name."""
         result = await self.session.execute(select(BotInstance).where(BotInstance.name == name))
-        return result.scalar_one_or_none()
+        instance: Optional[BotInstance] = result.scalar_one_or_none()
+        return instance
 
     async def list_instances(self, enabled_only: bool = False) -> List[dict]:
         """List all bot instances."""
@@ -74,7 +75,11 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         return instance.to_dict(include_token=True) if instance else None
 
     async def create_instance(
-        self, name: str, description: str = None, bot_token: str = None, **kwargs
+        self,
+        name: str,
+        description: Optional[str] = None,
+        bot_token: Optional[str] = None,
+        **kwargs: Any,
     ) -> dict:
         """Create new bot instance."""
         instance_id = kwargs.pop("id", None) or self._generate_id(name)
@@ -106,6 +111,11 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             tts_engine=kwargs.get("tts_engine", DEFAULT_BOT_CONFIG["tts_engine"]),
             tts_voice=kwargs.get("tts_voice", DEFAULT_BOT_CONFIG["tts_voice"]),
             tts_preset=kwargs.get("tts_preset"),
+            # Payment
+            payment_enabled=kwargs.get("payment_enabled", False),
+            yookassa_provider_token=kwargs.get("yookassa_provider_token"),
+            stars_enabled=kwargs.get("stars_enabled", False),
+            payment_success_message=kwargs.get("payment_success_message"),
             # Timestamps
             created=datetime.utcnow(),
             updated=datetime.utcnow(),
@@ -123,6 +133,8 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         else:
             # Set default action buttons for new instances
             instance.set_action_buttons(DEFAULT_ACTION_BUTTONS)
+        if "payment_products" in kwargs:
+            instance.set_payment_products(kwargs["payment_products"])
 
         self.session.add(instance)
         await self.session.commit()
@@ -131,7 +143,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         logger.info(f"Created bot instance: {instance_id}")
         return instance.to_dict()
 
-    async def update_instance(self, instance_id: str, **kwargs) -> Optional[dict]:
+    async def update_instance(self, instance_id: str, **kwargs: Any) -> Optional[dict]:
         """Update bot instance."""
         instance = await self.session.get(BotInstance, instance_id)
         if not instance:
@@ -155,6 +167,10 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             "tts_engine",
             "tts_voice",
             "tts_preset",
+            "payment_enabled",
+            "yookassa_provider_token",
+            "stars_enabled",
+            "payment_success_message",
         ]
         for field in simple_fields:
             if field in kwargs:
@@ -169,13 +185,16 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             instance.set_llm_params(kwargs["llm_params"])
         if "action_buttons" in kwargs:
             instance.set_action_buttons(kwargs["action_buttons"])
+        if "payment_products" in kwargs:
+            instance.set_payment_products(kwargs["payment_products"])
 
         instance.updated = datetime.utcnow()
         await self.session.commit()
         await self.session.refresh(instance)
 
         logger.info(f"Updated bot instance: {instance_id}")
-        return instance.to_dict()
+        data: dict[str, Any] = instance.to_dict()
+        return data
 
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete bot instance."""
@@ -197,7 +216,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             .values(enabled=enabled, updated=datetime.utcnow())
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def set_auto_start(self, instance_id: str, auto_start: bool) -> bool:
         """Set auto-start flag for bot instance."""
@@ -207,7 +226,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             .values(auto_start=auto_start, updated=datetime.utcnow())
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def get_auto_start_instances(self) -> List[dict]:
         """Get all bot instances that should auto-start."""
@@ -234,7 +253,9 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         """Get total number of bot instances."""
         return await self.count()
 
-    async def import_from_legacy_config(self, config: dict, instance_id: str = "default") -> dict:
+    async def import_from_legacy_config(
+        self, config: dict[str, Any], instance_id: str = "default"
+    ) -> dict[str, Any]:
         """
         Import from legacy telegram_config format.
         Creates a new instance or updates existing "default" instance.
@@ -243,7 +264,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
 
         if existing:
             # Update existing
-            return await self.update_instance(
+            update_result = await self.update_instance(
                 instance_id,
                 name=config.get("name", "Default Bot"),
                 enabled=config.get("enabled", False),
@@ -259,6 +280,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
                 error_message=config.get("error_message", DEFAULT_BOT_CONFIG["error_message"]),
                 typing_enabled=config.get("typing_enabled", True),
             )
+            return update_result or {}
         else:
             # Create new
             return await self.create_instance(

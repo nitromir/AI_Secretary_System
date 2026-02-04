@@ -45,6 +45,7 @@ services:
       - ./orchestrator.py:/app/orchestrator.py:ro
       - ./cloud_llm_service.py:/app/cloud_llm_service.py:ro
       - ./voice_clone_service.py:/app/voice_clone_service.py:ro
+      - ./vllm_llm_service.py:/app/vllm_llm_service.py:ro
       - ./service_manager.py:/app/service_manager.py:ro
       - ./db:/app/db:ro
       - ./app:/app/app:ro

@@ -15,7 +15,8 @@
 - **Multi-Instance Bots**: Несколько Telegram ботов с независимыми настройками (LLM, TTS, промпт)
 - **Multi-Instance Widgets**: Несколько чат-виджетов для разных сайтов/отделов
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Vue 3 PWA с 13 вкладками, i18n, темами, аудитом
+- **Admin Panel**: Vue 3 PWA с 14 вкладками, i18n, темами, аудитом
+- **GSM Telephony**: Поддержка SIM7600E-H для голосовых звонков и SMS
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
 - **Telegram Bot**: Общение с ассистентом через Telegram
 - **Chat with TTS**: Озвучивание ответов ассистента в чате
@@ -47,7 +48,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ### Modular API Structure
 
-API endpoints organized into 11 routers with ~118 endpoints:
+API endpoints organized into 12 routers with ~130 endpoints:
 
 ```
 app/
@@ -65,7 +66,8 @@ app/
     ├── tts.py               # 13 endpoints - Presets, params, test, cache
     ├── chat.py              # 10 endpoints - Sessions, messages, streaming
     ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
-    └── widget.py            # 7 endpoints  - Widget instances CRUD
+    ├── widget.py            # 7 endpoints  - Widget instances CRUD
+    └── gsm.py               # 12 endpoints - GSM telephony (SIM7600E-H)
 ```
 
 ### GPU Configuration (RTX 3060 12GB)

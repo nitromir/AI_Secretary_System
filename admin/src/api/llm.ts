@@ -36,6 +36,22 @@ export interface Persona {
   full_name: string
 }
 
+// LLM Preset (vLLM generation parameters + system prompt)
+export interface LlmPreset {
+  id: string
+  name: string
+  description?: string | null
+  system_prompt?: string | null
+  temperature: number
+  max_tokens: number
+  top_p: number
+  repetition_penalty: number
+  is_default: boolean
+  enabled: boolean
+  created?: string
+  updated?: string
+}
+
 export interface LlmParams {
   temperature: number
   max_tokens: number
@@ -149,6 +165,16 @@ export const llmApi = {
   getModels: () =>
     api.get<LlmModelsResponse>('/admin/llm/models'),
 
+  // vLLM Model Selection
+  getVllmModel: () =>
+    api.get<{ model: string; source: string; env_model: string }>('/admin/llm/vllm-model'),
+
+  setVllmModel: (model: string) =>
+    api.post<{ status: string; model: string; message: string; container_id?: string }>(
+      '/admin/llm/vllm-model',
+      { model }
+    ),
+
   getPersonas: () =>
     api.get<{ personas: Record<string, Persona> }>('/admin/llm/personas'),
 
@@ -230,4 +256,28 @@ export const llmApi = {
 
   switchToNextProxy: () =>
     api.post<{ status: string; proxy: ProxyStatus }>('/admin/llm/proxy/switch-next'),
+
+  // LLM Presets API
+  getPresets: () =>
+    api.get<{ presets: LlmPreset[] }>('/admin/llm/presets'),
+
+  getPreset: (presetId: string) =>
+    api.get<LlmPreset>(`/admin/llm/presets/${presetId}`),
+
+  getCurrentPreset: () =>
+    api.get<{ current: LlmPreset | null }>('/admin/llm/presets/current'),
+
+  createPreset: (data: Partial<LlmPreset>) =>
+    api.post<LlmPreset>('/admin/llm/presets', data),
+
+  updatePreset: (presetId: string, data: Partial<LlmPreset>) =>
+    api.put<LlmPreset>(`/admin/llm/presets/${presetId}`, data),
+
+  deletePreset: (presetId: string) =>
+    api.delete<{ status: string; deleted: string }>(`/admin/llm/presets/${presetId}`),
+
+  activatePreset: (presetId: string) =>
+    api.post<{ status: string; preset: LlmPreset; message: string }>(
+      `/admin/llm/presets/${presetId}/activate`
+    ),
 }

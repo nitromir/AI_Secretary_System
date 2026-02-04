@@ -36,6 +36,31 @@ export interface ActionButton {
   llm_params?: Record<string, unknown>
 }
 
+// Payment product configuration
+export interface PaymentProduct {
+  id: string
+  title: string
+  description: string
+  price_rub: number   // in kopecks (50000 = 500.00 RUB)
+  price_stars: number  // Telegram Stars amount
+}
+
+// Payment log entry
+export interface PaymentLogEntry {
+  id: number
+  bot_id: string
+  user_id: number
+  username?: string
+  payment_type: string
+  product_id: string
+  amount: number
+  currency: string
+  telegram_payment_id?: string
+  provider_payment_id?: string
+  status: string
+  created?: string
+}
+
 // Bot instance types
 export interface BotInstance {
   id: string
@@ -63,6 +88,13 @@ export interface BotInstance {
   tts_preset?: string
   // Action buttons
   action_buttons: ActionButton[]
+  // Payment
+  payment_enabled: boolean
+  yookassa_provider_token?: string
+  yookassa_provider_token_masked?: string
+  stars_enabled: boolean
+  payment_products: PaymentProduct[]
+  payment_success_message?: string
   // Status (added by API)
   running?: boolean
   pid?: number
@@ -158,4 +190,11 @@ export const botInstancesApi = {
   // Get logs
   getLogs: (instanceId: string, lines = 100) =>
     api.get<{ logs: string }>(`/admin/telegram/instances/${instanceId}/logs?lines=${lines}`),
+
+  // Payments
+  getPayments: (instanceId: string, limit = 100) =>
+    api.get<{ payments: PaymentLogEntry[] }>(`/admin/telegram/instances/${instanceId}/payments?limit=${limit}`),
+
+  getPaymentStats: (instanceId: string) =>
+    api.get<{ stats: { total_count: number; by_currency: Record<string, { count: number; total_amount: number }> } }>(`/admin/telegram/instances/${instanceId}/payments/stats`),
 }

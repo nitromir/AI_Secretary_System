@@ -125,4 +125,4 @@
 
 ---
 
-← [[Widget]] | [[Audit]] →
+← [[Widget]] | [[GSM]] →

@@ -4,7 +4,7 @@ FAQ repository for managing FAQ entries with caching.
 
 import json
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,12 +61,13 @@ class FAQRepository(BaseRepository[FAQEntry]):
         result = await self.session.execute(
             select(FAQEntry).where(FAQEntry.question == normalized).where(FAQEntry.enabled == True)
         )
-        entry = result.scalar_one_or_none()
+        entry: Optional[FAQEntry] = result.scalar_one_or_none()
 
         if entry:
             entry.hit_count += 1
             await self.session.commit()
-            return entry.answer
+            answer: str = entry.answer
+            return answer
 
         return None
 
@@ -82,7 +83,7 @@ class FAQRepository(BaseRepository[FAQEntry]):
         self,
         question: str,
         answer: str,
-        keywords: List[str] = None,
+        keywords: Optional[List[str]] = None,
     ) -> dict:
         """Create new FAQ entry."""
         entry = FAQEntry(
@@ -107,10 +108,10 @@ class FAQRepository(BaseRepository[FAQEntry]):
     async def update_entry(
         self,
         entry_id: int,
-        question: str = None,
-        answer: str = None,
-        keywords: List[str] = None,
-        enabled: bool = None,
+        question: Optional[str] = None,
+        answer: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
+        enabled: Optional[bool] = None,
     ) -> Optional[dict]:
         """Update existing FAQ entry."""
         entry = await self.session.get(FAQEntry, entry_id)
@@ -131,14 +132,15 @@ class FAQRepository(BaseRepository[FAQEntry]):
         await self.session.commit()
         await invalidate_faq_cache()
 
-        return entry.to_dict()
+        data_result: dict[str, Any] = entry.to_dict()
+        return data_result
 
     async def delete_entry(self, entry_id: int) -> bool:
         """Delete FAQ entry by ID."""
         result = await self.session.execute(delete(FAQEntry).where(FAQEntry.id == entry_id))
         await self.session.commit()
         await invalidate_faq_cache()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def delete_by_question(self, question: str) -> bool:
         """Delete FAQ entry by question."""
@@ -147,7 +149,7 @@ class FAQRepository(BaseRepository[FAQEntry]):
         )
         await self.session.commit()
         await invalidate_faq_cache()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
     async def import_from_dict(self, faq_dict: Dict[str, str]) -> int:
         """

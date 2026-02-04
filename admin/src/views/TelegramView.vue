@@ -30,9 +30,15 @@ import {
   MoreVertical,
   FileText,
   Zap,
-  GripVertical
+  GripVertical,
+  CreditCard,
+  Star,
+  TrendingUp,
+  BarChart3,
+  GitBranch,
 } from 'lucide-vue-next'
-import { botInstancesApi, llmApi, type BotInstance, type BotInstanceSession, type ActionButton } from '@/api'
+import { botInstancesApi, botSalesApi, llmApi, type BotInstance, type BotInstanceSession, type ActionButton, type PaymentProduct } from '@/api'
+import type { AgentPrompt, QuizQuestion, Segment, FollowupRule, Testimonial, HardwareSpec, GithubConfig, FunnelData } from '@/api/bot-sales'
 import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
@@ -44,7 +50,7 @@ const selectedInstanceId = ref<string | null>(null)
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showLogsDialog = ref(false)
-const activeTab = ref<'settings' | 'users' | 'messages' | 'ai' | 'sessions' | 'buttons'>('settings')
+const activeTab = ref<'settings' | 'users' | 'messages' | 'ai' | 'sessions' | 'buttons' | 'sales'>('settings')
 
 // Button editing state
 const showButtonEditDialog = ref(false)
@@ -58,6 +64,81 @@ const editingButton = ref<Partial<ActionButton>>({
   llm_backend: '',
   system_prompt: '',
 })
+
+// Sales bot state
+const salesSection = ref<'prompts' | 'quiz' | 'segments' | 'followups' | 'testimonials' | 'hardware' | 'abtests' | 'subscribers' | 'funnel' | 'github' | 'users'>('prompts')
+const salesPrompts = ref<AgentPrompt[]>([])
+const salesQuiz = ref<QuizQuestion[]>([])
+const salesSegments = ref<Segment[]>([])
+const salesFollowups = ref<FollowupRule[]>([])
+const salesTestimonials = ref<Testimonial[]>([])
+const salesHardware = ref<HardwareSpec[]>([])
+const salesFunnel = ref<FunnelData>({})
+const salesSubscriberCount = ref(0)
+const salesGithub = ref<GithubConfig | null>(null)
+const salesLoading = ref(false)
+
+async function loadSalesData(section?: string) {
+  if (!selectedInstanceId.value) return
+  const id = selectedInstanceId.value
+  salesLoading.value = true
+  try {
+    const s = section || salesSection.value
+    if (s === 'prompts') {
+      const data = await botSalesApi.listPrompts(id)
+      salesPrompts.value = data.prompts || []
+    } else if (s === 'quiz') {
+      const data = await botSalesApi.listQuiz(id)
+      salesQuiz.value = data.questions || []
+    } else if (s === 'segments') {
+      const data = await botSalesApi.listSegments(id)
+      salesSegments.value = data.segments || []
+    } else if (s === 'followups') {
+      const data = await botSalesApi.listFollowups(id)
+      salesFollowups.value = data.rules || []
+    } else if (s === 'testimonials') {
+      const data = await botSalesApi.listTestimonials(id)
+      salesTestimonials.value = data.testimonials || []
+    } else if (s === 'hardware') {
+      const data = await botSalesApi.listHardware(id)
+      salesHardware.value = data.specs || []
+    } else if (s === 'funnel') {
+      const data = await botSalesApi.getFunnel(id)
+      salesFunnel.value = data.funnel || {}
+      const stats = await botSalesApi.getSubscriberStats(id)
+      salesSubscriberCount.value = stats.stats?.total_active || 0
+    } else if (s === 'subscribers') {
+      const stats = await botSalesApi.getSubscriberStats(id)
+      salesSubscriberCount.value = stats.stats?.total_active || 0
+    } else if (s === 'github') {
+      const data = await botSalesApi.getGithubConfig(id)
+      salesGithub.value = data.config || null
+    }
+  } catch (e) {
+    console.error('Failed to load sales data:', e)
+  } finally {
+    salesLoading.value = false
+  }
+}
+
+async function deleteSalesItem(type: string, id: number) {
+  if (!selectedInstanceId.value) return
+  const iid = selectedInstanceId.value
+  try {
+    if (type === 'prompt') await botSalesApi.deletePrompt(iid, id)
+    else if (type === 'quiz') await botSalesApi.deleteQuiz(iid, id)
+    else if (type === 'segment') await botSalesApi.deleteSegment(iid, id)
+    else if (type === 'followup') await botSalesApi.deleteFollowup(iid, id)
+    else if (type === 'testimonial') await botSalesApi.deleteTestimonial(iid, id)
+    else if (type === 'hardware') await botSalesApi.deleteHardware(iid, id)
+    toast.success(t('common.deleted'))
+    await loadSalesData()
+  } catch (e) {
+    toast.error(String(e))
+  }
+}
+
+watch(salesSection, () => { loadSalesData() })
 
 // Form state for create/edit
 const formData = ref<Partial<BotInstance>>({
@@ -79,11 +160,17 @@ const formData = ref<Partial<BotInstance>>({
   tts_voice: 'gulya',
   tts_preset: '',
   action_buttons: [],
+  payment_enabled: false,
+  yookassa_provider_token: '',
+  stars_enabled: false,
+  payment_products: [],
+  payment_success_message: 'Спасибо за оплату! Ваш платёж успешно обработан.',
 })
 
 const newAllowedUser = ref('')
 const newAdminUser = ref('')
 const showToken = ref(false)
+const showYookassaToken = ref(false)
 
 // Queries
 const { data: instancesData, isLoading: instancesLoading, refetch: refetchInstances } = useQuery({
@@ -247,6 +334,11 @@ function openCreateDialog() {
     tts_voice: 'gulya',
     tts_preset: '',
     action_buttons: [],
+    payment_enabled: false,
+    yookassa_provider_token: '',
+    stars_enabled: false,
+    payment_products: [],
+    payment_success_message: 'Спасибо за оплату! Ваш платёж успешно обработан.',
   }
   showCreateDialog.value = true
 }
@@ -366,6 +458,19 @@ function deleteButton(index: number) {
     formData.value.action_buttons = buttons
     toast.success(t('telegram.buttonDeleted'))
   }
+}
+
+function addPaymentProduct() {
+  const products = [...(formData.value.payment_products || [])]
+  const id = `product_${Date.now()}`
+  products.push({
+    id,
+    title: '',
+    description: '',
+    price_rub: 50000,
+    price_stars: 100,
+  })
+  formData.value.payment_products = products
 }
 
 function toggleButtonEnabled(index: number) {
@@ -588,7 +693,7 @@ watch(instances, (newInstances) => {
         <!-- Tabs -->
         <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6">
           <button
-            v-for="tab in ['settings', 'users', 'messages', 'ai', 'buttons', 'sessions'] as const"
+            v-for="tab in ['settings', 'users', 'messages', 'ai', 'buttons', 'sessions', 'sales'] as const"
             :key="tab"
             :class="[
               'px-4 py-2 text-sm rounded-md transition-colors',
@@ -604,6 +709,7 @@ watch(instances, (newInstances) => {
               <MessageSquare v-else-if="tab === 'messages'" class="w-4 h-4" />
               <Cpu v-else-if="tab === 'ai'" class="w-4 h-4" />
               <Zap v-else-if="tab === 'buttons'" class="w-4 h-4" />
+              <TrendingUp v-else-if="tab === 'sales'" class="w-4 h-4" />
               <BookOpen v-else class="w-4 h-4" />
               {{ t(`telegram.tabs.${tab}`) }}
             </span>
@@ -789,6 +895,358 @@ watch(instances, (newInstances) => {
                 </div>
               </div>
             </div>
+          </template>
+
+          <!-- Sales Funnel Tab -->
+          <template v-if="activeTab === 'sales'">
+            <!-- Sub-navigation -->
+            <div class="flex flex-wrap gap-1 mb-4">
+              <button
+                v-for="sec in ['prompts','quiz','segments','followups','testimonials','hardware','funnel','subscribers','github'] as const"
+                :key="sec"
+                :class="[
+                  'px-3 py-1 text-xs rounded-md transition-colors',
+                  salesSection === sec
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground hover:text-foreground'
+                ]"
+                @click="salesSection = sec; loadSalesData(sec)"
+              >
+                {{ t(`telegram.sales.${sec}`) }}
+              </button>
+            </div>
+
+            <div v-if="salesLoading" class="flex items-center justify-center py-8">
+              <Loader2 class="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+
+            <!-- Prompts Section -->
+            <template v-else-if="salesSection === 'prompts'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.prompts') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.promptsDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesPrompts.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+v-for="p in salesPrompts" :key="p.id"
+                    class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm">{{ p.name }}</span>
+                        <span class="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">{{ p.prompt_key }}</span>
+                        <span v-if="!p.enabled" class="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">OFF</span>
+                      </div>
+                      <p class="text-xs text-muted-foreground mt-1 truncate">{{ p.system_prompt?.slice(0, 120) }}...</p>
+                      <div class="flex gap-3 mt-1 text-xs text-muted-foreground">
+                        <span>T={{ p.temperature }}</span>
+                        <span>max={{ p.max_tokens }}</span>
+                      </div>
+                    </div>
+                    <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
+                      @click="deleteSalesItem('prompt', p.id)">
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Quiz Section -->
+            <template v-else-if="salesSection === 'quiz'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.quiz') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.quizDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesQuiz.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-3">
+                  <div
+v-for="q in salesQuiz" :key="q.id"
+                    class="p-3 bg-secondary rounded-lg">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary">#{{ q.order }}</span>
+                        <span class="font-medium text-sm">{{ q.question_key }}</span>
+                        <span v-if="!q.enabled" class="text-xs text-red-400">OFF</span>
+                      </div>
+                      <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                        @click="deleteSalesItem('quiz', q.id)">
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p class="text-sm mt-2 whitespace-pre-line">{{ q.text }}</p>
+                    <div class="flex flex-wrap gap-1 mt-2">
+                      <span
+v-for="(opt, i) in (Array.isArray(q.options) ? q.options : [])" :key="i"
+                        class="text-xs px-2 py-0.5 rounded-full bg-background border border-border">
+                        {{ opt.icon || '' }} {{ opt.label }} ({{ opt.value }})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Segments Section -->
+            <template v-else-if="salesSection === 'segments'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.segments') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.segmentsDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesSegments.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+v-for="s in salesSegments" :key="s.id"
+                    class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm">{{ s.name }}</span>
+                        <span
+class="text-xs px-1.5 py-0.5 rounded"
+                          :class="s.path === 'diy' ? 'bg-green-500/10 text-green-400' : s.path === 'basic' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'">
+                          {{ s.path }}
+                        </span>
+                        <span class="text-xs text-muted-foreground">P{{ s.priority }}</span>
+                      </div>
+                      <p class="text-xs text-muted-foreground mt-1">
+                        Rules: {{ JSON.stringify(s.match_rules) }}
+                        <span v-if="s.agent_prompt_key"> | Prompt: {{ s.agent_prompt_key }}</span>
+                      </p>
+                    </div>
+                    <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
+                      @click="deleteSalesItem('segment', s.id)">
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Followups Section -->
+            <template v-else-if="salesSection === 'followups'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.followups') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.followupsDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesFollowups.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+v-for="r in salesFollowups" :key="r.id"
+                    class="p-3 bg-secondary rounded-lg">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm">{{ r.name }}</span>
+                        <span class="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400">{{ r.trigger }}</span>
+                        <span class="text-xs text-muted-foreground">{{ r.delay_hours }}h</span>
+                      </div>
+                      <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                        @click="deleteSalesItem('followup', r.id)">
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p class="text-xs text-muted-foreground mt-2 whitespace-pre-line">{{ r.message_template }}</p>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Testimonials Section -->
+            <template v-else-if="salesSection === 'testimonials'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.testimonials') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.testimonialsDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesTestimonials.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+v-for="t2 in salesTestimonials" :key="t2.id"
+                    class="p-3 bg-secondary rounded-lg">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1">
+                        <Star v-for="n in t2.rating" :key="n" class="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                      </div>
+                      <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                        @click="deleteSalesItem('testimonial', t2.id)">
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p class="text-sm mt-2 italic">"{{ t2.text }}"</p>
+                    <p class="text-xs text-muted-foreground mt-1">— {{ t2.author }}</p>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Hardware Section -->
+            <template v-else-if="salesSection === 'hardware'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium">{{ t('telegram.sales.hardware') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.hardwareDesc') }}</p>
+                  </div>
+                </div>
+                <div v-if="salesHardware.length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="text-xs text-muted-foreground border-b border-border">
+                        <th class="text-left p-2">GPU</th>
+                        <th class="text-center p-2">VRAM</th>
+                        <th class="text-left p-2">LLM</th>
+                        <th class="text-left p-2">TTS</th>
+                        <th class="text-center p-2">Quality</th>
+                        <th class="text-left p-2">Speed</th>
+                        <th class="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="h in salesHardware" :key="h.id" class="border-b border-border/50">
+                        <td class="p-2 font-medium">{{ h.gpu_name }}</td>
+                        <td class="p-2 text-center">{{ h.gpu_vram_gb }}GB</td>
+                        <td class="p-2">{{ h.recommended_llm }}</td>
+                        <td class="p-2">{{ h.recommended_tts }}</td>
+                        <td class="p-2 text-center">
+                          <span v-for="n in h.quality_stars" :key="n" class="text-yellow-400">*</span>
+                        </td>
+                        <td class="p-2 text-muted-foreground">{{ h.speed_note || '-' }}</td>
+                        <td class="p-2">
+                          <button
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                            @click="deleteSalesItem('hardware', h.id)">
+                            <Trash2 class="w-3 h-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+
+            <!-- Funnel Section -->
+            <template v-else-if="salesSection === 'funnel'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="font-medium flex items-center gap-2">
+                      <BarChart3 class="w-4 h-4" />
+                      {{ t('telegram.sales.funnel') }}
+                    </h3>
+                    <p class="text-xs text-muted-foreground">{{ t('telegram.sales.funnelDesc') }}</p>
+                  </div>
+                  <span class="text-xs text-muted-foreground">30 days</span>
+                </div>
+                <div v-if="Object.keys(salesFunnel).length === 0" class="text-center py-6 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noData') }}
+                </div>
+                <div v-else class="space-y-2">
+                  <div
+v-for="(count, stage) in salesFunnel" :key="stage"
+                    class="flex items-center gap-3 p-2">
+                    <span class="text-xs font-mono w-32 text-muted-foreground">{{ stage }}</span>
+                    <div class="flex-1 bg-secondary rounded-full h-5 overflow-hidden">
+                      <div
+class="bg-primary h-full rounded-full transition-all"
+                        :style="{ width: `${Math.min(100, (Number(count) / Math.max(1, Number(Object.values(salesFunnel)[0]))) * 100)}%` }">
+                      </div>
+                    </div>
+                    <span class="text-sm font-medium w-12 text-right">{{ count }}</span>
+                  </div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-border flex items-center gap-4 text-sm">
+                  <span class="text-muted-foreground">Subscribers:</span>
+                  <span class="font-medium">{{ salesSubscriberCount }}</span>
+                </div>
+              </div>
+            </template>
+
+            <!-- Subscribers Section -->
+            <template v-else-if="salesSection === 'subscribers'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <h3 class="font-medium mb-4">{{ t('telegram.sales.subscribers') }}</h3>
+                <div class="text-center py-8">
+                  <p class="text-3xl font-bold">{{ salesSubscriberCount }}</p>
+                  <p class="text-sm text-muted-foreground mt-1">{{ t('telegram.sales.subscribersDesc') }}</p>
+                </div>
+              </div>
+            </template>
+
+            <!-- GitHub Config Section -->
+            <template v-else-if="salesSection === 'github'">
+              <div class="bg-card rounded-xl border border-border p-4">
+                <div class="flex items-center gap-2 mb-4">
+                  <GitBranch class="w-4 h-4" />
+                  <h3 class="font-medium">{{ t('telegram.sales.github') }}</h3>
+                </div>
+                <p class="text-xs text-muted-foreground mb-4">{{ t('telegram.sales.githubDesc') }}</p>
+                <div v-if="!salesGithub" class="text-center py-6 text-muted-foreground text-sm">
+                  GitHub webhook not configured
+                </div>
+                <div v-else class="space-y-3 text-sm">
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="text-xs text-muted-foreground">Repo Owner</label>
+                      <p class="font-medium">{{ salesGithub.repo_owner }}</p>
+                    </div>
+                    <div>
+                      <label class="text-xs text-muted-foreground">Repo Name</label>
+                      <p class="font-medium">{{ salesGithub.repo_name }}</p>
+                    </div>
+                  </div>
+                  <div class="flex gap-4">
+                    <div class="flex items-center gap-2">
+                      <div :class="salesGithub.comment_enabled ? 'bg-green-500' : 'bg-gray-500'" class="w-2 h-2 rounded-full"></div>
+                      <span>PR Comments</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <div :class="salesGithub.broadcast_enabled ? 'bg-green-500' : 'bg-gray-500'" class="w-2 h-2 rounded-full"></div>
+                      <span>Broadcast</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground">Events</label>
+                    <div class="flex gap-1 mt-1">
+                      <span
+v-for="ev in (salesGithub.events || [])" :key="ev"
+                        class="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">{{ ev }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
           </template>
         </div>
       </template>
@@ -1086,6 +1544,155 @@ watch(instances, (newInstances) => {
                   >
                     <Trash2 class="w-4 h-4" />
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Payment Configuration -->
+            <div class="border-t border-border pt-4">
+              <div class="flex items-center gap-2 mb-3">
+                <CreditCard class="w-5 h-5 text-muted-foreground" />
+                <h3 class="font-medium">{{ t('telegram.payments') }}</h3>
+              </div>
+
+              <!-- Enable Payments -->
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg mb-3">
+                <div>
+                  <p class="font-medium text-sm">{{ t('telegram.paymentEnabled') }}</p>
+                  <p class="text-xs text-muted-foreground">{{ t('telegram.paymentEnabledDesc') }}</p>
+                </div>
+                <button
+                  :class="[
+                    'relative w-10 h-5 rounded-full transition-colors',
+                    formData.payment_enabled ? 'bg-green-500' : 'bg-gray-500'
+                  ]"
+                  @click="formData.payment_enabled = !formData.payment_enabled"
+                >
+                  <span
+:class="[
+                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                    formData.payment_enabled ? 'translate-x-5' : 'translate-x-0'
+                  ]" />
+                </button>
+              </div>
+
+              <div v-if="formData.payment_enabled" class="space-y-3">
+                <!-- Telegram Stars -->
+                <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                  <div class="flex items-center gap-2">
+                    <Star class="w-4 h-4 text-yellow-400" />
+                    <div>
+                      <p class="font-medium text-sm">Telegram Stars</p>
+                      <p class="text-xs text-muted-foreground">{{ t('telegram.starsEnabledDesc') }}</p>
+                    </div>
+                  </div>
+                  <button
+                    :class="[
+                      'relative w-10 h-5 rounded-full transition-colors',
+                      formData.stars_enabled ? 'bg-green-500' : 'bg-gray-500'
+                    ]"
+                    @click="formData.stars_enabled = !formData.stars_enabled"
+                  >
+                    <span
+:class="[
+                      'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                      formData.stars_enabled ? 'translate-x-5' : 'translate-x-0'
+                    ]" />
+                  </button>
+                </div>
+
+                <!-- YooKassa Token -->
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.yookassaToken') }}</label>
+                  <p class="text-xs text-muted-foreground mb-1">{{ t('telegram.yookassaTokenDesc') }}</p>
+                  <div class="relative">
+                    <input
+                      v-model="formData.yookassa_provider_token"
+                      :type="showYookassaToken ? 'text' : 'password'"
+                      class="w-full px-3 py-2 pr-10 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      :placeholder="t('telegram.yookassaTokenPlaceholder')"
+                    />
+                    <button
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      @click="showYookassaToken = !showYookassaToken"
+                    >
+                      <Eye v-if="!showYookassaToken" class="w-4 h-4" />
+                      <EyeOff v-else class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Success Message -->
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.paymentSuccessMessage') }}</label>
+                  <textarea
+                    v-model="formData.payment_success_message"
+                    rows="2"
+                    class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                  />
+                </div>
+
+                <!-- Payment Products -->
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium">{{ t('telegram.paymentProducts') }}</label>
+                    <button
+                      class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
+                      @click="addPaymentProduct"
+                    >
+                      <Plus class="w-3 h-3" />
+                      {{ t('telegram.addProduct') }}
+                    </button>
+                  </div>
+                  <div v-if="!formData.payment_products?.length" class="text-center py-4 text-sm text-muted-foreground bg-secondary rounded-lg">
+                    {{ t('telegram.noProducts') }}
+                  </div>
+                  <div v-else class="space-y-2">
+                    <div
+                      v-for="(product, idx) in formData.payment_products"
+                      :key="idx"
+                      class="p-3 bg-secondary rounded-lg space-y-2"
+                    >
+                      <div class="flex items-center justify-between">
+                        <input
+                          v-model="product.title"
+                          class="flex-1 px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                          :placeholder="t('telegram.productTitle')"
+                        />
+                        <button
+                          class="ml-2 p-1 text-muted-foreground hover:text-red-400"
+                          @click="formData.payment_products?.splice(idx, 1)"
+                        >
+                          <Trash2 class="w-4 h-4" />
+                        </button>
+                      </div>
+                      <input
+                        v-model="product.description"
+                        class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                        :placeholder="t('telegram.productDescription')"
+                      />
+                      <div class="grid grid-cols-2 gap-2">
+                        <div>
+                          <label class="text-xs text-muted-foreground">{{ t('telegram.productPriceRub') }}</label>
+                          <input
+                            v-model.number="product.price_rub"
+                            type="number"
+                            class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                            placeholder="50000"
+                          />
+                        </div>
+                        <div>
+                          <label class="text-xs text-muted-foreground">{{ t('telegram.productPriceStars') }}</label>
+                          <input
+                            v-model.number="product.price_stars"
+                            type="number"
+                            class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                            placeholder="100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -19,6 +19,7 @@ from db.repositories import (
     CloudProviderRepository,
     ConfigRepository,
     FAQRepository,
+    PaymentRepository,
     PresetRepository,
     TelegramRepository,
     WidgetInstanceRepository,
@@ -40,12 +41,12 @@ class DatabaseManager:
     _instance = None
     _initialized = False
 
-    def __new__(cls):
+    def __new__(cls) -> "DatabaseManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize database and Redis connections."""
         if self._initialized:
             return
@@ -61,7 +62,7 @@ class DatabaseManager:
         self._initialized = True
         logger.info("✅ Database ready")
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Close all connections."""
         await close_db()
         await close_redis()
@@ -114,10 +115,10 @@ class AsyncChatManager:
 
     async def create_session(
         self,
-        title: str = None,
-        system_prompt: str = None,
-        source: str = None,
-        source_id: str = None,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        source: Optional[str] = None,
+        source_id: Optional[str] = None,
     ) -> dict:
         """Create new session."""
         async with AsyncSessionLocal() as session:
@@ -127,8 +128,8 @@ class AsyncChatManager:
     async def update_session(
         self,
         session_id: str,
-        title: str = None,
-        system_prompt: str = None,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
     ) -> Optional[dict]:
         """Update session title or system prompt."""
         async with AsyncSessionLocal() as session:
@@ -188,7 +189,7 @@ class AsyncChatManager:
     async def get_messages_for_llm(
         self,
         session_id: str,
-        system_prompt: str = None,
+        system_prompt: Optional[str] = None,
     ) -> List[dict]:
         """Get messages in LLM format."""
         async with AsyncSessionLocal() as session:
@@ -356,19 +357,19 @@ class AsyncTelegramSessionManager:
         self,
         user_id: int,
         chat_session_id: str,
-        username: str = None,
-        first_name: str = None,
-        last_name: str = None,
+        username: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
         bot_id: str = "default",
-    ):
+    ) -> None:
         """Set or update user session for specific bot."""
         async with AsyncSessionLocal() as session:
             repo = TelegramRepository(session, bot_id=bot_id)
-            return await repo.set_session(
+            await repo.set_session(
                 user_id, chat_session_id, username, first_name, last_name, bot_id=bot_id
             )
 
-    async def get_all_sessions(self, bot_id: str = None) -> List[dict]:
+    async def get_all_sessions(self, bot_id: Optional[str] = None) -> List[dict]:
         """Get all sessions (optionally for specific bot)."""
         async with AsyncSessionLocal() as session:
             repo = TelegramRepository(session)
@@ -386,7 +387,7 @@ class AsyncTelegramSessionManager:
             repo = TelegramRepository(session)
             return await repo.get_sessions_as_dict(bot_id=bot_id)
 
-    async def clear_all(self, bot_id: str = None) -> int:
+    async def clear_all(self, bot_id: Optional[str] = None) -> int:
         """Clear all sessions (optionally for specific bot)."""
         async with AsyncSessionLocal() as session:
             repo = TelegramRepository(session)
@@ -398,7 +399,7 @@ class AsyncTelegramSessionManager:
             repo = TelegramRepository(session)
             return await repo.clear_sessions_for_bot(bot_id)
 
-    async def get_session_count(self, bot_id: str = None) -> int:
+    async def get_session_count(self, bot_id: Optional[str] = None) -> int:
         """Get session count (optionally for specific bot)."""
         async with AsyncSessionLocal() as session:
             repo = TelegramRepository(session)
@@ -435,13 +436,13 @@ class AsyncBotInstanceManager:
             repo = BotInstanceRepository(session)
             return await repo.get_instance_with_token(instance_id)
 
-    async def create_instance(self, name: str, **kwargs) -> dict:
+    async def create_instance(self, name: str, **kwargs: Any) -> dict:
         """Create new bot instance."""
         async with AsyncSessionLocal() as session:
             repo = BotInstanceRepository(session)
             return await repo.create_instance(name, **kwargs)
 
-    async def update_instance(self, instance_id: str, **kwargs) -> Optional[dict]:
+    async def update_instance(self, instance_id: str, **kwargs: Any) -> Optional[dict]:
         """Update bot instance."""
         async with AsyncSessionLocal() as session:
             repo = BotInstanceRepository(session)
@@ -514,13 +515,13 @@ class AsyncWidgetInstanceManager:
             repo = WidgetInstanceRepository(session)
             return await repo.get_instance(instance_id)
 
-    async def create_instance(self, name: str, **kwargs) -> dict:
+    async def create_instance(self, name: str, **kwargs: Any) -> dict:
         """Create new widget instance."""
         async with AsyncSessionLocal() as session:
             repo = WidgetInstanceRepository(session)
             return await repo.create_instance(name, **kwargs)
 
-    async def update_instance(self, instance_id: str, **kwargs) -> Optional[dict]:
+    async def update_instance(self, instance_id: str, **kwargs: Any) -> Optional[dict]:
         """Update widget instance."""
         async with AsyncSessionLocal() as session:
             repo = WidgetInstanceRepository(session)
@@ -599,13 +600,13 @@ class AsyncCloudProviderManager:
             repo = CloudProviderRepository(session)
             return await repo.get_first_enabled()
 
-    async def create_provider(self, name: str, provider_type: str, **kwargs) -> dict:
+    async def create_provider(self, name: str, provider_type: str, **kwargs: Any) -> dict:
         """Create new cloud provider."""
         async with AsyncSessionLocal() as session:
             repo = CloudProviderRepository(session)
             return await repo.create_provider(name, provider_type, **kwargs)
 
-    async def update_provider(self, provider_id: str, **kwargs) -> Optional[dict]:
+    async def update_provider(self, provider_id: str, **kwargs: Any) -> Optional[dict]:
         """Update cloud provider."""
         async with AsyncSessionLocal() as session:
             repo = CloudProviderRepository(session)
@@ -652,20 +653,20 @@ class AsyncAuditLogger:
         self,
         action: str,
         resource: str,
-        resource_id: str = None,
-        user_id: str = None,
-        user_ip: str = None,
-        details: dict = None,
-    ):
+        resource_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        user_ip: Optional[str] = None,
+        details: Optional[dict] = None,
+    ) -> None:
         """Log audit event."""
         async with AsyncSessionLocal() as session:
             repo = AuditRepository(session)
-            return await repo.log(action, resource, resource_id, user_id, user_ip, details)
+            await repo.log(action, resource, resource_id, user_id, user_ip, details)
 
     async def get_logs(
         self,
-        action: str = None,
-        resource: str = None,
+        action: Optional[str] = None,
+        resource: Optional[str] = None,
         limit: int = 100,
     ) -> List[dict]:
         """Get audit logs."""
@@ -680,6 +681,31 @@ class AsyncAuditLogger:
             return await repo.get_recent(hours)
 
 
+# ============== Payment Manager ==============
+
+
+class AsyncPaymentManager:
+    """Async wrapper for PaymentRepository."""
+
+    async def log_payment(self, **kwargs: Any) -> dict:
+        """Log a completed payment."""
+        async with AsyncSessionLocal() as session:
+            repo = PaymentRepository(session)
+            return await repo.log_payment(**kwargs)
+
+    async def get_payments_for_bot(self, bot_id: str, limit: int = 100) -> List[dict]:
+        """Get payment history for a bot instance."""
+        async with AsyncSessionLocal() as session:
+            repo = PaymentRepository(session)
+            return await repo.get_payments_for_bot(bot_id, limit)
+
+    async def get_payment_stats(self, bot_id: str) -> Dict[str, Any]:
+        """Get payment statistics for a bot instance."""
+        async with AsyncSessionLocal() as session:
+            repo = PaymentRepository(session)
+            return await repo.get_payment_stats(bot_id)
+
+
 # ============== Global Instances ==============
 
 # These can be used directly in orchestrator
@@ -692,17 +718,18 @@ async_audit_logger = AsyncAuditLogger()
 async_bot_instance_manager = AsyncBotInstanceManager()
 async_widget_instance_manager = AsyncWidgetInstanceManager()
 async_cloud_provider_manager = AsyncCloudProviderManager()
+async_payment_manager = AsyncPaymentManager()
 
 
 # ============== Initialization Function ==============
 
 
-async def init_database():
+async def init_database() -> None:
     """Initialize database - call this on startup."""
     await db_manager.initialize()
 
 
-async def shutdown_database():
+async def shutdown_database() -> None:
     """Shutdown database - call this on shutdown."""
     await db_manager.shutdown()
 

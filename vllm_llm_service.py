@@ -25,6 +25,7 @@ PREDEFINED_MODELS = {
         "id": "qwen",
         "name": "Qwen2.5-7B-AWQ",
         "full_name": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+        "vllm_model_name": "Qwen/Qwen2.5-7B-Instruct-AWQ",  # Actual HuggingFace model name
         "description": "Китайская модель от Alibaba. Отличное качество для русского языка.",
         "size": "~4GB VRAM",
         "features": ["Русский", "Китайский", "Английский", "Код", "LoRA поддержка"],
@@ -35,6 +36,7 @@ PREDEFINED_MODELS = {
         "id": "llama",
         "name": "Llama-3.1-8B-GPTQ",
         "full_name": "meta-llama/Llama-3.1-8B-Instruct (GPTQ INT4)",
+        "vllm_model_name": "TechxGenus/Meta-Llama-3.1-8B-Instruct-GPTQ",  # Actual HuggingFace model name
         "description": "Модель от Meta. Хорошее качество для английского.",
         "size": "~5GB VRAM",
         "features": ["Английский", "Код", "Инструкции"],
@@ -45,6 +47,7 @@ PREDEFINED_MODELS = {
         "id": "deepseek",
         "name": "DeepSeek-LLM-7B",
         "full_name": "deepseek-ai/deepseek-llm-7b-chat",
+        "vllm_model_name": "deepseek-ai/deepseek-llm-7b-chat",  # Actual HuggingFace model name
         "description": "Китайская модель от DeepSeek AI. Сильная в reasoning и коде.",
         "size": "~5GB VRAM",
         "features": ["Русский", "Китайский", "Английский", "Код", "Reasoning"],
@@ -109,6 +112,7 @@ def scan_huggingface_models() -> Dict[str, dict]:
             "id": model_id,
             "name": model_name,
             "full_name": full_name,
+            "vllm_model_name": full_name,  # For downloaded models, full_name is the HuggingFace path
             "description": f"Локально скачанная модель ({quant_type})",
             "size": "—",
             "features": [quant_type, "Локальная"],
@@ -384,16 +388,36 @@ class VLLMLLMService:
         # Возвращаем промпт текущей персоны
         return self.persona["prompt"]
 
-    def set_persona(self, persona_id: str) -> bool:
+    def set_persona(self, persona_id: str, persona_data: Optional[Dict] = None) -> bool:
         """
         Меняет персону секретаря.
 
         Args:
-            persona_id: ID персоны (gulya, lidia)
+            persona_id: ID персоны (gulya, lidia, или любой из БД)
+            persona_data: Данные персоны из БД (name, prompt, и т.д.).
+                          Если не указано, ищет в SECRETARY_PERSONAS.
 
         Returns:
             True если персона успешно изменена
         """
+        if persona_data:
+            # Используем данные из БД
+            self.persona_id = persona_id
+            self.persona = {
+                "name": persona_data.get("name", persona_id),
+                "full_name": persona_data.get("name", persona_id),
+                "description": persona_data.get("description", ""),
+                "prompt": persona_data.get("system_prompt", ""),
+            }
+            self.system_prompt = persona_data.get("system_prompt", "")
+            # Обновляем runtime параметры если есть
+            for key in ("temperature", "max_tokens", "top_p", "repetition_penalty"):
+                if key in persona_data:
+                    self.runtime_params[key] = persona_data[key]
+            logger.info(f"👤 Персона изменена на: {self.persona['name']} ({persona_id}) [DB]")
+            return True
+
+        # Fallback на встроенные персоны
         if persona_id not in SECRETARY_PERSONAS:
             logger.warning(f"⚠️ Персона '{persona_id}' не найдена")
             return False

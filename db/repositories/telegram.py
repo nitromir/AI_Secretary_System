@@ -23,7 +23,7 @@ class TelegramRepository(BaseRepository[TelegramSession]):
         super().__init__(session, TelegramSession)
         self.bot_id = bot_id
 
-    async def get_session(self, user_id: int, bot_id: str = None) -> Optional[str]:
+    async def get_session(self, user_id: int, bot_id: Optional[str] = None) -> Optional[str]:
         """Get chat session ID for Telegram user in specific bot."""
         bot_id = bot_id or self.bot_id
         session = await self.session.get(TelegramSession, (bot_id, user_id))
@@ -33,14 +33,16 @@ class TelegramRepository(BaseRepository[TelegramSession]):
         self,
         user_id: int,
         chat_session_id: str,
-        username: str = None,
-        first_name: str = None,
-        last_name: str = None,
-        bot_id: str = None,
+        username: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        bot_id: Optional[str] = None,
     ) -> TelegramSession:
         """Create or update Telegram user session for specific bot."""
         bot_id = bot_id or self.bot_id
-        telegram_session = await self.session.get(TelegramSession, (bot_id, user_id))
+        telegram_session: Optional[TelegramSession] = await self.session.get(
+            TelegramSession, (bot_id, user_id)
+        )
 
         if telegram_session:
             telegram_session.chat_session_id = chat_session_id
@@ -64,7 +66,7 @@ class TelegramRepository(BaseRepository[TelegramSession]):
         await self.session.commit()
         return telegram_session
 
-    async def delete_session(self, user_id: int, bot_id: str = None) -> bool:
+    async def delete_session(self, user_id: int, bot_id: Optional[str] = None) -> bool:
         """Delete Telegram user session for specific bot."""
         bot_id = bot_id or self.bot_id
         result = await self.session.execute(
@@ -73,9 +75,9 @@ class TelegramRepository(BaseRepository[TelegramSession]):
             )
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
-    async def get_all_sessions(self, bot_id: str = None) -> List[dict]:
+    async def get_all_sessions(self, bot_id: Optional[str] = None) -> List[dict]:
         """Get all Telegram sessions for specific bot."""
         query = select(TelegramSession).order_by(TelegramSession.updated.desc())
         if bot_id:
@@ -95,7 +97,7 @@ class TelegramRepository(BaseRepository[TelegramSession]):
         sessions = result.scalars().all()
         return [s.to_dict() for s in sessions]
 
-    async def clear_all_sessions(self, bot_id: str = None) -> int:
+    async def clear_all_sessions(self, bot_id: Optional[str] = None) -> int:
         """Clear all Telegram sessions (optionally for specific bot)."""
         if bot_id:
             result = await self.session.execute(
@@ -105,13 +107,13 @@ class TelegramRepository(BaseRepository[TelegramSession]):
             result = await self.session.execute(delete(TelegramSession))
 
         await self.session.commit()
-        return result.rowcount
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     async def clear_sessions_for_bot(self, bot_id: str) -> int:
         """Clear all sessions for a specific bot instance."""
         return await self.clear_all_sessions(bot_id=bot_id)
 
-    async def get_sessions_as_dict(self, bot_id: str = None) -> Dict[int, str]:
+    async def get_sessions_as_dict(self, bot_id: Optional[str] = None) -> Dict[int, str]:
         """Get sessions as user_id -> chat_session_id dict (legacy format)."""
         query = select(TelegramSession)
         if bot_id:
@@ -168,7 +170,7 @@ class TelegramRepository(BaseRepository[TelegramSession]):
 
         return count
 
-    async def get_session_count(self, bot_id: str = None) -> int:
+    async def get_session_count(self, bot_id: Optional[str] = None) -> int:
         """Get total number of Telegram sessions (optionally for specific bot)."""
         if bot_id:
             from sqlalchemy import func

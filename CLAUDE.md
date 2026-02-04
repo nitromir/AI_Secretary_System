@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features a Vue 3 PWA admin panel with 13 tabs, i18n (ru/en), themes, ~118 API endpoints across 11 routers, website chat widgets (multi-instance), and Telegram bot integration (multi-instance).
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), and cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter). Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 15 tabs, i18n (ru/en), themes, ~150 API endpoints across 14 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features, and fine-tuning with project dataset generation.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (11 modular routers, ~118 endpoints)     │
+│  orchestrator.py + app/routers/ (14 modular routers, ~150 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              Vue 3 Admin Panel (13 tabs, PWA)                      │   │
+│  │              Vue 3 Admin Panel (14 tabs, PWA)                      │   │
 │  │                      admin/dist/                                   │   │
 │  └───────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────┬─────────────────────────────────────────┘
@@ -145,7 +145,7 @@ python prepare_dataset.py && python train.py
 orchestrator.py              # FastAPI entry point, global state, legacy endpoints
 app/
 ├── dependencies.py          # ServiceContainer for DI
-├── routers/                 # 11 modular routers (~118 endpoints)
+├── routers/                 # 14 modular routers (~150 endpoints)
 │   ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
 │   ├── audit.py             # 4 endpoints  - Audit log viewing/export
 │   ├── services.py          # 6 endpoints  - vLLM start/stop/restart
@@ -155,10 +155,14 @@ app/
 │   ├── llm.py               # 27 endpoints - Backend, persona, cloud providers, VLESS proxy
 │   ├── tts.py               # 15 endpoints - Presets, params, test, cache, streaming
 │   ├── chat.py              # 12 endpoints - Sessions (CRUD, bulk delete, grouping), messages, streaming
-│   ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
-│   └── widget.py            # 7 endpoints  - Widget instances CRUD
+│   ├── telegram.py          # 25 endpoints - Bot instances CRUD, control, payments
+│   ├── widget.py            # 7 endpoints  - Widget instances CRUD
+│   ├── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
+│   ├── bot_sales.py         # 20 endpoints - Sales bot (quiz, segments, funnels, testimonials)
+│   └── github_webhook.py    # 4 endpoints  - GitHub webhook (stars, releases)
 └── services/
-    └── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
+    ├── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
+    └── sales_funnel.py      # Sales funnel logic (segmentation, pricing, follow-ups)
 ```
 
 **Core Services:**
@@ -171,13 +175,15 @@ app/
 | `piper_tts_service.py` | Piper TTS (CPU) with Dmitri/Irina voices, auto-discovers models dir |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots (auto-start on app launch) |
+| `finetune_manager.py` | LoRA fine-tuning manager (dataset processing, training, adapters, project dataset generation) |
 | `app/services/audio_pipeline.py` | GSM telephony audio processing (8kHz, PCM16, G.711) |
+| `app/services/sales_funnel.py` | Sales funnel logic (segmentation, pricing calculator, follow-ups) |
 
 ### Admin Panel (Vue 3)
 
 ```
 admin/src/
-├── views/                   # 13 tabs + LoginView
+├── views/                   # 14 tabs + LoginView
 ├── api/                     # API clients + SSE helpers
 ├── stores/                  # Pinia (auth, theme, toast, audit, services, llm)
 ├── composables/             # useSSE, useRealtimeMetrics, useExportImport
@@ -188,13 +194,15 @@ admin/src/
 
 **Location:** `data/secretary.db`
 
-**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`), `widget_instances`
+**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`, payment fields), `widget_instances`, `payment_log`
 
 **Redis (optional):** Used for caching with graceful fallback if unavailable.
 
 ```bash
 python scripts/migrate_json_to_db.py      # First-time migration
 python scripts/migrate_to_instances.py    # Multi-instance migration
+python scripts/migrate_add_payment_fields.py  # Payment fields migration
+python scripts/migrate_sales_bot.py       # Sales bot tables migration
 ```
 
 **Repository pattern:**
@@ -212,6 +220,7 @@ db/
     ├── config.py         # ConfigRepository
     ├── telegram.py       # TelegramRepository
     ├── bot_instance.py   # BotInstanceRepository (Telegram bots)
+    ├── payment.py        # PaymentRepository (payment logging)
     ├── widget_instance.py # WidgetInstanceRepository
     ├── cloud_provider.py # CloudProviderRepository
     └── audit.py          # AuditRepository
@@ -413,6 +422,50 @@ GeminiProvider → XrayProxyManagerWithFallback → xray-core (SOCKS5/HTTP) → 
 - All proxies fail → Fallback to direct connection
 - VLESS server unreachable → SDK timeout, error returned to user
 
+## GSM Telephony (SIM7600E-H)
+
+Support for GSM telephony via SIM7600E-H 4G LTE module for voice calls and SMS.
+
+**Hardware:**
+- Module: SIM7600E-H (4G LTE, voice, SMS)
+- Connection: USB to server
+- Antennas: MAIN (required), AUX (optional for better signal)
+
+**USB Ports (Linux):**
+```
+/dev/ttyUSB0 - Diag (diagnostics)
+/dev/ttyUSB1 - NMEA (GPS data)
+/dev/ttyUSB2 - AT commands ← main control port
+/dev/ttyUSB3 - Modem (PPP)
+/dev/ttyUSB4 - Audio (USB PCM) ← voice stream
+```
+
+**Audio format:** 8kHz, 16-bit PCM, mono (compatible with TelephonyAudioPipeline)
+
+**Key AT commands:**
+```bash
+AT           # Check connection
+AT+CPIN?     # SIM status
+AT+CSQ       # Signal strength (0-31, 99=unknown)
+AT+CREG?     # Network registration
+AT+CLIP=1    # Enable Caller ID
+ATA          # Answer incoming call
+ATH          # Hang up
+AT+CMGF=1    # SMS text mode
+AT+CMGS="+7..." # Send SMS
+```
+
+**API endpoints (`/admin/gsm/`):**
+- `GET /status` — Module status (signal, SIM, network)
+- `GET/PUT /config` — Configuration (auto-answer, timeouts, messages)
+- `GET /calls` — Call history
+- `POST /calls/answer|hangup|dial` — Call control
+- `GET/POST /sms` — SMS history and send
+- `POST /at` — Execute AT command (debug)
+- `GET /ports` — List serial ports
+
+**Admin UI:** Tab "Телефония" with status, calls, SMS, settings, and AT console.
+
 ## Telegram Bot Auto-Start
 
 Telegram bots persist their running state and automatically restart after app/container restart.
@@ -432,6 +485,71 @@ Telegram bots persist their running state and automatically restart after app/co
 ```sql
 ALTER TABLE bot_instances ADD COLUMN auto_start BOOLEAN DEFAULT 0;
 ```
+
+## Telegram Bot Payments
+
+Telegram bots support accepting payments via YooKassa (RUB) and Telegram Stars (XTR).
+
+**Supported payment methods:**
+- **YooKassa** — Russian payment provider, requires provider token from BotFather
+- **Telegram Stars (XTR)** — Telegram's native digital currency, no provider token needed
+
+**How it works:**
+1. Configure payment in Admin Panel → Telegram → Edit bot → Payments section
+2. Enable payments, add products (title, description, price in RUB/Stars)
+3. Bot shows "Оплата" button in keyboard and responds to `/pay` command
+4. User selects product → Telegram sends invoice → payment processed
+5. Payment logged to `payment_log` table, visible in admin panel
+
+**Payment flow:**
+```
+/pay or "Оплата" button → send_invoice() → PreCheckoutQuery (auto-approved) → SuccessfulPayment → log to DB
+```
+
+**API endpoints:**
+- `POST /admin/telegram/instances/{id}/payments` — Log payment (internal, from bot)
+- `GET /admin/telegram/instances/{id}/payments` — Payment history (admin UI)
+- `GET /admin/telegram/instances/{id}/payments/stats` — Payment statistics
+
+**Migration for existing databases:**
+```bash
+python scripts/migrate_add_payment_fields.py
+```
+
+## Fine-tuning & Project Dataset Generation
+
+The system supports LoRA fine-tuning for Qwen2.5-7B with built-in dataset generation from project sources.
+
+**Admin panel:** Tab "Обучение" (Fine-tune) → "Датасет из проекта"
+
+**Project dataset sources:**
+- **Sales scenarios (ТЗ)** — pricing, objection handling, case studies, multi-turn sales flows
+- **FAQ from DB** — all FAQ entries automatically converted to training pairs
+- **Technical docs** — installation, configuration, API, models, integrations
+- **Escalation templates** — examples of handoff to senior support
+
+**API endpoint:**
+```bash
+# Generate project dataset
+curl -X POST http://localhost:8002/admin/finetune/dataset/generate-project \
+  -H "Content-Type: application/json" \
+  -d '{"include_tz": true, "include_faq": true, "include_docs": true, "include_escalation": true}'
+```
+
+**Output:** `finetune/datasets/project_dataset.jsonl` (same format as Telegram export dataset)
+
+**Training pipeline:**
+1. Generate project dataset OR upload Telegram export → process
+2. Configure LoRA params (rank, alpha, epochs, learning rate)
+3. Start training (runs on GPU in background)
+4. Activate trained adapter → restart vLLM
+
+**Key files:**
+| File | Purpose |
+|------|---------|
+| `finetune_manager.py` | Dataset processing, training control, adapter management |
+| `finetune/train.py` | LoRA training script (4-bit QLoRA on RTX 3060) |
+| `finetune/prepare_dataset.py` | Telegram export → JSONL conversion |
 
 ## Local Model Discovery
 

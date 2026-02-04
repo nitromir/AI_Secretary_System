@@ -5,7 +5,7 @@ Cloud LLM provider repository for managing cloud provider configurations.
 import logging
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,10 +81,10 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
         self,
         name: str,
         provider_type: str,
-        api_key: str = None,
-        base_url: str = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         model_name: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> dict:
         """Create new provider."""
         provider_id = kwargs.pop("id", None) or self._generate_id(name, provider_type)
@@ -122,7 +122,7 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
         logger.info(f"Created cloud provider: {provider_id}")
         return provider.to_dict()
 
-    async def update_provider(self, provider_id: str, **kwargs) -> Optional[dict]:
+    async def update_provider(self, provider_id: str, **kwargs: Any) -> Optional[dict]:
         """Update provider."""
         provider = await self.session.get(CloudLLMProvider, provider_id)
         if not provider:
@@ -159,7 +159,8 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
         await self.session.refresh(provider)
 
         logger.info(f"Updated cloud provider: {provider_id}")
-        return provider.to_dict()
+        data: dict[str, Any] = provider.to_dict()
+        return data
 
     async def delete_provider(self, provider_id: str) -> bool:
         """Delete provider."""
@@ -188,9 +189,9 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
             .values(is_default=True, updated=datetime.utcnow())
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
-    async def _unset_all_defaults(self):
+    async def _unset_all_defaults(self) -> None:
         """Unset all default flags."""
         await self.session.execute(
             update(CloudLLMProvider)

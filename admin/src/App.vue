@@ -12,6 +12,7 @@ import {
   HardDrive,
   Code2,
   Send,
+  Phone,
   FileText,
   Settings,
   Menu,
@@ -78,6 +79,7 @@ const navItems = [
   { path: '/models', nameKey: 'nav.models', icon: HardDrive },
   { path: '/widget', nameKey: 'nav.widget', icon: Code2 },
   { path: '/telegram', nameKey: 'nav.telegram', icon: Send },
+  { path: '/gsm', nameKey: 'nav.gsm', icon: Phone },
   { path: '/audit', nameKey: 'nav.audit', icon: FileText },
   { path: '/settings', nameKey: 'common.settings', icon: Settings },
 ]

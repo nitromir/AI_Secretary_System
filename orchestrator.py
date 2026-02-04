@@ -30,8 +30,11 @@ from pydantic import BaseModel
 from app.routers import (
     audit,
     auth,
+    bot_sales,
     chat,
     faq,
+    github_webhook,
+    gsm,
     llm,
     monitor,
     services,
@@ -356,6 +359,9 @@ app.include_router(tts.router)
 app.include_router(chat.router)
 app.include_router(telegram.router)
 app.include_router(widget.router)
+app.include_router(gsm.router)
+app.include_router(bot_sales.router)
+app.include_router(github_webhook.router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0
@@ -2416,6 +2422,27 @@ async def admin_augment_dataset():
     """Аугментировать датасет"""
     manager = get_finetune_manager()
     return await manager.augment_dataset()
+
+
+class GenerateProjectDatasetRequest(BaseModel):
+    include_tz: bool = True
+    include_faq: bool = True
+    include_docs: bool = True
+    include_escalation: bool = True
+    output_name: str = "project_dataset"
+
+
+@app.post("/admin/finetune/dataset/generate-project")
+async def admin_generate_project_dataset(request: GenerateProjectDatasetRequest):
+    """Генерировать датасет из проектных источников (ТЗ, FAQ, документация, эскалации)"""
+    manager = get_finetune_manager()
+    return await manager.generate_project_dataset(
+        include_tz=request.include_tz,
+        include_faq=request.include_faq,
+        include_docs=request.include_docs,
+        include_escalation=request.include_escalation,
+        output_name=request.output_name,
+    )
 
 
 @app.get("/admin/finetune/config")
