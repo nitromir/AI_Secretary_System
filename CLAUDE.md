@@ -191,6 +191,7 @@ app/
 | `piper_tts_service.py` | Piper TTS (CPU) with Dmitri/Irina voices, auto-discovers models dir |
 | `stt_service.py` | Vosk (realtime) + Whisper (batch) STT |
 | `multi_bot_manager.py` | Subprocess manager for multiple Telegram bots (auto-start on app launch) |
+| `telegram_bot/` | Standalone bot module with LLM routing (Claude for TZ, Qwen for chat) |
 | `finetune_manager.py` | LoRA fine-tuning manager (dataset processing, training, adapters, project dataset generation) |
 | `app/rate_limiter.py` | Rate limiting with slowapi (configurable per endpoint type) |
 | `app/security_headers.py` | Security headers middleware (X-Frame-Options, CSP, etc.) |
