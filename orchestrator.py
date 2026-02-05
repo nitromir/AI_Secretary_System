@@ -44,6 +44,7 @@ from app.routers import (
     faq,
     github_webhook,
     gsm,
+    legal,
     llm,
     monitor,
     services,
@@ -393,6 +394,7 @@ app.include_router(gsm.router)
 app.include_router(bot_sales.router)
 app.include_router(github_webhook.router)
 app.include_router(yoomoney_webhook.router)
+app.include_router(legal.router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0

@@ -2,7 +2,7 @@
 
 Roadmap и план работ для AI Secretary System. Этот файл используется для отслеживания прогресса и планирования разработки.
 
-**Последнее обновление:** 2026-02-02 (v9 — amoCRM & Network Resilience)
+**Последнее обновление:** 2026-02-05 (v16 — Usage Limits & Legal Compliance)
 **Контекст:** Офлайн-first система + телефония через SIM7600G-H Waveshare
 
 > **See also:** [Consolidated Improvement Plan](docs/IMPROVEMENT_PLAN.md) — detailed technical plan for production readiness with timeline, budget, and ROI calculations.
@@ -188,16 +188,47 @@ app/
 ---
 
 ### 0.5.3 Legal Compliance [P1]
-**Статус:** `planned`
+**Статус:** `done`
 **Приоритет:** P1 (критичный для РФ)
 **Сложность:** 3/10
+**Завершено:** 2026-02-05
 
 **Задачи:**
-- [ ] Политика конфиденциальности
-- [ ] Согласие на обработку голоса
-- [ ] Согласие на запись звонков (IVR)
-- [ ] Право на удаление данных (GDPR)
-- [ ] Шифрование голосовых записей (AES-256)
+- [x] Политика конфиденциальности (HTML страница с i18n)
+- [x] Пользовательское соглашение (Terms of Service)
+- [x] Согласие на обработку голоса (consent type: voice_recording)
+- [x] Согласие на запись звонков (consent type: call_recording)
+- [x] Право на удаление данных (GDPR — POST /admin/legal/gdpr/delete)
+- [x] Система управления согласиями (UserConsent model, ConsentRepository)
+- [x] API endpoints для grant/revoke/check consents
+- [ ] Шифрование голосовых записей (AES-256) — backlog
+
+**Файлы:**
+```
+db/models.py                    # UserConsent model, CONSENT_TYPES
+db/repositories/consent.py      # ConsentRepository
+app/routers/legal.py            # ~15 endpoints (public + admin)
+scripts/migrate_legal_compliance.py  # Migration script
+```
+
+**API endpoints:**
+```bash
+# Public (no auth)
+GET  /privacy-policy            # HTML страница
+GET  /terms                     # HTML страница
+GET  /legal/consent-types       # Доступные типы согласий
+
+# User consent management
+POST /legal/consent             # Дать согласие
+DELETE /legal/consent           # Отозвать согласие
+GET  /legal/consent/{user_id}   # Проверить согласия
+POST /legal/consent/bulk        # Массовое согласие
+POST /legal/consent/required    # Дать все обязательные
+
+# Admin GDPR
+POST /admin/legal/gdpr/delete   # Удалить данные пользователя
+GET  /admin/legal/consent/stats # Статистика согласий
+```
 
 ---
 
@@ -1391,6 +1422,20 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-02-05 (update 16) — Usage Limits & Legal Compliance
+- **0.5.2 Usage Limits [P1]** — система отслеживания и лимитов использования
+  - Модели `UsageLog`, `UsageLimits` в db/models.py
+  - `UsageRepository`, `UsageLimitsRepository` для данных
+  - API router `/admin/usage/*` (~10 endpoints)
+  - UI: `UsageView.vue` с dashboard, лимитами, фильтрацией логов
+- **0.5.3 Legal Compliance [P1]** — GDPR и правовое соответствие
+  - Модель `UserConsent` и `CONSENT_TYPES` dictionary
+  - `ConsentRepository` с методами grant/revoke/check
+  - API router `/admin/legal/*` и публичные endpoints
+  - HTML страницы Privacy Policy и Terms of Service (ru/en)
+  - GDPR право на удаление данных
+  - Migration script: `scripts/migrate_legal_compliance.py`
 
 ### 2026-02-05 (update 15) — Basic Security & Release v1.0.0
 - **0.3 Basic Security [P0]** — базовая безопасность для production
