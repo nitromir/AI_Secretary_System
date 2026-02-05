@@ -39,6 +39,7 @@ from app.rate_limiter import limiter
 from app.routers import (
     audit,
     auth,
+    backup,
     bot_sales,
     chat,
     faq,
@@ -395,6 +396,7 @@ app.include_router(bot_sales.router)
 app.include_router(github_webhook.router)
 app.include_router(yoomoney_webhook.router)
 app.include_router(legal.router)
+app.include_router(backup.router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0

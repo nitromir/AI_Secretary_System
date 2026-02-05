@@ -4,6 +4,7 @@
 from app.routers import (
     audit,
     auth,
+    backup,
     bot_sales,
     chat,
     faq,
@@ -25,6 +26,7 @@ from app.routers import (
 __all__ = [
     "auth",
     "audit",
+    "backup",
     "services",
     "monitor",
     "faq",

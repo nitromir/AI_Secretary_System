@@ -607,21 +607,40 @@ data/
 ---
 
 ### 1.5 Backup & Restore
-**Статус:** `planned` (упростился благодаря единой БД)
+**Статус:** `done`
 **Приоритет:** P1
 **Сложность:** 3/10 (теперь проще — одна SQLite база)
-**Оценка:** 0.5-1 неделя
+**Завершено:** 2026-02-05
 **Влияние:** ★★★★☆
 
 **Описание:**
 Полный бэкап системы одним кликом: конфигурация, FAQ, голоса, LoRA адаптеры.
 
 **Задачи:**
-- [ ] API: `POST /admin/backup/create`, `POST /admin/backup/restore`
-- [ ] Создание ZIP архива со структурой
-- [ ] Валидация при восстановлении
-- [ ] Список бэкапов с метаданными
-- [ ] UI в Settings или отдельный таб
+- [x] API: `POST /admin/backup/create`, `POST /admin/backup/restore`
+- [x] Создание ZIP архива со структурой (manifest.json + secretary.db + voices + adapters)
+- [x] Валидация при восстановлении (MD5 checksums)
+- [x] Список бэкапов с метаданными
+- [ ] UI в Settings или отдельный таб (backlog)
+
+**API endpoints:**
+```bash
+GET  /admin/backup/system-info     # Размеры БД, голосов, адаптеров
+GET  /admin/backup/list            # Список бэкапов
+GET  /admin/backup/{filename}      # Информация о бэкапе
+GET  /admin/backup/{filename}/download  # Скачать бэкап
+POST /admin/backup/{filename}/validate  # Проверить целостность
+POST /admin/backup/create          # Создать бэкап
+POST /admin/backup/restore         # Восстановить из бэкапа
+DELETE /admin/backup/{filename}    # Удалить бэкап
+```
+
+**Файлы:**
+```
+app/services/backup_service.py  # BackupService class
+app/routers/backup.py           # 8 API endpoints
+backups/                        # Директория для бэкапов
+```
 
 **Структура бэкапа (упрощённая):**
 ```
@@ -1422,6 +1441,14 @@ pip install zipfile36  # или стандартный zipfile
 ---
 
 ## Changelog
+
+### 2026-02-05 (update 17) — Backup & Restore
+- **1.5 Backup & Restore [P1]** — резервное копирование одним кликом
+  - `BackupService` в `app/services/backup_service.py`
+  - `app/routers/backup.py` — 8 API endpoints
+  - ZIP-архив: manifest.json + secretary.db + voices (опционально) + adapters (опционально)
+  - MD5 checksums для валидации целостности
+  - Автоматический бэкап текущей БД при восстановлении (.db.bak)
 
 ### 2026-02-05 (update 16) — Usage Limits & Legal Compliance
 - **0.5.2 Usage Limits [P1]** — система отслеживания и лимитов использования
