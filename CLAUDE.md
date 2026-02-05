@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 16 tabs, i18n (ru/en), themes, ~170 API endpoints across 16 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features and YooMoney/YooKassa/Stars payments, and fine-tuning with project dataset generation.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 16 tabs, i18n (ru/en), themes, ~185 API endpoints across 17 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features and YooMoney/YooKassa/Stars payments, and fine-tuning with project dataset generation.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (16 modular routers, ~170 endpoints)     │
+│  orchestrator.py + app/routers/ (17 modular routers, ~185 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
 │  │              Vue 3 Admin Panel (16 tabs, PWA)                      │   │
@@ -169,6 +169,7 @@ app/
 │   ├── widget.py            # 7 endpoints  - Widget instances CRUD
 │   ├── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
 │   ├── bot_sales.py         # 20 endpoints - Sales bot (quiz, segments, funnels, testimonials)
+│   ├── legal.py             # 15 endpoints - GDPR compliance, consents, privacy policy
 │   ├── github_webhook.py    # 4 endpoints  - GitHub webhook (stars, releases)
 │   └── yoomoney_webhook.py  # 2 endpoints  - YooMoney payment webhook
 └── services/
@@ -217,7 +218,7 @@ admin/src/
 
 **Location:** `data/secretary.db`
 
-**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`, payment fields), `widget_instances`, `payment_log`
+**Key tables:** `chat_sessions` (with `source`, `source_id` for tracking origin), `chat_messages`, `faq_entries`, `tts_presets`, `llm_presets`, `system_config`, `telegram_sessions`, `audit_log`, `cloud_llm_providers`, `bot_instances` (with `auto_start`, payment fields), `widget_instances`, `payment_log`, `usage_log`, `usage_limits`, `user_consents`
 
 **Redis (optional):** Used for caching with graceful fallback if unavailable.
 
@@ -226,6 +227,7 @@ python scripts/migrate_json_to_db.py      # First-time migration
 python scripts/migrate_to_instances.py    # Multi-instance migration
 python scripts/migrate_add_payment_fields.py  # Payment fields migration
 python scripts/migrate_sales_bot.py       # Sales bot tables migration
+python scripts/migrate_legal_compliance.py # GDPR consent tables migration
 ```
 
 **Repository pattern:**
@@ -246,6 +248,8 @@ db/
     ├── payment.py        # PaymentRepository (payment logging)
     ├── widget_instance.py # WidgetInstanceRepository
     ├── cloud_provider.py # CloudProviderRepository
+    ├── consent.py        # ConsentRepository (GDPR consent management)
+    ├── usage.py          # UsageRepository, UsageLimitsRepository
     └── audit.py          # AuditRepository
 ```
 
