@@ -50,7 +50,12 @@ services:
       - ./db:/app/db:ro
       - ./app:/app/app:ro
       - ./bridge_manager.py:/app/bridge_manager.py:ro
+      - ./finetune_manager.py:/app/finetune_manager.py:ro
       - ./services/bridge:/app/services/bridge:ro
+      - ./finetune:/app/finetune:rw
+      - ./wiki-pages:/app/wiki-pages:ro
+      - ./docs:/app/docs:ro
+      - ./README.md:/app/README.md:ro
       - ./admin/dist:/app/admin/dist:ro
     environment:
       # Docker mode detection
