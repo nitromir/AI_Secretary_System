@@ -1,0 +1,225 @@
+<script setup lang="ts">
+import { ref, computed, watch, onMounted } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { ChevronDown } from 'lucide-vue-next'
+import {
+  LayoutDashboard,
+  Activity,
+  Server,
+  FileText,
+  Brain,
+  Mic,
+  AudioLines,
+  Sparkles,
+  MessageCircle,
+  Send,
+  Code2,
+  Phone,
+  MessageSquare,
+  ShoppingCart,
+  Users,
+  Settings,
+  Info
+} from 'lucide-vue-next'
+
+const props = defineProps<{
+  collapsed: boolean
+}>()
+
+const { t } = useI18n()
+const route = useRoute()
+
+// Navigation groups with items
+const navGroups = computed(() => [
+  {
+    id: 'monitoring',
+    nameKey: 'nav.group.monitoring',
+    icon: Activity,
+    items: [
+      { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard },
+      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity },
+      { path: '/services', nameKey: 'nav.services', icon: Server },
+      { path: '/audit', nameKey: 'nav.audit', icon: FileText },
+    ]
+  },
+  {
+    id: 'ai',
+    nameKey: 'nav.group.ai',
+    icon: Brain,
+    items: [
+      { path: '/llm', nameKey: 'nav.llm', icon: Brain },
+      { path: '/tts', nameKey: 'nav.tts', icon: Mic },
+      { path: '/models', nameKey: 'nav.models', icon: AudioLines },
+      { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
+    ]
+  },
+  {
+    id: 'channels',
+    nameKey: 'nav.group.channels',
+    icon: MessageCircle,
+    items: [
+      { path: '/chat', nameKey: 'nav.chat', icon: MessageCircle },
+      { path: '/telegram', nameKey: 'nav.telegram', icon: Send },
+      { path: '/widget', nameKey: 'nav.widget', icon: Code2 },
+      { path: '/gsm', nameKey: 'nav.gsm', icon: Phone },
+    ]
+  },
+  {
+    id: 'business',
+    nameKey: 'nav.group.business',
+    icon: ShoppingCart,
+    items: [
+      { path: '/faq', nameKey: 'nav.faq', icon: MessageSquare },
+      { path: '/sales', nameKey: 'nav.sales', icon: ShoppingCart },
+      { path: '/crm', nameKey: 'nav.crm', icon: Users },
+    ]
+  },
+  {
+    id: 'system',
+    nameKey: 'nav.group.system',
+    icon: Settings,
+    items: [
+      { path: '/settings', nameKey: 'common.settings', icon: Settings },
+      { path: '/about', nameKey: 'nav.about', icon: Info },
+    ]
+  }
+])
+
+// Expanded groups state (persisted in localStorage)
+const expandedGroups = ref<Set<string>>(new Set())
+
+// Load from localStorage on mount
+onMounted(() => {
+  const saved = localStorage.getItem('nav_expanded_groups')
+  if (saved) {
+    try {
+      expandedGroups.value = new Set(JSON.parse(saved))
+    } catch {
+      // Default: expand group containing current route
+      expandActiveGroup()
+    }
+  } else {
+    expandActiveGroup()
+  }
+})
+
+// Save to localStorage when changed
+watch(expandedGroups, (val) => {
+  localStorage.setItem('nav_expanded_groups', JSON.stringify([...val]))
+}, { deep: true })
+
+// Expand group containing active route
+function expandActiveGroup() {
+  for (const group of navGroups.value) {
+    if (group.items.some(item => item.path === route.path)) {
+      expandedGroups.value.add(group.id)
+      break
+    }
+  }
+}
+
+// Auto-expand when route changes
+watch(() => route.path, () => {
+  for (const group of navGroups.value) {
+    if (group.items.some(item => item.path === route.path)) {
+      expandedGroups.value.add(group.id)
+      break
+    }
+  }
+})
+
+function toggleGroup(groupId: string) {
+  if (expandedGroups.value.has(groupId)) {
+    expandedGroups.value.delete(groupId)
+  } else {
+    expandedGroups.value.add(groupId)
+  }
+  // Trigger reactivity
+  expandedGroups.value = new Set(expandedGroups.value)
+}
+
+function isGroupExpanded(groupId: string) {
+  return expandedGroups.value.has(groupId)
+}
+
+function isItemActive(path: string) {
+  return route.path === path
+}
+
+function hasActiveItem(group: typeof navGroups.value[0]) {
+  return group.items.some(item => item.path === route.path)
+}
+</script>
+
+<template>
+  <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
+    <template v-for="group in navGroups" :key="group.id">
+      <!-- Group Header -->
+      <button
+        :class="[
+          'flex items-center w-full px-3 py-2 rounded-lg transition-all duration-200',
+          'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+          hasActiveItem(group) ? 'bg-primary/10 text-primary' : ''
+        ]"
+        @click="toggleGroup(group.id)"
+      >
+        <component :is="group.icon" class="w-5 h-5 shrink-0" />
+        <span v-if="!collapsed" class="flex-1 ml-3 text-left font-medium truncate">
+          {{ t(group.nameKey) }}
+        </span>
+        <ChevronDown
+          v-if="!collapsed"
+          :class="[
+            'w-4 h-4 transition-transform duration-200',
+            isGroupExpanded(group.id) ? 'rotate-180' : ''
+          ]"
+        />
+      </button>
+
+      <!-- Group Items (collapsible) -->
+      <div
+        v-if="!collapsed"
+        :class="[
+          'overflow-hidden transition-all duration-200 ease-in-out',
+          isGroupExpanded(group.id) ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+        ]"
+      >
+        <div class="pl-4 space-y-0.5 py-1">
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.path"
+            :to="item.path"
+            :class="[
+              'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors',
+              isItemActive(item.path)
+                ? 'bg-secondary text-foreground font-medium'
+                : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+            ]"
+          >
+            <component :is="item.icon" class="w-4 h-4 shrink-0" />
+            <span class="truncate text-sm">{{ t(item.nameKey) }}</span>
+          </RouterLink>
+        </div>
+      </div>
+
+      <!-- Collapsed mode: show items on hover via tooltip or just icons -->
+      <template v-if="collapsed">
+        <RouterLink
+          v-for="item in group.items"
+          :key="item.path"
+          :to="item.path"
+          :title="t(item.nameKey)"
+          :class="[
+            'flex items-center justify-center p-2 rounded-lg transition-colors',
+            isItemActive(item.path)
+              ? 'bg-secondary text-foreground'
+              : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+          ]"
+        >
+          <component :is="item.icon" class="w-5 h-5" />
+        </RouterLink>
+      </template>
+    </template>
+  </nav>
+</template>

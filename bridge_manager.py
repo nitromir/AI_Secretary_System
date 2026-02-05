@@ -5,6 +5,9 @@ Bridge Process Manager for CLI-OpenAI Bridge.
 Manages the bridge as a subprocess — start, stop, health check.
 The bridge wraps claude CLI into an OpenAI-compatible API on a local port.
 
+In Docker mode (DOCKER_CONTAINER=1), the bridge runs on the host machine
+and the orchestrator connects to it via host.docker.internal.
+
 Usage:
     from bridge_manager import bridge_manager
 
@@ -31,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Base directory of the project
 BASE_DIR = Path(__file__).parent
 
+# Docker mode: can't spawn bridge subprocess, bridge runs on host
+IS_DOCKER = os.environ.get("DOCKER_CONTAINER") == "1"
+
 
 class BridgeProcessManager:
     """Manages the CLI-OpenAI Bridge process."""
@@ -42,10 +48,20 @@ class BridgeProcessManager:
         self._log_file: Path = BASE_DIR / "logs" / "bridge.log"
         self._bridge_dir: Path = BASE_DIR / "services" / "bridge"
         self._permission_level: str = "chat"
+        self._remote_running: bool = False
+
+    @property
+    def _bridge_host(self) -> str:
+        """Bridge host: host.docker.internal in Docker, 127.0.0.1 locally."""
+        if IS_DOCKER:
+            return "host.docker.internal"
+        return "127.0.0.1"
 
     @property
     def is_running(self) -> bool:
         """Check if bridge process is alive."""
+        if IS_DOCKER:
+            return self._remote_running
         if self._process is not None:
             return self._process.poll() is None
         return False
@@ -53,7 +69,7 @@ class BridgeProcessManager:
     @property
     def pid(self) -> Optional[int]:
         """Return PID of bridge process."""
-        if self.is_running:
+        if not IS_DOCKER and self.is_running:
             return self._process.pid  # type: ignore[union-attr]
         return None
 
@@ -65,6 +81,8 @@ class BridgeProcessManager:
         """
         Start the bridge subprocess.
 
+        In Docker mode, checks if bridge is already running on the host.
+
         Args:
             port: Port to run the bridge on.
             permission_level: Claude permission level (chat, readonly, edit, full).
@@ -72,6 +90,41 @@ class BridgeProcessManager:
         Returns:
             Dict with status, message, pid, url.
         """
+        self._port = port
+        self._permission_level = permission_level
+
+        # Docker mode: bridge runs on host, just check if reachable
+        if IS_DOCKER:
+            return await self._start_docker_mode(port)
+
+        return await self._start_local_mode(port, permission_level)
+
+    async def _start_docker_mode(self, port: int) -> dict:
+        """In Docker, check if bridge is reachable on host."""
+        healthy = await self._wait_for_health(timeout=5)
+        if healthy:
+            self._remote_running = True
+            self._started_at = time.time()
+            logger.info(f"🌉 Bridge detected on host at {self.get_base_url()}")
+            return {
+                "status": "ok",
+                "message": "Bridge detected on host",
+                "url": self.get_base_url(),
+            }
+
+        self._remote_running = False
+        return {
+            "status": "error",
+            "error": (
+                f"Bridge not reachable at {self.get_base_url()}. "
+                "In Docker mode, start the bridge on the host machine first:\n"
+                f"  cd services/bridge && python -m uvicorn src.server.main:app "
+                f"--host 0.0.0.0 --port {port}"
+            ),
+        }
+
+    async def _start_local_mode(self, port: int, permission_level: str) -> dict:
+        """Start bridge as a local subprocess."""
         if self.is_running:
             return {
                 "status": "ok",
@@ -79,9 +132,6 @@ class BridgeProcessManager:
                 "pid": self.pid,
                 "url": self.get_base_url(),
             }
-
-        self._port = port
-        self._permission_level = permission_level
 
         # Verify bridge directory exists
         if not self._bridge_dir.exists():
@@ -172,6 +222,14 @@ class BridgeProcessManager:
 
     async def stop(self) -> dict:
         """Stop the bridge process gracefully."""
+        if IS_DOCKER:
+            self._remote_running = False
+            self._started_at = None
+            return {
+                "status": "ok",
+                "message": "Disconnected from host bridge (stop it on the host)",
+            }
+
         if not self.is_running:
             self._process = None
             self._started_at = None
@@ -215,6 +273,7 @@ class BridgeProcessManager:
             "pid": self.pid,
             "permission_level": self._permission_level,
             "log_file": str(self._log_file),
+            "docker_mode": IS_DOCKER,
         }
         if running and self._started_at:
             result["uptime_seconds"] = int(time.time() - self._started_at)
@@ -222,7 +281,7 @@ class BridgeProcessManager:
 
     def get_base_url(self) -> str:
         """Return the bridge base URL."""
-        return f"http://127.0.0.1:{self._port}"
+        return f"http://{self._bridge_host}:{self._port}"
 
     def _write_env(self, port: int, permission_level: str) -> None:
         """Write/update .env file for the bridge."""
@@ -242,7 +301,7 @@ class BridgeProcessManager:
 
     async def _wait_for_health(self, timeout: int = 20) -> bool:
         """Wait for bridge /health endpoint to respond."""
-        url = f"http://127.0.0.1:{self._port}/health"
+        url = f"http://{self._bridge_host}:{self._port}/health"
         start = time.time()
 
         while time.time() - start < timeout:
@@ -256,8 +315,8 @@ class BridgeProcessManager:
             except Exception:
                 pass
 
-            # Check if process died
-            if self._process and self._process.poll() is not None:
+            # Check if local process died
+            if not IS_DOCKER and self._process and self._process.poll() is not None:
                 return False
 
             await asyncio.sleep(0.5)

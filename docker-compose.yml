@@ -49,6 +49,8 @@ services:
       - ./service_manager.py:/app/service_manager.py:ro
       - ./db:/app/db:ro
       - ./app:/app/app:ro
+      - ./bridge_manager.py:/app/bridge_manager.py:ro
+      - ./services/bridge:/app/services/bridge:ro
       - ./admin/dist:/app/admin/dist:ro
     environment:
       # Docker mode detection

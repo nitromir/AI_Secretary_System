@@ -88,6 +88,11 @@ COPY db/ ./db/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 
+# CLI-OpenAI Bridge (wraps claude CLI into OpenAI-compatible API)
+COPY services/bridge/ ./services/bridge/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install pydantic-settings httpx sse-starlette tiktoken anyio
+
 # Scripts
 COPY scripts/ ./scripts/
 
@@ -180,6 +185,11 @@ COPY db/ ./db/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
+
+# CLI-OpenAI Bridge
+COPY services/bridge/ ./services/bridge/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install pydantic-settings httpx sse-starlette tiktoken anyio
 
 # Admin panel
 COPY --from=admin-builder /build/dist ./admin/dist/

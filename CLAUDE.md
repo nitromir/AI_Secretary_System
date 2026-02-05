@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
 │  orchestrator.py + app/routers/ (15 modular routers, ~160 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              Vue 3 Admin Panel (14 tabs, PWA)                      │   │
+│  │              Vue 3 Admin Panel (15 tabs, PWA)                      │   │
 │  │                      admin/dist/                                   │   │
 │  └───────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────┬─────────────────────────────────────────┘
@@ -121,6 +121,15 @@ python scripts/test_db.py
 - `integration` — requires external services
 - `gpu` — requires CUDA GPU
 
+### CI/CD
+
+GitHub Actions runs on push to `main`/`develop` and on PRs:
+- `lint-backend` — ruff check + format check + mypy
+- `lint-frontend` — npm ci + eslint + build (includes type check)
+- `security` — Trivy vulnerability scanner
+
+All checks must pass before merging (branch protection enabled).
+
 ### External Access (for Widget/Telegram)
 
 ```bash
@@ -186,12 +195,20 @@ app/
 
 ```
 admin/src/
-├── views/                   # 15 tabs + LoginView
+├── views/                   # 18 views (grouped into 5 accordion sections)
+├── components/AccordionNav.vue  # Collapsible navigation with 5 groups
 ├── api/                     # API clients + SSE helpers
 ├── stores/                  # Pinia (auth, theme, toast, audit, services, llm)
 ├── composables/             # useSSE, useRealtimeMetrics, useExportImport
 └── plugins/i18n.ts          # vue-i18n translations (ru/en)
 ```
+
+**Navigation Groups (Accordion):**
+- **Мониторинг**: Dashboard, Monitoring, Services, Audit
+- **AI-движки**: LLM, TTS, Models, Fine-tune
+- **Каналы**: Chat, Telegram, Widget, Telephony (GSM)
+- **Бизнес**: FAQ, Sales, CRM (amoCRM placeholder)
+- **Система**: Settings, About
 
 ### Database (SQLite + Redis)
 
@@ -574,6 +591,26 @@ Telegram bots support accepting payments via YooKassa (RUB), YooMoney (OAuth), a
 **Migration for existing databases:**
 ```bash
 python scripts/migrate_add_payment_fields.py
+```
+
+## Sales Bot Features
+
+Telegram bots support advanced sales automation via `app/routers/bot_sales.py` (20 endpoints).
+
+**Features:**
+- **Quiz funnels** — lead qualification via interactive questions
+- **Segment targeting** — different messages for different user segments
+- **Pricing calculator** — dynamic pricing based on user responses
+- **Testimonials** — social proof integration
+- **Follow-up sequences** — automated drip campaigns
+
+**Key files:**
+- `app/routers/bot_sales.py` — API endpoints
+- `app/services/sales_funnel.py` — Funnel logic, segmentation, pricing
+
+**Migration:**
+```bash
+python scripts/migrate_sales_bot.py
 ```
 
 ## Fine-tuning & Project Dataset Generation

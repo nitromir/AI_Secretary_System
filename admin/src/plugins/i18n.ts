@@ -19,7 +19,18 @@ const messages = {
       audit: 'Аудит',
       settings: 'Настройки',
       search: 'Поиск...',
-      logout: 'Выход'
+      logout: 'Выход',
+      sales: 'Продажи',
+      crm: 'CRM',
+      about: 'О системе',
+      // Menu groups
+      group: {
+        monitoring: 'Мониторинг',
+        ai: 'AI-движки',
+        channels: 'Каналы',
+        business: 'Бизнес',
+        system: 'Система'
+      }
     },
     // Dashboard
     dashboard: {
@@ -540,6 +551,43 @@ const messages = {
       dark: 'Тёмная',
       system: 'Системная',
       'night-eyes': 'Ночной режим'
+    },
+    // CRM
+    crm: {
+      title: 'CRM Интеграция',
+      description: 'Интеграция с amoCRM для синхронизации контактов и сделок',
+      amoDescription: 'Российская CRM-система для управления продажами',
+      connected: 'Подключено',
+      notConnected: 'Не подключено',
+      setupRequired: 'Требуется настройка',
+      setupDescription: 'Для подключения amoCRM введите данные OAuth-приложения',
+      subdomain: 'Субдомен',
+      clientId: 'Client ID',
+      clientSecret: 'Client Secret',
+      redirectUri: 'Redirect URI',
+      connect: 'Подключить',
+      disconnect: 'Отключить',
+      testConnection: 'Проверить соединение',
+      openAmoCRM: 'Открыть amoCRM',
+      contacts: 'Контактов',
+      leads: 'Сделок',
+      lastSync: 'Последняя синхронизация',
+      never: 'Никогда',
+      syncSettings: 'Настройки синхронизации',
+      syncContactsLabel: 'Синхронизировать контакты',
+      syncLeadsLabel: 'Синхронизировать сделки',
+      autoCreateLeadLabel: 'Автоматически создавать сделку при новом обращении',
+      plannedFeatures: 'Планируемые возможности',
+      feature: {
+        oauth: 'OAuth авторизация',
+        oauthDesc: 'Безопасное подключение через OAuth 2.0',
+        contacts: 'Синхронизация контактов',
+        contactsDesc: 'Автоматическое создание контактов из чатов',
+        leads: 'Создание сделок',
+        leadsDesc: 'Автоматическое создание сделок по обращениям',
+        webhook: 'Вебхуки',
+        webhookDesc: 'Уведомления о событиях в CRM'
+      }
     }
   },
   en: {
@@ -560,7 +608,18 @@ const messages = {
       audit: 'Audit',
       settings: 'Settings',
       search: 'Search...',
-      logout: 'Logout'
+      logout: 'Logout',
+      sales: 'Sales',
+      crm: 'CRM',
+      about: 'About',
+      // Menu groups
+      group: {
+        monitoring: 'Monitoring',
+        ai: 'AI Engines',
+        channels: 'Channels',
+        business: 'Business',
+        system: 'System'
+      }
     },
     // Dashboard
     dashboard: {
@@ -1081,6 +1140,43 @@ const messages = {
       dark: 'Dark',
       system: 'System',
       'night-eyes': 'Night Eyes'
+    },
+    // CRM
+    crm: {
+      title: 'CRM Integration',
+      description: 'Integration with amoCRM for syncing contacts and deals',
+      amoDescription: 'Russian CRM system for sales management',
+      connected: 'Connected',
+      notConnected: 'Not connected',
+      setupRequired: 'Setup required',
+      setupDescription: 'Enter OAuth app credentials to connect amoCRM',
+      subdomain: 'Subdomain',
+      clientId: 'Client ID',
+      clientSecret: 'Client Secret',
+      redirectUri: 'Redirect URI',
+      connect: 'Connect',
+      disconnect: 'Disconnect',
+      testConnection: 'Test connection',
+      openAmoCRM: 'Open amoCRM',
+      contacts: 'Contacts',
+      leads: 'Leads',
+      lastSync: 'Last sync',
+      never: 'Never',
+      syncSettings: 'Sync Settings',
+      syncContactsLabel: 'Sync contacts',
+      syncLeadsLabel: 'Sync leads',
+      autoCreateLeadLabel: 'Auto-create lead on new inquiry',
+      plannedFeatures: 'Planned Features',
+      feature: {
+        oauth: 'OAuth Authorization',
+        oauthDesc: 'Secure connection via OAuth 2.0',
+        contacts: 'Contact Sync',
+        contactsDesc: 'Auto-create contacts from chats',
+        leads: 'Lead Creation',
+        leadsDesc: 'Auto-create leads from inquiries',
+        webhook: 'Webhooks',
+        webhookDesc: 'CRM event notifications'
+      }
     }
   }
 }

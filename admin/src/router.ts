@@ -15,6 +15,9 @@ import GSMView from './views/GSMView.vue'
 import AuditView from './views/AuditView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LoginView from './views/LoginView.vue'
+import CrmView from './views/CrmView.vue'
+import SalesView from './views/SalesView.vue'
+import AboutView from './views/AboutView.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -108,6 +111,24 @@ const router = createRouter({
       name: 'settings',
       component: SettingsView,
       meta: { title: 'Settings', icon: 'Settings' }
+    },
+    {
+      path: '/crm',
+      name: 'crm',
+      component: CrmView,
+      meta: { title: 'CRM', icon: 'Users' }
+    },
+    {
+      path: '/sales',
+      name: 'sales',
+      component: SalesView,
+      meta: { title: 'Sales', icon: 'ShoppingCart' }
+    },
+    {
+      path: '/about',
+      name: 'about',
+      component: AboutView,
+      meta: { title: 'About', icon: 'Info' }
     }
   ]
 })
