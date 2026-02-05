@@ -1,19 +1,6 @@
 <script setup lang="ts">
-import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
-  LayoutDashboard,
-  MessageCircle,
-  Server,
-  Brain,
-  Mic,
-  MessageSquare,
-  Sparkles,
-  Activity,
-  HardDrive,
-  Code2,
-  Send,
-  Phone,
-  FileText,
   Settings,
   Menu,
   X,
@@ -33,6 +20,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import SearchPalette from './components/SearchPalette.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
 import ErrorBoundary from './components/ErrorBoundary.vue'
+import AccordionNav from './components/AccordionNav.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -67,26 +55,10 @@ watch(() => route.path, () => {
   mobileMenuOpen.value = false
 })
 
-const navItems = [
-  { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard },
-  { path: '/chat', nameKey: 'nav.chat', icon: MessageCircle },
-  { path: '/services', nameKey: 'nav.services', icon: Server },
-  { path: '/llm', nameKey: 'nav.llm', icon: Brain },
-  { path: '/tts', nameKey: 'nav.tts', icon: Mic },
-  { path: '/faq', nameKey: 'nav.faq', icon: MessageSquare },
-  { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
-  { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity },
-  { path: '/models', nameKey: 'nav.models', icon: HardDrive },
-  { path: '/widget', nameKey: 'nav.widget', icon: Code2 },
-  { path: '/telegram', nameKey: 'nav.telegram', icon: Send },
-  { path: '/gsm', nameKey: 'nav.gsm', icon: Phone },
-  { path: '/audit', nameKey: 'nav.audit', icon: FileText },
-  { path: '/settings', nameKey: 'common.settings', icon: Settings },
-]
-
+// Page title from route meta
 const currentTitle = computed(() => {
-  const item = navItems.find(i => i.path === route.path)
-  return item ? t(item.nameKey) : 'Admin'
+  const meta = route.meta as { title?: string }
+  return meta?.title || 'Admin'
 })
 
 const isLoginPage = computed(() => route.name === 'login')
@@ -166,22 +138,7 @@ function toggleLocale() {
           </div>
 
           <!-- Navigation -->
-          <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
-            <RouterLink
-              v-for="item in navItems"
-              :key="item.path"
-              :to="item.path"
-              :class="[
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
-                route.path === item.path
-                  ? 'bg-secondary text-foreground'
-                  : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
-              ]"
-            >
-              <component :is="item.icon" class="w-5 h-5 shrink-0" />
-              <span v-if="sidebarOpen || isMobile" class="truncate">{{ t(item.nameKey) }}</span>
-            </RouterLink>
-          </nav>
+          <AccordionNav :collapsed="!sidebarOpen && !isMobile" />
 
           <!-- User & Toggle -->
           <div class="p-2 border-t border-border space-y-1">
