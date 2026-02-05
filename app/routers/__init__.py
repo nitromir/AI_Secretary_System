@@ -9,6 +9,7 @@ from app.routers import (
     faq,
     github_webhook,
     gsm,
+    legal,
     llm,
     monitor,
     services,
@@ -36,6 +37,7 @@ __all__ = [
     "widget",
     "gsm",
     "bot_sales",
+    "legal",
     "github_webhook",
     "yoomoney_webhook",
 ]

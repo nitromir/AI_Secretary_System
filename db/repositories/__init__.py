@@ -23,6 +23,7 @@ from db.repositories.bot_user_profile import BotUserProfileRepository
 from db.repositories.chat import ChatRepository
 from db.repositories.cloud_provider import CloudProviderRepository
 from db.repositories.config import ConfigRepository
+from db.repositories.consent import ConsentRepository
 from db.repositories.faq import FAQRepository
 from db.repositories.payment import PaymentRepository
 from db.repositories.preset import PresetRepository
@@ -51,6 +52,7 @@ __all__ = [
     "ChatRepository",
     "CloudProviderRepository",
     "ConfigRepository",
+    "ConsentRepository",
     "FAQRepository",
     "PaymentRepository",
     "PresetRepository",
