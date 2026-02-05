@@ -4,6 +4,7 @@ Fine-tune Manager - управление дообучением LoRA адапт�
 Поддерживает загрузку датасета, настройку параметров и мониторинг обучения.
 """
 
+import ast
 import asyncio
 import json
 import logging
@@ -15,7 +16,7 @@ import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 
 logging.basicConfig(level=logging.INFO)
@@ -632,6 +633,7 @@ class FinetuneManager:
         include_faq: bool = True,
         include_docs: bool = True,
         include_escalation: bool = True,
+        include_code: bool = True,
         output_name: str = "project_dataset",
     ) -> dict:
         """
@@ -643,6 +645,8 @@ class FinetuneManager:
         - FAQ из БД — типовые вопросы-ответы
         - CLAUDE.md + docs/ — техническая документация
         - Шаблоны эскалации — примеры передачи на старший уровень
+        - Python код — endpoints, models, docstrings (NEW)
+        - Markdown документация — README, wiki-pages (NEW)
         """
         all_dialogs: List[dict] = []
         sources_stats: Dict[str, int] = {}
@@ -667,6 +671,17 @@ class FinetuneManager:
                 escalation_dialogs = self._generate_escalation_examples()
                 all_dialogs.extend(escalation_dialogs)
                 sources_stats["escalation"] = len(escalation_dialogs)
+
+            if include_code:
+                # Парсинг Python кода проекта
+                code_dialogs = self._generate_from_python_code()
+                all_dialogs.extend(code_dialogs)
+                sources_stats["python_code"] = len(code_dialogs)
+
+                # Парсинг Markdown документации
+                md_dialogs = self._generate_from_markdown_docs()
+                all_dialogs.extend(md_dialogs)
+                sources_stats["markdown_docs"] = len(md_dialogs)
 
             if not all_dialogs:
                 return {
@@ -1162,7 +1177,7 @@ class FinetuneManager:
                         "Как запустить систему в Docker?",
                         "Самый простой способ:\n\n"
                         "```\n"
-                        "cp .env.docker .env\n"
+                        "cp .env.docker.example .env\n"
                         "docker compose up -d\n"
                         "```\n\n"
                         "Для CPU-режима (без GPU):\n"
@@ -1443,6 +1458,441 @@ class FinetuneManager:
         )
 
         logger.info(f"📝 Эскалаций сгенерировано {len(dialogs)} диалогов")
+        return dialogs
+
+    # ============== Code & Documentation Parsing ==============
+
+    def _generate_from_python_code(self) -> List[dict]:
+        """
+        Генерирует Q&A пары из Python кода проекта.
+
+        Источники:
+        - app/routers/*.py — FastAPI endpoints с docstrings
+        - db/models.py — ORM модели с описаниями
+        - vllm_llm_service.py — SECRETARY_PERSONAS, PREDEFINED_MODELS
+        - cloud_llm_service.py — PROVIDER_TYPES
+        """
+        dialogs = []
+
+        # 1. Парсим роутеры (API endpoints)
+        routers_dir = self.base_dir / "app" / "routers"
+        if routers_dir.exists():
+            for router_file in routers_dir.glob("*.py"):
+                if router_file.name.startswith("__"):
+                    continue
+                try:
+                    dialogs.extend(self._parse_router_file(router_file))
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка парсинга {router_file}: {e}")
+
+        # 2. Парсим ORM модели
+        models_file = self.base_dir / "db" / "models.py"
+        if models_file.exists():
+            try:
+                dialogs.extend(self._parse_orm_models(models_file))
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка парсинга models.py: {e}")
+
+        # 3. Парсим конфигурационные словари
+        for service_file in [
+            "vllm_llm_service.py",
+            "cloud_llm_service.py",
+            "llm_service.py",
+        ]:
+            filepath = self.base_dir / service_file
+            if filepath.exists():
+                try:
+                    dialogs.extend(self._parse_config_dicts(filepath))
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка парсинга {service_file}: {e}")
+
+        # 4. Парсим orchestrator.py (Pydantic models)
+        orchestrator_file = self.base_dir / "orchestrator.py"
+        if orchestrator_file.exists():
+            try:
+                dialogs.extend(self._parse_pydantic_models(orchestrator_file))
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка парсинга orchestrator.py: {e}")
+
+        logger.info(f"📝 Из Python кода сгенерировано {len(dialogs)} диалогов")
+        return dialogs
+
+    def _parse_router_file(self, filepath: Path) -> List[dict]:
+        """Парсит FastAPI роутер и извлекает endpoint описания."""
+        dialogs = []
+        content = filepath.read_text(encoding="utf-8")
+        tree = ast.parse(content)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # Ищем декораторы @router.get/post/put/delete
+                for decorator in node.decorator_list:
+                    method, path = self._extract_route_info(decorator)
+                    if method and path:
+                        docstring = ast.get_docstring(node)
+                        func_name = node.name
+
+                        # Генерируем Q&A пару
+                        if docstring:
+                            q = f"Что делает endpoint {method.upper()} {path}?"
+                            a = f"Endpoint {method.upper()} {path} ({func_name}):\n{docstring}"
+                            dialogs.append(self._make_dialog([(q, a)]))
+
+                        # Дополнительная пара про использование
+                        if docstring and len(docstring) > 20:
+                            q2 = f"Как использовать API {path}?"
+                            a2 = f"Вызовите {method.upper()} {path}.\n\n{docstring}"
+                            dialogs.append(self._make_dialog([(q2, a2)]))
+
+        return dialogs
+
+    def _extract_route_info(self, decorator: ast.expr) -> Tuple[Optional[str], Optional[str]]:
+        """Извлекает HTTP метод и путь из декоратора роутера."""
+        try:
+            if isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Attribute):
+                    method = decorator.func.attr  # get, post, put, delete
+                    if method in ("get", "post", "put", "delete", "patch"):
+                        # Извлекаем путь из первого аргумента
+                        if decorator.args:
+                            if isinstance(decorator.args[0], ast.Constant):
+                                path = decorator.args[0].value
+                                return method, path
+        except Exception:
+            pass
+        return None, None
+
+    def _parse_orm_models(self, filepath: Path) -> List[dict]:
+        """Парсит ORM модели (SQLAlchemy) и извлекает описания таблиц."""
+        dialogs = []
+        content = filepath.read_text(encoding="utf-8")
+        tree = ast.parse(content)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                # Проверяем что это SQLAlchemy модель (наследуется от Base)
+                is_model = any(
+                    (isinstance(base, ast.Name) and base.id == "Base")
+                    or (isinstance(base, ast.Attribute) and base.attr == "Base")
+                    for base in node.bases
+                )
+
+                if is_model:
+                    class_name = node.name
+                    docstring = ast.get_docstring(node)
+
+                    # Собираем поля модели
+                    fields = []
+                    for item in node.body:
+                        if isinstance(item, ast.Assign):
+                            for target in item.targets:
+                                if isinstance(target, ast.Name):
+                                    fields.append(target.id)
+                        elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                            fields.append(item.target.id)
+
+                    if fields:
+                        # Фильтруем служебные поля
+                        visible_fields = [
+                            f for f in fields if not f.startswith("_") and f != "__tablename__"
+                        ]
+
+                        q = f"Какие поля есть в таблице {class_name}?"
+                        a = f"Таблица {class_name} содержит поля:\n• " + "\n• ".join(
+                            visible_fields[:15]
+                        )
+                        if docstring:
+                            a += f"\n\nОписание: {docstring}"
+                        dialogs.append(self._make_dialog([(q, a)]))
+
+        return dialogs
+
+    def _parse_config_dicts(self, filepath: Path) -> List[dict]:
+        """Парсит конфигурационные словари из сервисных файлов."""
+        dialogs = []
+        content = filepath.read_text(encoding="utf-8")
+
+        # Ищем известные конфигурационные словари
+        config_patterns = [
+            (
+                r"SECRETARY_PERSONAS\s*=\s*\{([^}]+)\}",
+                "Какие персоны секретаря доступны?",
+                "Доступные персоны секретаря:\n",
+            ),
+            (
+                r"PROVIDER_TYPES\s*=\s*\{([^}]+)\}",
+                "Какие типы облачных LLM провайдеров поддерживаются?",
+                "Поддерживаемые облачные провайдеры:\n",
+            ),
+            (
+                r"PREDEFINED_MODELS\s*=\s*\{([^}]+)\}",
+                "Какие предустановленные модели доступны для vLLM?",
+                "Предустановленные модели:\n",
+            ),
+        ]
+
+        for pattern, question, answer_prefix in config_patterns:
+            match = re.search(pattern, content, re.DOTALL)
+            if match:
+                # Извлекаем ключи из словаря
+                dict_content = match.group(1)
+                keys = re.findall(r'"([^"]+)":', dict_content)
+                if not keys:
+                    keys = re.findall(r"'([^']+)':", dict_content)
+
+                if keys:
+                    answer = answer_prefix + "• " + "\n• ".join(keys[:10])
+                    dialogs.append(self._make_dialog([(question, answer)]))
+
+        # Парсим docstrings функций
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    docstring = ast.get_docstring(node)
+                    if docstring and len(docstring) > 50:
+                        func_name = node.name
+                        if not func_name.startswith("_"):
+                            q = f"Что делает функция {func_name}?"
+                            a = f"Функция {func_name}:\n{docstring[:500]}"
+                            dialogs.append(self._make_dialog([(q, a)]))
+        except Exception:
+            pass
+
+        return dialogs
+
+    def _parse_pydantic_models(self, filepath: Path) -> List[dict]:
+        """Парсит Pydantic модели (Request/Response) из файла."""
+        dialogs = []
+        content = filepath.read_text(encoding="utf-8")
+        tree = ast.parse(content)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                # Проверяем что это Pydantic модель (наследуется от BaseModel)
+                is_pydantic = any(
+                    (isinstance(base, ast.Name) and base.id == "BaseModel")
+                    or (isinstance(base, ast.Attribute) and base.attr == "BaseModel")
+                    for base in node.bases
+                )
+
+                if is_pydantic:
+                    class_name = node.name
+                    docstring = ast.get_docstring(node)
+
+                    # Собираем поля с типами
+                    fields = []
+                    for item in node.body:
+                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                            field_name = item.target.id
+                            # Пытаемся получить тип
+                            type_str = ast.unparse(item.annotation) if item.annotation else "Any"
+                            fields.append(f"{field_name}: {type_str}")
+
+                    if fields and ("Request" in class_name or "Response" in class_name):
+                        q = f"Какие параметры принимает {class_name}?"
+                        a = f"Модель {class_name}:\n• " + "\n• ".join(fields[:10])
+                        if docstring:
+                            a = f"{docstring}\n\nПоля:\n• " + "\n• ".join(fields[:10])
+                        dialogs.append(self._make_dialog([(q, a)]))
+
+        return dialogs
+
+    def _generate_from_markdown_docs(self) -> List[dict]:
+        """
+        Генерирует Q&A пары из Markdown документации проекта.
+
+        Источники:
+        - README.md, CLAUDE.md, QUICKSTART.md
+        - wiki-pages/*.md
+        - examples.md, CHEATSHEET.md
+        """
+        dialogs = []
+
+        # Список основных документов
+        main_docs = [
+            "README.md",
+            "QUICKSTART.md",
+            "CHEATSHEET.md",
+            "examples.md",
+        ]
+
+        for doc_name in main_docs:
+            doc_path = self.base_dir / doc_name
+            if doc_path.exists():
+                try:
+                    dialogs.extend(self._parse_markdown_file(doc_path))
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка парсинга {doc_name}: {e}")
+
+        # Парсим wiki-pages
+        wiki_dir = self.base_dir / "wiki-pages"
+        if wiki_dir.exists():
+            for wiki_file in wiki_dir.glob("*.md"):
+                try:
+                    dialogs.extend(self._parse_markdown_file(wiki_file))
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка парсинга {wiki_file.name}: {e}")
+
+        logger.info(f"📝 Из Markdown документации сгенерировано {len(dialogs)} диалогов")
+        return dialogs
+
+    def _parse_markdown_file(self, filepath: Path) -> List[dict]:
+        """Парсит Markdown файл и генерирует Q&A пары."""
+        dialogs = []
+        content = filepath.read_text(encoding="utf-8")
+        filename = filepath.stem
+
+        # 1. Парсим секции (## заголовки)
+        sections = self._split_md_by_headers(content)
+        for header, body in sections:
+            if len(body.strip()) > 50:  # Минимальная длина контента
+                dialogs.extend(self._generate_qa_from_section(header, body, filename))
+
+        # 2. Парсим code blocks
+        code_blocks = self._extract_code_blocks(content)
+        for lang, code in code_blocks:
+            if len(code.strip()) > 20:
+                dialogs.extend(self._generate_qa_from_code(lang, code, filename))
+
+        # 3. Парсим таблицы
+        tables = self._extract_md_tables(content)
+        for table_header, table_content in tables:
+            dialogs.extend(self._generate_qa_from_table(table_header, table_content))
+
+        return dialogs
+
+    def _split_md_by_headers(self, content: str) -> List[Tuple[str, str]]:
+        """Разбивает Markdown по заголовкам ## и ###."""
+        sections = []
+        # Паттерн для заголовков уровня 2 и 3
+        pattern = r"^(#{2,3})\s+(.+?)$"
+
+        lines = content.split("\n")
+        current_header = ""
+        current_body = []
+
+        for line in lines:
+            match = re.match(pattern, line)
+            if match:
+                # Сохраняем предыдущую секцию
+                if current_header and current_body:
+                    sections.append((current_header, "\n".join(current_body)))
+                current_header = match.group(2).strip()
+                current_body = []
+            else:
+                current_body.append(line)
+
+        # Последняя секция
+        if current_header and current_body:
+            sections.append((current_header, "\n".join(current_body)))
+
+        return sections
+
+    def _generate_qa_from_section(self, header: str, body: str, filename: str) -> List[dict]:
+        """Генерирует Q&A пары из секции документа."""
+        dialogs = []
+
+        # Очищаем body от лишних пробелов
+        body = body.strip()
+        if len(body) < 30:
+            return dialogs
+
+        # Ограничиваем длину ответа
+        if len(body) > 1500:
+            body = body[:1500] + "..."
+
+        # Определяем тип вопроса по заголовку
+        header_lower = header.lower()
+
+        if any(kw in header_lower for kw in ["install", "setup", "установк", "настройк", "запуск"]):
+            q = f"Как настроить/установить {header}?"
+        elif any(kw in header_lower for kw in ["api", "endpoint", "route"]):
+            q = f"Как использовать API {header}?"
+        elif any(
+            kw in header_lower for kw in ["troubleshoot", "problem", "error", "ошибк", "проблем"]
+        ):
+            q = f"Как решить проблему с {header}?"
+        elif any(kw in header_lower for kw in ["feature", "возможност", "функци"]):
+            q = f"Какие возможности есть у {header}?"
+        elif any(kw in header_lower for kw in ["require", "требован", "prerequisite"]):
+            q = f"Какие требования для {header}?"
+        else:
+            q = f"Что такое {header}?"
+
+        dialogs.append(self._make_dialog([(q, body)]))
+        return dialogs
+
+    def _extract_code_blocks(self, content: str) -> List[Tuple[str, str]]:
+        """Извлекает code blocks из Markdown."""
+        blocks = []
+        pattern = r"```(\w*)\n(.*?)```"
+        matches = re.findall(pattern, content, re.DOTALL)
+        for lang, code in matches:
+            if lang in ("bash", "python", "sh", "shell", ""):
+                blocks.append((lang or "bash", code.strip()))
+        return blocks[:20]  # Ограничиваем количество
+
+    def _generate_qa_from_code(self, lang: str, code: str, filename: str) -> List[dict]:
+        """Генерирует Q&A из code block."""
+        dialogs = []
+
+        # Только для коротких примеров команд
+        if len(code) > 500 or len(code) < 10:
+            return dialogs
+
+        # Определяем тип команды
+        if lang in ("bash", "sh", "shell", ""):
+            # Извлекаем первую команду
+            first_line = code.split("\n", maxsplit=1)[0].strip()
+            if first_line.startswith("#"):
+                return dialogs
+
+            if "docker" in first_line:
+                q = "Как запустить систему через Docker?"
+            elif "curl" in first_line:
+                q = "Как вызвать API через curl?"
+            elif "git" in first_line:
+                q = "Как работать с репозиторием?"
+            elif "pip" in first_line or "npm" in first_line:
+                q = "Как установить зависимости?"
+            elif "pytest" in first_line:
+                q = "Как запустить тесты?"
+            else:
+                q = f"Пример команды из {filename}"
+
+            a = f"```{lang}\n{code}\n```"
+            dialogs.append(self._make_dialog([(q, a)]))
+
+        return dialogs
+
+    def _extract_md_tables(self, content: str) -> List[Tuple[str, str]]:
+        """Извлекает таблицы из Markdown."""
+        tables = []
+        # Простой паттерн для таблиц
+        pattern = r"(\|.+\|)\n(\|[-:| ]+\|)\n((?:\|.+\|\n?)+)"
+        matches = re.findall(pattern, content)
+
+        for header_row, sep_row, body_rows in matches:
+            # Извлекаем заголовки колонок
+            headers = [h.strip() for h in header_row.split("|") if h.strip()]
+            if headers:
+                table_content = header_row + "\n" + sep_row + "\n" + body_rows
+                tables.append((", ".join(headers[:3]), table_content))
+
+        return tables[:10]
+
+    def _generate_qa_from_table(self, table_header: str, table_content: str) -> List[dict]:
+        """Генерирует Q&A из таблицы."""
+        dialogs = []
+
+        if len(table_content) > 1000:
+            return dialogs
+
+        q = f"Какие параметры/опции доступны ({table_header})?"
+        a = table_content
+        dialogs.append(self._make_dialog([(q, a)]))
+
         return dialogs
 
     # ============== Training Configuration ==============
