@@ -14,7 +14,7 @@ AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice),
 │  orchestrator.py + app/routers/ (18 modular routers, ~193 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              Vue 3 Admin Panel (16 tabs, PWA)                      │   │
+│  │              Vue 3 Admin Panel (19 views, PWA)                     │   │
 │  │                      admin/dist/                                   │   │
 │  └───────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────┬─────────────────────────────────────────┘
@@ -154,7 +154,7 @@ python prepare_dataset.py && python train.py
 orchestrator.py              # FastAPI entry point, global state, legacy endpoints
 app/
 ├── dependencies.py          # ServiceContainer for DI
-├── routers/                 # 15 modular routers (~160 endpoints)
+├── routers/                 # 18 modular routers (~193 endpoints)
 │   ├── auth.py              # 3 endpoints  - JWT login/logout/refresh
 │   ├── audit.py             # 4 endpoints  - Audit log viewing/export
 │   ├── services.py          # 6 endpoints  - vLLM start/stop/restart
@@ -202,7 +202,7 @@ app/
 
 ```
 admin/src/
-├── views/                   # 18 views (grouped into 5 accordion sections)
+├── views/                   # 19 views (grouped into 5 accordion sections)
 ├── components/AccordionNav.vue  # Collapsible navigation with 5 groups
 ├── api/                     # API clients + SSE helpers
 ├── stores/                  # Pinia (auth, theme, toast, audit, services, llm)
