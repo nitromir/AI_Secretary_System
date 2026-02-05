@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 16 tabs, i18n (ru/en), themes, ~185 API endpoints across 17 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features and YooMoney/YooKassa/Stars payments, and fine-tuning with project dataset generation.
+AI Secretary System - virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini with VLESS proxy support, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony support (SIM7600E-H), a Vue 3 PWA admin panel with 16 tabs, i18n (ru/en), themes, ~193 API endpoints across 18 routers, website chat widgets (multi-instance), Telegram bot integration (multi-instance) with sales bot features and YooMoney/YooKassa/Stars payments, and fine-tuning with project dataset generation.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Orchestrator (port 8002)                              │
-│  orchestrator.py + app/routers/ (17 modular routers, ~185 endpoints)     │
+│  orchestrator.py + app/routers/ (18 modular routers, ~193 endpoints)     │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐   │
 │  │              Vue 3 Admin Panel (16 tabs, PWA)                      │   │
@@ -170,12 +170,14 @@ app/
 │   ├── gsm.py               # 12 endpoints - GSM telephony, SIM7600E-H module
 │   ├── bot_sales.py         # 20 endpoints - Sales bot (quiz, segments, funnels, testimonials)
 │   ├── legal.py             # 15 endpoints - GDPR compliance, consents, privacy policy
+│   ├── backup.py            # 8 endpoints  - Backup/restore system
 │   ├── github_webhook.py    # 4 endpoints  - GitHub webhook (stars, releases)
 │   └── yoomoney_webhook.py  # 2 endpoints  - YooMoney payment webhook
 └── services/
     ├── audio_pipeline.py    # Telephony audio processing (GSM frames, G.711)
     ├── sales_funnel.py      # Sales funnel logic (segmentation, pricing, follow-ups)
-    └── yoomoney_service.py  # YooMoney OAuth & payment processing
+    ├── yoomoney_service.py  # YooMoney OAuth & payment processing
+    └── backup_service.py    # Backup/restore system (ZIP archives, checksums)
 ```
 
 **Core Services:**
