@@ -166,7 +166,7 @@ class SystemMonitor:
             result = subprocess.run(
                 [
                     "nvidia-smi",
-                    "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,fan.speed,pcie.link.gen.current,pcie.link.width.current",
+                    "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,fan.speed,pcie.link.gen.current,pcie.link.width.current,compute_cap",
                     "--format=csv,noheader,nounits",
                 ],
                 capture_output=True,
@@ -179,7 +179,7 @@ class SystemMonitor:
                     if not line.strip():
                         continue
                     parts = [p.strip() for p in line.split(",")]
-                    if len(parts) >= 13:
+                    if len(parts) >= 14:
                         try:
                             gpu = GpuInfo(
                                 index=int(parts[0]),
@@ -205,15 +205,10 @@ class SystemMonitor:
                                 else 0,
                                 pcie_gen=int(parts[11]) if parts[11] != "[Not Supported]" else 0,
                                 pcie_width=int(parts[12]) if parts[12] != "[Not Supported]" else 0,
+                                compute_capability=parts[13].strip()
+                                if parts[13] != "[Not Supported]"
+                                else "",
                             )
-
-                            # Добавляем compute capability через torch
-                            if (
-                                self._torch_available
-                                and gpu.index < self._torch.cuda.device_count()
-                            ):
-                                props = self._torch.cuda.get_device_properties(gpu.index)
-                                gpu.compute_capability = f"{props.major}.{props.minor}"
 
                             gpus.append(gpu)
                         except (ValueError, IndexError) as e:
