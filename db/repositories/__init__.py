@@ -5,6 +5,7 @@ Each repository handles CRUD operations for a specific domain entity,
 with optional Redis caching for frequently accessed data.
 """
 
+from db.repositories.amocrm import AmoCRMConfigRepository, AmoCRMSyncLogRepository
 from db.repositories.audit import AuditRepository
 from db.repositories.base import BaseRepository
 from db.repositories.bot_ab_test import BotAbTestRepository
@@ -33,6 +34,8 @@ from db.repositories.widget_instance import WidgetInstanceRepository
 
 
 __all__ = [
+    "AmoCRMConfigRepository",
+    "AmoCRMSyncLogRepository",
     "AuditRepository",
     "BaseRepository",
     "BotAbTestRepository",
