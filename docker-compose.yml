@@ -47,6 +47,7 @@ services:
       - ./voice_clone_service.py:/app/voice_clone_service.py:ro
       - ./vllm_llm_service.py:/app/vllm_llm_service.py:ro
       - ./service_manager.py:/app/service_manager.py:ro
+      - ./system_monitor.py:/app/system_monitor.py:ro
       - ./db:/app/db:ro
       - ./app:/app/app:ro
       - ./bridge_manager.py:/app/bridge_manager.py:ro
@@ -86,9 +87,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              # Use GPU 1 (RTX 3060, CC 8.6) instead of GPU 0 (P104-100, CC 6.1)
-              # XTTS requires CC >= 7.0
-              device_ids: ['1']
+              # All GPUs for monitoring; XTTS auto-selects GPU with CC >= 7.0
+              count: all
               capabilities: [gpu]
     restart: unless-stopped
     networks:
