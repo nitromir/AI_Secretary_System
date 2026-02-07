@@ -1,8 +1,10 @@
 """TZ (Technical Specification) handlers — quiz and document generation."""
 
+import json
 import logging
 from datetime import datetime
 
+import httpx
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -13,6 +15,7 @@ from aiogram.types import (
     Message,
 )
 
+from ..config import get_telegram_settings
 from ..sales.database import get_sales_db
 from ..sales.keyboards import (
     tz_budget_kb,
@@ -28,6 +31,34 @@ from ..services.llm_router import get_llm_router
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+# 20 MB limit (Telegram Bot API file download limit)
+MAX_FILE_SIZE = 20 * 1024 * 1024
+
+
+async def _upload_tg_file(message: Message, file_id: str, filename: str, mime: str) -> dict:
+    """Download file from Telegram and upload to bridge, return file metadata."""
+    settings = get_telegram_settings()
+    tg_file = await message.bot.get_file(file_id)
+    bio = await message.bot.download_file(tg_file.file_path)
+    file_bytes = bio.read()
+
+    headers = {}
+    if settings.bridge_api_key:
+        headers["Authorization"] = f"Bearer {settings.bridge_api_key}"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{settings.bridge_url}/v1/files",
+            headers=headers,
+            files={"file": (filename, file_bytes, mime)},
+            data={"purpose": "assistants"},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+
+    return {"file_id": result["id"], "filename": filename, "mime": mime}
+
 
 # TZ generation prompt template
 TZ_SYSTEM_PROMPT = """Ты — опытный системный аналитик и технический лид.
@@ -272,14 +303,50 @@ async def tz_project_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(SalesFunnel.tz_project_desc)
 async def tz_project_desc(message: Message, state: FSMContext) -> None:
-    """Handle project description input."""
-    if not message.text:
-        await message.answer("Пожалуйста, опишите проект текстом.")
-        return
-
+    """Handle project description input (text, photo, or document)."""
     data = await state.get_data()
     tz_data = data.get("tz_data", {})
-    tz_data["project_desc"] = message.text
+    files = tz_data.get("files", [])
+    text = None
+
+    if message.text:
+        text = message.text
+    elif message.photo:
+        photo = message.photo[-1]  # largest resolution
+        try:
+            meta = await _upload_tg_file(message, photo.file_id, "photo.jpg", "image/jpeg")
+            files.append(meta)
+            text = message.caption or ""
+            await message.answer("📎 Фото принято!")
+        except Exception:
+            logger.exception("Failed to upload photo in TZ step 2")
+            await message.answer("Не удалось загрузить фото, попробуйте ещё раз.")
+            return
+    elif message.document:
+        doc = message.document
+        if doc.file_size and doc.file_size > MAX_FILE_SIZE:
+            await message.answer("Файл слишком большой (макс. 20 МБ).")
+            return
+        try:
+            meta = await _upload_tg_file(
+                message,
+                doc.file_id,
+                doc.file_name or "document",
+                doc.mime_type or "application/octet-stream",
+            )
+            files.append(meta)
+            text = message.caption or ""
+            await message.answer("📎 Документ принят!")
+        except Exception:
+            logger.exception("Failed to upload document in TZ step 2")
+            await message.answer("Не удалось загрузить файл, попробуйте ещё раз.")
+            return
+    else:
+        await message.answer("Отправьте текст, фото или документ.")
+        return
+
+    tz_data["project_desc"] = text
+    tz_data["files"] = files
     await state.update_data(tz_data=tz_data)
 
     await state.set_state(SalesFunnel.tz_business_goal)
@@ -321,14 +388,50 @@ async def tz_business_goal(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(SalesFunnel.tz_features)
 async def tz_features(message: Message, state: FSMContext) -> None:
-    """Handle features description input."""
-    if not message.text:
-        await message.answer("Пожалуйста, опишите функции текстом.")
-        return
-
+    """Handle features description input (text, photo, or document)."""
     data = await state.get_data()
     tz_data = data.get("tz_data", {})
-    tz_data["features"] = message.text
+    files = tz_data.get("files", [])
+    text = None
+
+    if message.text:
+        text = message.text
+    elif message.photo:
+        photo = message.photo[-1]
+        try:
+            meta = await _upload_tg_file(message, photo.file_id, "photo.jpg", "image/jpeg")
+            files.append(meta)
+            text = message.caption or ""
+            await message.answer("📎 Фото принято!")
+        except Exception:
+            logger.exception("Failed to upload photo in TZ step 4")
+            await message.answer("Не удалось загрузить фото, попробуйте ещё раз.")
+            return
+    elif message.document:
+        doc = message.document
+        if doc.file_size and doc.file_size > MAX_FILE_SIZE:
+            await message.answer("Файл слишком большой (макс. 20 МБ).")
+            return
+        try:
+            meta = await _upload_tg_file(
+                message,
+                doc.file_id,
+                doc.file_name or "document",
+                doc.mime_type or "application/octet-stream",
+            )
+            files.append(meta)
+            text = message.caption or ""
+            await message.answer("📎 Документ принят!")
+        except Exception:
+            logger.exception("Failed to upload document in TZ step 4")
+            await message.answer("Не удалось загрузить файл, попробуйте ещё раз.")
+            return
+    else:
+        await message.answer("Отправьте текст, фото или документ.")
+        return
+
+    tz_data["features"] = text
+    tz_data["files"] = files
     await state.update_data(tz_data=tz_data)
 
     await state.set_state(SalesFunnel.tz_timeline)
@@ -461,10 +564,11 @@ async def _generate_tz(tz_data: dict) -> str:
     TZ generation is one of the few places where Claude is used
     because it requires sophisticated document structuring and
     business analysis capabilities.
-    """
-    router = get_llm_router()
 
-    user_message = f"""Проанализируй требования и создай техническое задание:
+    When files are attached, calls the bridge directly with multipart
+    content (the orchestrator chat API only supports plain text).
+    """
+    user_text = f"""Проанализируй требования и создай техническое задание:
 
 {_format_tz_data(tz_data)}
 
@@ -485,8 +589,65 @@ async def _generate_tz(tz_data: dict) -> str:
 Будь реалистичен в оценках. Лучше переоценить чем недооценить.
 """
 
-    # Use Claude via LLM Router (expensive but smart)
-    return await router.generate_tz(TZ_SYSTEM_PROMPT, user_message)
+    files = tz_data.get("files", [])
+    if files:
+        # Call bridge directly with multipart content (files + text)
+        return await _generate_tz_with_files(user_text, files)
+
+    # Use Claude via LLM Router (text-only, existing path)
+    llm_router = get_llm_router()
+    return await llm_router.generate_tz(TZ_SYSTEM_PROMPT, user_text)
+
+
+async def _generate_tz_with_files(user_text: str, files: list[dict]) -> str:
+    """Generate TZ via bridge directly, with file references in the message."""
+    settings = get_telegram_settings()
+
+    content_parts: list[dict] = [{"type": "file", "file_id": f["file_id"]} for f in files]
+    content_parts.append({"type": "text", "text": user_text})
+
+    messages = [
+        {"role": "system", "content": TZ_SYSTEM_PROMPT},
+        {"role": "user", "content": content_parts},
+    ]
+
+    headers = {"Content-Type": "application/json"}
+    if settings.bridge_api_key:
+        headers["Authorization"] = f"Bearer {settings.bridge_api_key}"
+
+    payload = {
+        "model": "sonnet",
+        "messages": messages,
+        "stream": True,
+    }
+
+    full_text = ""
+    async with (
+        httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client,
+        client.stream(
+            "POST",
+            f"{settings.bridge_url}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as resp,
+    ):
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]
+            if data_str == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                if data.get("choices"):
+                    delta = data["choices"][0].get("delta", {})
+                    if content := delta.get("content"):
+                        full_text += content
+            except json.JSONDecodeError:
+                pass
+
+    return full_text.strip()
 
 
 # ── Result Actions ────────────────────────────────────────────
