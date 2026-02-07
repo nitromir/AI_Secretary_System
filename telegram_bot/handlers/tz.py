@@ -1,6 +1,5 @@
 """TZ (Technical Specification) handlers — quiz and document generation."""
 
-import json
 import logging
 from datetime import datetime
 
@@ -589,65 +588,30 @@ async def _generate_tz(tz_data: dict) -> str:
 Будь реалистичен в оценках. Лучше переоценить чем недооценить.
 """
 
+    # Embed file contents directly in the prompt text
+    # (CLI-based providers can't resolve file_id references in one-shot mode)
     files = tz_data.get("files", [])
     if files:
-        # Call bridge directly with multipart content (files + text)
-        return await _generate_tz_with_files(user_text, files)
+        settings = get_telegram_settings()
+        headers = {}
+        if settings.bridge_api_key:
+            headers["Authorization"] = f"Bearer {settings.bridge_api_key}"
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            for f in files:
+                try:
+                    resp = await http.get(
+                        f"{settings.bridge_url}/v1/files/{f['file_id']}/content",
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    text_content = resp.content.decode("utf-8", errors="replace")
+                    user_text += f"\n\n## Приложенный файл: {f['filename']}\n\n{text_content}"
+                except Exception:
+                    logger.warning("Failed to fetch file %s", f["file_id"])
 
-    # Use Claude via LLM Router (text-only, existing path)
+    # Use Claude via LLM Router
     llm_router = get_llm_router()
     return await llm_router.generate_tz(TZ_SYSTEM_PROMPT, user_text)
-
-
-async def _generate_tz_with_files(user_text: str, files: list[dict]) -> str:
-    """Generate TZ via bridge directly, with file references in the message."""
-    settings = get_telegram_settings()
-
-    content_parts: list[dict] = [{"type": "file", "file_id": f["file_id"]} for f in files]
-    content_parts.append({"type": "text", "text": user_text})
-
-    messages = [
-        {"role": "system", "content": TZ_SYSTEM_PROMPT},
-        {"role": "user", "content": content_parts},
-    ]
-
-    headers = {"Content-Type": "application/json"}
-    if settings.bridge_api_key:
-        headers["Authorization"] = f"Bearer {settings.bridge_api_key}"
-
-    payload = {
-        "model": "sonnet",
-        "messages": messages,
-        "stream": True,
-    }
-
-    full_text = ""
-    async with (
-        httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client,
-        client.stream(
-            "POST",
-            f"{settings.bridge_url}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        ) as resp,
-    ):
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if not line.startswith("data: "):
-                continue
-            data_str = line[6:]
-            if data_str == "[DONE]":
-                break
-            try:
-                data = json.loads(data_str)
-                if data.get("choices"):
-                    delta = data["choices"][0].get("delta", {})
-                    if content := delta.get("content"):
-                        full_text += content
-            except json.JSONDecodeError:
-                pass
-
-    return full_text.strip()
 
 
 # ── Result Actions ────────────────────────────────────────────
