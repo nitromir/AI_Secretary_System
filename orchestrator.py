@@ -37,6 +37,7 @@ from app.rate_limiter import limiter
 
 # Modular routers
 from app.routers import (
+    amocrm,
     audit,
     auth,
     backup,
@@ -397,6 +398,8 @@ app.include_router(github_webhook.router)
 app.include_router(yoomoney_webhook.router)
 app.include_router(legal.router)
 app.include_router(backup.router)
+app.include_router(amocrm.router)
+app.include_router(amocrm.webhook_router)
 
 # Глобальные сервисы
 voice_service: Optional[VoiceCloneService] = None  # XTTS (Лидия) - GPU CC >= 7.0

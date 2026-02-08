@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from db.database import AsyncSessionLocal, close_db, get_db_status, init_db
 from db.redis_client import close_redis, get_redis_status, init_redis
 from db.repositories import (
+    AmoCRMConfigRepository,
+    AmoCRMSyncLogRepository,
     AuditRepository,
     BotInstanceRepository,
     ChatRepository,
@@ -706,6 +708,58 @@ class AsyncPaymentManager:
             return await repo.get_payment_stats(bot_id)
 
 
+# ============== amoCRM Manager ==============
+
+
+class AsyncAmoCRMManager:
+    """Async wrapper for amoCRM config and sync log repositories."""
+
+    async def get_config(self) -> Optional[dict]:
+        """Get amoCRM config (secrets masked)."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMConfigRepository(session)
+            return await repo.get_config()
+
+    async def get_config_with_secrets(self) -> Optional[Dict[str, Any]]:
+        """Get raw config model for internal use (tokens, secrets)."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMConfigRepository(session)
+            model = await repo.get_config_with_secrets()
+            if not model:
+                return None
+            result = model.to_dict(include_secrets=True)
+            result["access_token"] = model.access_token
+            result["refresh_token"] = model.refresh_token
+            result["token_expires_at"] = (
+                model.token_expires_at.isoformat() if model.token_expires_at else None
+            )
+            return result
+
+    async def save_config(self, **kwargs: Any) -> dict:
+        """Create or update amoCRM config."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMConfigRepository(session)
+            return await repo.save_config(**kwargs)
+
+    async def clear_tokens(self) -> dict:
+        """Clear OAuth tokens (disconnect)."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMConfigRepository(session)
+            return await repo.clear_tokens()
+
+    async def log_sync(self, **kwargs: Any) -> dict:
+        """Log a sync event."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMSyncLogRepository(session)
+            return await repo.log_sync(**kwargs)
+
+    async def get_sync_logs(self, limit: int = 50) -> List[dict]:
+        """Get recent sync log entries."""
+        async with AsyncSessionLocal() as session:
+            repo = AmoCRMSyncLogRepository(session)
+            return await repo.get_recent(limit)
+
+
 # ============== Global Instances ==============
 
 # These can be used directly in orchestrator
@@ -719,6 +773,7 @@ async_bot_instance_manager = AsyncBotInstanceManager()
 async_widget_instance_manager = AsyncWidgetInstanceManager()
 async_cloud_provider_manager = AsyncCloudProviderManager()
 async_payment_manager = AsyncPaymentManager()
+async_amocrm_manager = AsyncAmoCRMManager()
 
 
 # ============== Initialization Function ==============
