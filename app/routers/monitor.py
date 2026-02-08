@@ -141,7 +141,7 @@ async def admin_get_health():
         health["overall"] = "degraded"
 
     # TTS
-    if container.gulya_voice_service or container.voice_service:
+    if container.anna_voice_service or container.voice_service:
         health["components"]["tts_xtts"] = {"status": "healthy"}
     else:
         health["components"]["tts_xtts"] = {"status": "unavailable"}

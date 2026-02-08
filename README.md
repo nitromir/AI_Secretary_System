@@ -9,7 +9,7 @@
 
 - **Multi-Voice TTS**: 5 голосов (2 клонированных XTTS, 1 OpenVoice, 2 Piper)
 - **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
-- **Multi-Persona LLM**: 2 персоны секретаря (Гуля, Лидия)
+- **Multi-Persona LLM**: 2 персоны секретаря (Анна, Марина)
 - **Local LLM**: vLLM с Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
 - **Cloud LLM Providers**: Подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) с хранением credentials в БД
 - **Multi-Instance Bots**: Несколько Telegram ботов с независимыми настройками (LLM, TTS, промпт)
@@ -232,22 +232,22 @@ npm run dev
 
 | Voice | Engine | GPU Required | Speed | Quality |
 |-------|--------|--------------|-------|---------|
-| `gulya` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
-| `lidia` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
-| `lidia_openvoice` | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning |
+| `anna` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| `marina` | XTTS v2 | CC >= 7.0 | ~5-10s | Best cloning |
+| `marina_openvoice` | OpenVoice v2 | CC >= 6.1 | ~2-4s | Good cloning |
 | `dmitri` | Piper | CPU | ~0.5s | Pre-trained male |
 | `irina` | Piper | CPU | ~0.5s | Pre-trained female |
 
 **Voice Samples:**
-- `./Гуля/` - 122 WAV files
-- `./Лидия/` - WAV files
+- `./Анна/` - 122 WAV files
+- `./Марина/` - WAV files
 
 **Switching Voice:**
 ```bash
 # Via API
 curl -X POST http://localhost:8002/admin/voice \
   -H "Content-Type: application/json" \
-  -d '{"voice": "gulya"}'
+  -d '{"voice": "anna"}'
 
 # Via Admin Panel
 open http://localhost:8002/admin → TTS tab
@@ -494,18 +494,18 @@ curl -X POST http://localhost:8002/admin/telegram/instances/{id}/start
 
 | Persona | Name | Description |
 |---------|------|-------------|
-| `gulya` | Гуля (Гульнара) | Дружелюбный цифровой секретарь (default) |
-| `lidia` | Лидия | Альтернативная персона |
+| `anna` | Анна | Дружелюбный цифровой секретарь (default) |
+| `marina` | Марина | Альтернативная персона |
 
 **Switching Persona:**
 ```bash
 # Environment variable
-export SECRETARY_PERSONA=lidia
+export SECRETARY_PERSONA=marina
 
 # Via API
 curl -X POST http://localhost:8002/admin/llm/persona \
   -H "Content-Type: application/json" \
-  -d '{"persona": "lidia"}'
+  -d '{"persona": "marina"}'
 
 # Via Admin Panel
 open http://localhost:8002/admin → LLM tab
@@ -631,12 +631,12 @@ POST /admin/llm/proxy/switch-next
 # Chat completion
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "gulya-secretary-qwen", "messages": [{"role": "user", "content": "Привет!"}]}'
+  -d '{"model": "anna-secretary-qwen", "messages": [{"role": "user", "content": "Привет!"}]}'
 
 # Text-to-Speech
 curl -X POST http://localhost:8002/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Привет!", "voice": "gulya"}' \
+  -d '{"input": "Привет!", "voice": "anna"}' \
   -o output.wav
 
 # List models
@@ -817,14 +817,14 @@ API Key: sk-dummy
 # Settings → Audio → TTS
 TTS Engine: OpenAI
 API Base URL: http://172.17.0.1:8002/v1
-TTS Voice: gulya
+TTS Voice: anna
 ```
 
 **Available Models:**
-- `gulya-secretary-qwen` - Гуля + Qwen2.5-7B + LoRA
-- `lidia-secretary-qwen` - Лидия + Qwen2.5-7B + LoRA
-- `gulya-secretary-llama` - Гуля + Llama-3.1-8B
-- `gulya-secretary-gemini` - Гуля + Gemini API
+- `anna-secretary-qwen` - Анна + Qwen2.5-7B + LoRA
+- `marina-secretary-qwen` - Марина + Qwen2.5-7B + LoRA
+- `anna-secretary-llama` - Анна + Llama-3.1-8B
+- `anna-secretary-gemini` - Анна + Gemini API
 
 ## Environment Variables
 
@@ -837,7 +837,7 @@ VLLM_API_URL=http://localhost:11434
 VLLM_MODEL_NAME=lydia               # LoRA adapter name
 
 # Optional
-SECRETARY_PERSONA=gulya             # "gulya" or "lidia"
+SECRETARY_PERSONA=anna             # "anna" or "marina"
 GEMINI_API_KEY=...                  # Only for gemini backend
 ORCHESTRATOR_PORT=8002
 CUDA_VISIBLE_DEVICES=1              # GPU index
@@ -899,8 +899,8 @@ AI_Secretary_System/
 │   ├── docs/                # Implementation docs
 │   └── dist/                # Production build
 │
-├── Гуля/                    # Voice samples (122 WAV)
-├── Лидия/                   # Voice samples
+├── Анна/                    # Voice samples (122 WAV)
+├── Марина/                   # Voice samples
 ├── models/                  # AI models
 │   ├── piper/               # Piper ONNX models (CPU TTS)
 │   └── vosk/                # Vosk models (STT)

@@ -25,9 +25,9 @@ DEFAULT_WIDGET_CONFIG = {
     "primary_color": "#6366f1",
     "position": "right",
     "llm_backend": "vllm",
-    "llm_persona": "gulya",
+    "llm_persona": "anna",
     "tts_engine": "xtts",
-    "tts_voice": "gulya",
+    "tts_voice": "anna",
 }
 
 

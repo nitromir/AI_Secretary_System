@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Core Features
 - **Multi-Voice TTS**: XTTS v2 (voice cloning), OpenVoice v2, Piper (CPU)
 - **Speech-to-Text**: Vosk (realtime streaming) + Whisper (batch)
-- **Multi-Persona LLM**: Secretary personas (Gulya, Lidia) with customizable prompts
+- **Multi-Persona LLM**: Secretary personas (Anna, Marina) with customizable prompts
 - **Local LLM**: vLLM with Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
 - **Cloud LLM Providers**: Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter with DB storage
 - **Claude Bridge**: CLI-OpenAI bridge for using Claude Code as LLM backend

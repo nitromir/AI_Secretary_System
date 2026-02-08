@@ -26,6 +26,7 @@ from db.repositories.cloud_provider import CloudProviderRepository
 from db.repositories.config import ConfigRepository
 from db.repositories.consent import ConsentRepository
 from db.repositories.faq import FAQRepository
+from db.repositories.gsm import GSMCallLogRepository, GSMSMSLogRepository
 from db.repositories.payment import PaymentRepository
 from db.repositories.preset import PresetRepository
 from db.repositories.telegram import TelegramRepository
@@ -57,6 +58,8 @@ __all__ = [
     "ConfigRepository",
     "ConsentRepository",
     "FAQRepository",
+    "GSMCallLogRepository",
+    "GSMSMSLogRepository",
     "PaymentRepository",
     "PresetRepository",
     "TelegramRepository",

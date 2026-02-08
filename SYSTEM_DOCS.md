@@ -2,7 +2,7 @@
 
 ## Обзор системы
 
-AI Secretary "Лидия/Гуля" - система синтеза речи с клонированием голоса и GPU-ускорением, интегрированная с LLM для работы виртуального секретаря. Поддерживает streaming TTS для телефонии.
+AI Secretary "Марина/Анна" - система синтеза речи с клонированием голоса и GPU-ускорением, интегрированная с LLM для работы виртуального секретаря. Поддерживает streaming TTS для телефонии.
 
 ## Текущий статус (2026-01-29)
 
@@ -223,7 +223,7 @@ ORCHESTRATOR_PORT=8002
 TTS_SERVER_PORT=5002
 
 # Голосовые образцы
-VOICE_SAMPLES_DIR=./Лидия
+VOICE_SAMPLES_DIR=./Марина
 
 # Опционально (телефония)
 TWILIO_ACCOUNT_SID=...
@@ -247,7 +247,7 @@ AI_Secretary_System/
 ├── requirements.txt         # Зависимости
 ├── CLAUDE.md               # Контекст для Claude Code
 ├── SYSTEM_DOCS.md          # Эта документация
-├── Лидия/                  # 53 голосовых образца WAV
+├── Марина/                  # 53 голосовых образца WAV
 ├── cache/                  # Кэш speaker latents
 ├── calls_log/              # Логи звонков
 ├── temp/                   # Временные файлы
@@ -278,7 +278,7 @@ curl -X POST http://localhost:8002/admin/tts/stream \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Здравствуйте!",
-    "voice": "gulya",
+    "voice": "anna",
     "target_sample_rate": 8000,
     "output_format": "pcm16"
   }' --output audio.pcm
@@ -292,7 +292,7 @@ const ws = new WebSocket('ws://localhost:8002/admin/tts/ws/stream');
 ws.onopen = () => {
   ws.send(JSON.stringify({
     text: "Привет!",
-    voice: "gulya",
+    voice: "anna",
     target_sample_rate: 8000
   }));
 };

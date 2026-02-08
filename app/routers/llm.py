@@ -73,7 +73,7 @@ class CloudProviderUpdate(BaseModel):
 
 
 class AdminPersonaRequest(BaseModel):
-    persona: str  # "gulya" or "lidia"
+    persona: str  # "anna" or "marina"
 
 
 class AdminLLMParamsRequest(BaseModel):
@@ -232,7 +232,7 @@ async def admin_get_llm_prompt():
     llm_service = container.llm_service
     if llm_service:
         persona = getattr(llm_service, "current_persona", None) or os.getenv(
-            "SECRETARY_PERSONA", "gulya"
+            "SECRETARY_PERSONA", "anna"
         )
         return {
             "prompt": llm_service.system_prompt,
@@ -856,7 +856,7 @@ async def admin_get_current_persona():
 
     container = get_container()
     llm_service = container.llm_service
-    current_id = "gulya"
+    current_id = "anna"
     if llm_service and hasattr(llm_service, "persona_id"):
         current_id = llm_service.persona_id
 
@@ -1474,7 +1474,7 @@ async def admin_delete_llm_preset(preset_id: str, user: User = Depends(get_curre
     from db.repositories.llm_preset import LLMPresetRepository
 
     # Prevent deletion of default presets
-    if preset_id in ["gulya", "lidia"]:
+    if preset_id in ["anna", "marina"]:
         raise HTTPException(status_code=400, detail="Cannot delete default presets")
 
     async with get_session_context() as session:
@@ -1566,7 +1566,7 @@ async def admin_get_current_preset():
     llm_service = container.llm_service
 
     # Get current preset_id from llm_service
-    current_id = "gulya"  # Default
+    current_id = "anna"  # Default
     if llm_service and hasattr(llm_service, "persona_id"):
         current_id = llm_service.persona_id
 

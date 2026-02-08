@@ -10,6 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.dependencies import get_gsm_service
 from auth_manager import User, get_current_user
 
 
@@ -60,6 +61,7 @@ class GSMStatus(BaseModel):
     audio_port: str = "/dev/ttyUSB4"
     module_info: Optional[str] = None
     last_error: Optional[str] = None
+    mock_mode: bool = False
 
 
 class GSMConfig(BaseModel):
@@ -95,10 +97,10 @@ class GSMConfig(BaseModel):
 
     # LLM
     llm_backend: str = "vllm"
-    llm_persona: str = "gulya"
+    llm_persona: str = "anna"
 
     # TTS
-    tts_voice: str = "gulya"
+    tts_voice: str = "anna"
     tts_preset: str = "natural"
 
 
@@ -162,66 +164,73 @@ class ATCommandResponse(BaseModel):
     error: Optional[str] = None
 
 
-# ============== Global state (будет заменено на GSMService) ==============
+class DialRequest(BaseModel):
+    """Запрос на исходящий звонок."""
 
-# Временное хранилище - будет заменено на реальный сервис
-_gsm_config: Optional[GSMConfig] = None
-_call_history: List[CallInfo] = []
-_sms_history: List[SMSMessage] = []
+    number: str
 
 
-def _get_config() -> GSMConfig:
-    global _gsm_config
-    if _gsm_config is None:
-        _gsm_config = GSMConfig()
-    return _gsm_config
+# ============== Helpers ==============
+
+
+def _require_gsm(gsm_service):
+    """Raise 503 if GSM service is not available."""
+    if gsm_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="GSM сервис не инициализирован. Проверьте подключение модуля.",
+        )
+    return gsm_service
 
 
 # ============== Status Endpoints ==============
 
 
 @router.get("/status")
-async def gsm_status() -> GSMStatus:
+async def gsm_status(gsm_service=Depends(get_gsm_service)) -> GSMStatus:
     """Получить статус GSM модуля."""
-    config = _get_config()
-
-    # Проверяем наличие USB устройств
-    at_port_path = Path(config.at_port)
-
-    if not at_port_path.exists():
+    if gsm_service is None:
         return GSMStatus(
             state=ModuleState.DISCONNECTED,
-            at_port=config.at_port,
-            audio_port=config.audio_port,
-            last_error=f"AT порт {config.at_port} не найден. Подключите модуль.",
+            last_error="GSM сервис не инициализирован. Модуль не подключен.",
         )
 
-    # TODO: Реальная проверка модуля через AT команды
-    # Пока возвращаем заглушку
+    status = await gsm_service.get_status()
     return GSMStatus(
-        state=ModuleState.DISCONNECTED,
-        at_port=config.at_port,
-        audio_port=config.audio_port,
-        last_error="GSM сервис не инициализирован. Модуль не подключен.",
+        state=ModuleState(status.state),
+        signal_strength=status.signal_strength,
+        signal_percent=status.signal_percent,
+        sim_status=status.sim_status,
+        network_name=status.network_name,
+        network_registered=status.network_registered,
+        phone_number=status.phone_number,
+        at_port=gsm_service.port,
+        module_info=status.module_info,
+        last_error=status.last_error,
+        mock_mode=status.mock_mode,
     )
 
 
 @router.post("/initialize")
-async def initialize_module(user: User = Depends(get_current_user)):
+async def initialize_module(
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
+):
     """Инициализировать GSM модуль."""
-    config = _get_config()
+    gsm = _require_gsm(gsm_service)
 
-    if not Path(config.at_port).exists():
+    if gsm.state == "ready":
+        return {"status": "ok", "message": "GSM модуль уже инициализирован"}
+
+    ok = await gsm.initialize()
+    if ok:
+        mode = "mock" if gsm.mock_mode else "hardware"
+        return {"status": "ok", "message": f"GSM модуль инициализирован ({mode} mode)"}
+    else:
         raise HTTPException(
-            status_code=503,
-            detail=f"AT порт {config.at_port} не найден. Подключите модуль.",
+            status_code=500,
+            detail=f"Не удалось инициализировать GSM модуль: {gsm.last_error}",
         )
-
-    # TODO: Реальная инициализация через GSMService
-    return {
-        "status": "ok",
-        "message": "Инициализация GSM модуля (заглушка - модуль не подключен)",
-    }
 
 
 # ============== Config Endpoints ==============
@@ -230,14 +239,23 @@ async def initialize_module(user: User = Depends(get_current_user)):
 @router.get("/config")
 async def get_gsm_config() -> GSMConfig:
     """Получить конфигурацию GSM."""
-    return _get_config()
+    from db.integration import async_config_manager
+
+    conf = await async_config_manager.get_config("gsm_config")
+    if conf:
+        return GSMConfig(**conf)
+    return GSMConfig()
 
 
 @router.put("/config")
-async def update_gsm_config(config: GSMConfig, user: User = Depends(get_current_user)) -> GSMConfig:
+async def update_gsm_config(
+    config: GSMConfig,
+    user: User = Depends(get_current_user),
+) -> GSMConfig:
     """Обновить конфигурацию GSM."""
-    global _gsm_config
-    _gsm_config = config
+    from db.integration import async_config_manager
+
+    await async_config_manager.set_config("gsm_config", config.model_dump())
     logger.info(f"GSM config updated by {user.username}")
     return config
 
@@ -246,57 +264,118 @@ async def update_gsm_config(config: GSMConfig, user: User = Depends(get_current_
 
 
 @router.get("/calls")
-async def list_calls(limit: int = 50, offset: int = 0, state: Optional[CallState] = None) -> dict:
-    """Список звонков."""
-    calls = _call_history
+async def list_calls(
+    limit: int = 50,
+    offset: int = 0,
+    state: Optional[CallState] = None,
+) -> dict:
+    """Список звонков из БД."""
+    from db.integration import async_gsm_manager
 
-    if state:
-        calls = [c for c in calls if c.state == state]
+    state_val = state.value if state else None
+    calls = await async_gsm_manager.get_recent_calls(limit=limit, offset=offset, state=state_val)
+    total = await async_gsm_manager.count_calls(state=state_val)
 
-    total = len(calls)
-    calls = calls[offset : offset + limit]
-
-    return {"calls": calls, "total": total, "limit": limit, "offset": offset}
+    return {
+        "calls": calls,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/calls/active")
-async def get_active_call() -> Optional[ActiveCall]:
+async def get_active_call(gsm_service=Depends(get_gsm_service)):
     """Получить активный звонок."""
-    # TODO: Реальная проверка через GSMService
-    return None
+    if gsm_service is None:
+        return None
+    return gsm_service.get_active_call()
 
 
 @router.get("/calls/{call_id}")
-async def get_call(call_id: str) -> CallInfo:
-    """Детали звонка."""
-    for call in _call_history:
-        if call.id == call_id:
+async def get_call(call_id: str) -> dict:
+    """Детали звонка из БД."""
+    from db.integration import async_gsm_manager
+
+    calls = await async_gsm_manager.get_recent_calls(limit=200)
+    for call in calls:
+        if call["id"] == call_id:
             return call
     raise HTTPException(status_code=404, detail="Звонок не найден")
 
 
 @router.post("/calls/answer")
-async def answer_call(user: User = Depends(get_current_user)):
+async def answer_call(
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
+):
     """Ответить на входящий звонок."""
-    # TODO: GSMService.answer_call()
-    return {"status": "ok", "message": "Команда ответа отправлена (заглушка)"}
+    gsm = _require_gsm(gsm_service)
+
+    ok = await gsm.answer()
+    if ok:
+        # Log to DB
+        from db.integration import async_gsm_manager
+
+        if gsm.active_call:
+            await async_gsm_manager.update_call_state(
+                call_id=gsm.active_call.id,
+                state="active",
+                answered_at=gsm.active_call.answered_at,
+            )
+        return {"status": "ok", "message": "Звонок принят"}
+    else:
+        raise HTTPException(status_code=400, detail="Нет входящего звонка для ответа")
 
 
 @router.post("/calls/hangup")
-async def hangup_call(user: User = Depends(get_current_user)):
+async def hangup_call(
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
+):
     """Завершить текущий звонок."""
-    # TODO: GSMService.hangup()
-    return {"status": "ok", "message": "Команда завершения отправлена (заглушка)"}
+    gsm = _require_gsm(gsm_service)
+
+    # Capture call info before hangup clears it
+    call = gsm.active_call
+    ok = await gsm.hangup()
+    if ok:
+        if call:
+            from db.integration import async_gsm_manager
+
+            await async_gsm_manager.update_call_state(
+                call_id=call.id,
+                state="completed",
+                ended_at=datetime.utcnow(),
+            )
+        return {"status": "ok", "message": "Звонок завершён"}
+    else:
+        raise HTTPException(status_code=400, detail="Нет активного звонка")
 
 
 @router.post("/calls/dial")
-async def dial_number(number: str, user: User = Depends(get_current_user)):
+async def dial_number(
+    request: DialRequest,
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
+):
     """Позвонить на номер."""
-    # TODO: GSMService.dial()
-    return {
-        "status": "ok",
-        "message": f"Звонок на {number} (заглушка - модуль не подключен)",
-    }
+    gsm = _require_gsm(gsm_service)
+
+    ok, result = await gsm.dial(request.number)
+    if ok:
+        # Save to DB
+        from db.integration import async_gsm_manager
+
+        await async_gsm_manager.create_call(
+            direction="outgoing",
+            state="ringing",
+            caller_number=request.number,
+            call_id=result,
+        )
+        return {"status": "ok", "call_id": result, "message": f"Звонок на {request.number}"}
+    else:
+        raise HTTPException(status_code=400, detail=result)
 
 
 # ============== SMS Endpoints ==============
@@ -304,20 +383,43 @@ async def dial_number(number: str, user: User = Depends(get_current_user)):
 
 @router.get("/sms")
 async def list_sms(limit: int = 50, offset: int = 0) -> dict:
-    """Список SMS."""
-    total = len(_sms_history)
-    messages = _sms_history[offset : offset + limit]
-    return {"messages": messages, "total": total, "limit": limit, "offset": offset}
+    """Список SMS из БД."""
+    from db.integration import async_gsm_manager
+
+    messages = await async_gsm_manager.get_recent_sms(limit=limit, offset=offset)
+    total = await async_gsm_manager.count_sms()
+
+    return {
+        "messages": messages,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/sms")
-async def send_sms(request: SendSMSRequest, user: User = Depends(get_current_user)):
+async def send_sms(
+    request: SendSMSRequest,
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
+):
     """Отправить SMS."""
-    # TODO: GSMService.send_sms()
-    return {
-        "status": "ok",
-        "message": f"SMS на {request.number} (заглушка - модуль не подключен)",
-    }
+    gsm = _require_gsm(gsm_service)
+
+    ok, error = await gsm.send_sms(request.number, request.text)
+    if ok:
+        # Save to DB
+        from db.integration import async_gsm_manager
+
+        await async_gsm_manager.create_sms(
+            direction="outgoing",
+            number=request.number,
+            text=request.text,
+            status="sent",
+        )
+        return {"status": "ok", "message": f"SMS отправлено на {request.number}"}
+    else:
+        raise HTTPException(status_code=500, detail=error or "Не удалось отправить SMS")
 
 
 # ============== Debug Endpoints ==============
@@ -325,25 +427,18 @@ async def send_sms(request: SendSMSRequest, user: User = Depends(get_current_use
 
 @router.post("/at")
 async def execute_at_command(
-    request: ATCommandRequest, user: User = Depends(get_current_user)
+    request: ATCommandRequest,
+    gsm_service=Depends(get_gsm_service),
+    user: User = Depends(get_current_user),
 ) -> ATCommandResponse:
     """Выполнить AT команду (для отладки)."""
-    config = _get_config()
+    gsm = _require_gsm(gsm_service)
 
-    if not Path(config.at_port).exists():
-        return ATCommandResponse(
-            command=request.command,
-            response=[],
-            success=False,
-            error=f"AT порт {config.at_port} не найден",
-        )
-
-    # TODO: Реальное выполнение через serial
+    success, lines = await gsm.execute_at(request.command, timeout=request.timeout)
     return ATCommandResponse(
         command=request.command,
-        response=["Заглушка - модуль не подключен"],
-        success=False,
-        error="GSM сервис не инициализирован",
+        response=lines,
+        success=success,
     )
 
 

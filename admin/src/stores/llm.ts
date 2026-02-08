@@ -5,7 +5,7 @@ import { llmApi, type LlmParams } from '@/api'
 export const useLlmStore = defineStore('llm', () => {
   const backend = ref<'vllm' | 'gemini'>('vllm')
   const model = ref<string>('')
-  const persona = ref<string>('gulya')
+  const persona = ref<string>('anna')
   const params = ref<LlmParams>({
     temperature: 0.7,
     max_tokens: 512,

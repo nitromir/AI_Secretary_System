@@ -171,7 +171,7 @@ const bridgePermission = ref('chat')
 const proxyStatus = computed(() => proxyStatusData.value?.proxy)
 
 // Built-in preset IDs (cannot be deleted)
-const builtinPresetIds = ['gulya', 'lidia']
+const builtinPresetIds = ['anna', 'marina']
 
 // Mutations
 const setBackendMutation = useMutation({

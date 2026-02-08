@@ -865,8 +865,8 @@ backup_2026-01-26_143000.zip
 ├── data/
 │   └── secretary.db        # ВСЕ данные в одной базе
 ├── voices/
-│   ├── Гуля/
-│   └── Лидия/
+│   ├── Анна/
+│   └── Марина/
 └── adapters/               # LoRA (опционально)
     └── lydia/
 ```
@@ -970,7 +970,7 @@ recordings/
     },
     "ai_response": {
       "type": "ai",
-      "persona": "gulya",
+      "persona": "anna",
       "next": "listen"
     }
   }
@@ -1019,11 +1019,11 @@ recordings/
 ```
 departments/
 ├── sales/
-│   ├── persona.json      # Персона "Лидия"
+│   ├── persona.json      # Персона "Марина"
 │   ├── faq.json          # FAQ для продаж
 │   └── voice_config.json # Голос продаж
 ├── support/
-│   ├── persona.json      # Персона "Гуля"
+│   ├── persona.json      # Персона "Анна"
 │   ├── faq.json          # FAQ техподдержки
 │   └── voice_config.json
 └── reception/
@@ -1111,12 +1111,12 @@ class BotInstance(Base):
     llm_backend: str           # "vllm", "gemini"
     llm_model: str             # "lydia", "Qwen/Qwen2.5-7B-Instruct-AWQ"
     system_prompt: str         # Custom system prompt
-    persona: str               # "gulya", "lidia", "custom"
+    persona: str               # "anna", "marina", "custom"
     temperature: float
     max_tokens: int
 
     # TTS Settings
-    tts_voice: str             # "gulya", "lidia", "dmitri", "irina"
+    tts_voice: str             # "anna", "marina", "dmitri", "irina"
     tts_preset: str            # "neutral", "expressive", etc.
 
     # Messages

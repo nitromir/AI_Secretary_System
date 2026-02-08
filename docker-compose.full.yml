@@ -27,8 +27,8 @@ services:
       - ./logs:/app/logs
       - ./models:/app/models
       # Voice samples
-      - ./Гуля:/app/Гуля:ro
-      - ./Лидия:/app/Лидия:ro
+      - ./Анна:/app/Анна:ro
+      - ./Марина:/app/Марина:ro
       # Named volumes for caches (not host mounts)
       - tts_cache:/root/.local/share/tts
       - hf_cache:/root/.cache/huggingface
