@@ -12,6 +12,7 @@ API reference: https://www.amocrm.ru/developers/content/crm_platform/platform-ab
 
 import asyncio
 import logging
+import os
 from typing import Any, Optional
 
 import httpx
@@ -22,6 +23,18 @@ logger = logging.getLogger(__name__)
 AMOCRM_API_VERSION = "v4"
 MAX_429_RETRIES = 3
 RETRY_DELAY_SECONDS = 1.5
+
+# Optional HTTP CONNECT proxy for Docker environments where amoCRM is unreachable.
+# Set AMOCRM_PROXY=http://host.docker.internal:8899 in docker-compose.yml.
+AMOCRM_PROXY = os.getenv("AMOCRM_PROXY") or None
+
+
+def _http_client(timeout: float = 30.0) -> httpx.AsyncClient:
+    """Create httpx client with optional proxy for amoCRM requests."""
+    kwargs: dict[str, Any] = {"timeout": timeout}
+    if AMOCRM_PROXY:
+        kwargs["proxy"] = AMOCRM_PROXY
+    return httpx.AsyncClient(**kwargs)
 
 
 # ============== Exceptions ==============
@@ -58,7 +71,6 @@ def build_auth_url(
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "mode": "post_message",
     }
     return f"https://{subdomain}.amocrm.ru/oauth?{urlencode(params)}"
 
@@ -84,7 +96,7 @@ async def exchange_code_for_token(
         "redirect_uri": redirect_uri,
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _http_client() as client:
         resp = await client.post(url, json=payload)
         if resp.status_code == 200:
             data = resp.json()
@@ -115,7 +127,7 @@ async def refresh_access_token(
         "redirect_uri": redirect_uri,
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _http_client() as client:
         resp = await client.post(url, json=payload)
         if resp.status_code == 200:
             data = resp.json()
@@ -145,7 +157,7 @@ async def _api_request(
     headers = {"Authorization": f"Bearer {access_token}"}
 
     for attempt in range(MAX_429_RETRIES + 1):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _http_client() as client:
             resp = await client.request(
                 method,
                 url,
