@@ -100,8 +100,8 @@ COPY scripts/ ./scripts/
 COPY --from=admin-builder /build/dist ./admin/dist/
 
 # Voice samples
-COPY Гуля/ ./Гуля/
-COPY Лидия/ ./Лидия/
+COPY Анна/ ./Анна/
+COPY Марина/ ./Марина/
 
 # Web widget
 COPY web-widget/ ./web-widget/
@@ -195,8 +195,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY --from=admin-builder /build/dist ./admin/dist/
 
 # Voice samples
-COPY Гуля/ ./Гуля/
-COPY Лидия/ ./Лидия/
+COPY Анна/ ./Анна/
+COPY Марина/ ./Марина/
 
 # Web widget
 COPY web-widget/ ./web-widget/

@@ -1,6 +1,6 @@
 /**
  * AI Secretary Chat Widget
- * Replaces Replain with your own AI assistant (Лидия/Гуля)
+ * Replaces Replain with your own AI assistant (Марина/Анна)
  *
  * Usage:
  * <script>

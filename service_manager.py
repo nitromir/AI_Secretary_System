@@ -56,15 +56,15 @@ SERVICE_CONFIGS: Dict[str, ServiceConfig] = {
         gpu_required=True,
         pid_file="logs/vllm.pid",
     ),
-    "xtts_gulya": ServiceConfig(
-        name="xtts_gulya",
-        display_name="XTTS Gulya",
+    "xtts_anna": ServiceConfig(
+        name="xtts_anna",
+        display_name="XTTS Anna",
         internal=True,
         gpu_required=True,
     ),
-    "xtts_lidia": ServiceConfig(
-        name="xtts_lidia",
-        display_name="XTTS Lidia",
+    "xtts_marina": ServiceConfig(
+        name="xtts_marina",
+        display_name="XTTS Marina",
         internal=True,
         gpu_required=True,
     ),

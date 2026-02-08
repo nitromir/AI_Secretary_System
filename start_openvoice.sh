@@ -3,7 +3,7 @@
 
 export CUDA_VISIBLE_DEVICES=0
 export OPENVOICE_PORT=8003
-export VOICE_SAMPLES_DIR=./Лидия
+export VOICE_SAMPLES_DIR=./Марина
 export OPENVOICE_CHECKPOINTS=./checkpoints_v2
 
 cd "$(dirname "$0")"

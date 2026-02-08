@@ -13,7 +13,7 @@ from typing import Optional
 BASE_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 BACKUPS_DIR = BASE_DIR / "backups"
-VOICES_DIR = BASE_DIR / "Гуля"  # Default voice samples directory
+VOICES_DIR = BASE_DIR / "Анна"  # Default voice samples directory
 ADAPTERS_DIR = BASE_DIR / "finetune" / "adapters"
 
 # Ensure backups directory exists
@@ -91,7 +91,7 @@ class BackupService:
 
             # Include voice samples if requested
             if include_voices and VOICES_DIR.exists():
-                for voice_dir in [VOICES_DIR, BASE_DIR / "Лидия"]:
+                for voice_dir in [VOICES_DIR, BASE_DIR / "Марина"]:
                     if voice_dir.exists():
                         for file in voice_dir.rglob("*"):
                             if file.is_file() and file.suffix.lower() in (
@@ -337,7 +337,7 @@ class BackupService:
     def get_system_info(self) -> dict:
         """Get current system info for backup planning."""
         db_size = self.db_path.stat().st_size if self.db_path.exists() else 0
-        voices_size = _get_dir_size(VOICES_DIR) + _get_dir_size(BASE_DIR / "Лидия")
+        voices_size = _get_dir_size(VOICES_DIR) + _get_dir_size(BASE_DIR / "Марина")
         adapters_size = _get_dir_size(ADAPTERS_DIR)
         backups_count = len(list(self.backups_dir.glob("backup_*.zip")))
         backups_size = sum(f.stat().st_size for f in self.backups_dir.glob("backup_*.zip"))
@@ -350,7 +350,7 @@ class BackupService:
             },
             "voices": {
                 "size": voices_size,
-                "available": VOICES_DIR.exists() or (BASE_DIR / "Лидия").exists(),
+                "available": VOICES_DIR.exists() or (BASE_DIR / "Марина").exists(),
             },
             "adapters": {
                 "path": str(ADAPTERS_DIR),

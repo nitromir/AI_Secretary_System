@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def benchmark_streaming(
     text: str,
-    voice_folder: str = "./Гуля",
+    voice_folder: str = "./Анна",
     iterations: int = 5,
     stream_chunk_size: int = 20,
     target_sample_rate: int = 8000,
@@ -154,7 +154,7 @@ def benchmark_streaming(
 
 def benchmark_batch(
     text: str,
-    voice_folder: str = "./Гуля",
+    voice_folder: str = "./Анна",
     iterations: int = 5,
 ):
     """Бенчмарк batch синтеза для сравнения."""
@@ -190,7 +190,7 @@ def main():
         default="Здравствуйте! Я ваш виртуальный секретарь. Чем могу помочь?",
         help="Text to synthesize",
     )
-    parser.add_argument("--voice", default="./Гуля", help="Voice folder path")
+    parser.add_argument("--voice", default="./Анна", help="Voice folder path")
     parser.add_argument("--iterations", type=int, default=5, help="Number of iterations")
     parser.add_argument("--chunk-size", type=int, default=20, help="XTTS stream chunk size")
     parser.add_argument("--sample-rate", type=int, default=8000, help="Target sample rate")

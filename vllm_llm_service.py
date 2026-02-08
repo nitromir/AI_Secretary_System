@@ -2,7 +2,7 @@
 """
 Сервис интеграции с vLLM (OpenAI-compatible API) для генерации ответов секретаря.
 Поддерживает Qwen2.5-7B с LoRA, Llama-3.1-8B и DeepSeek-LLM-7B через vLLM.
-Поддерживает несколько персон (Гуля, Лидия и др.)
+Поддерживает несколько персон (Анна, Марина и др.)
 """
 
 import json
@@ -158,12 +158,12 @@ AVAILABLE_MODELS = get_available_models()
 
 # ============== Персоны секретарей ==============
 SECRETARY_PERSONAS = {
-    "gulya": {
-        "name": "Гуля",
-        "full_name": "Гульнара",
+    "anna": {
+        "name": "Анна",
+        "full_name": "Анна",
         "company": "Shareware Digital",
         "boss": "Артёма Юрьевича",
-        "prompt": """Ты — Гуля (Гульнара), цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
+        "prompt": """Ты — Анна, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
 
 ПРАВИЛА:
 1. Отвечай кратко (2-3 предложения максимум)
@@ -178,17 +178,17 @@ SECRETARY_PERSONAS = {
 - Будь профессиональной и дружелюбной
 
 ПРИМЕРЫ:
-- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Гуля. Слушаю вас."
+- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Анна. Слушаю вас."
 - "Принято. Я передам Артёму Юрьевичу, что вы звонили."
 - "К сожалению, это предложение сейчас не актуально. Всего доброго."
 """,
     },
-    "lidia": {
-        "name": "Лидия",
-        "full_name": "Лидия",
+    "marina": {
+        "name": "Марина",
+        "full_name": "Марина",
         "company": "Shareware Digital",
         "boss": "Артёма Юрьевича",
-        "prompt": """Ты — Лидия, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
+        "prompt": """Ты — Марина, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
 
 ПРАВИЛА:
 1. Отвечай кратко (2-3 предложения максимум)
@@ -203,15 +203,15 @@ SECRETARY_PERSONAS = {
 - Будь профессиональной и дружелюбной
 
 ПРИМЕРЫ:
-- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Лидия. Слушаю вас."
+- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Марина. Слушаю вас."
 - "Принято. Я передам Артёму Юрьевичу, что вы звонили."
 - "К сожалению, это предложение сейчас не актуально. Всего доброго."
 """,
     },
 }
 
-# Персона по умолчанию (из env или gulya)
-DEFAULT_PERSONA = os.getenv("SECRETARY_PERSONA", "gulya")
+# Персона по умолчанию (из env или anna)
+DEFAULT_PERSONA = os.getenv("SECRETARY_PERSONA", "anna")
 
 
 class VLLMLLMService:
@@ -221,7 +221,7 @@ class VLLMLLMService:
     - Qwen2.5-7B-Instruct + LoRA
     - Llama-3.1-8B-Instruct GPTQ
     - DeepSeek-LLM-7B-Chat
-    - Несколько персон секретарей (Гуля, Лидия)
+    - Несколько персон секретарей (Анна, Марина)
     """
 
     def __init__(
@@ -239,7 +239,7 @@ class VLLMLLMService:
             api_url: URL vLLM API (default: http://localhost:11434)
             model_name: Название модели (auto-detect from vLLM, или VLLM_MODEL_NAME env)
             system_prompt: Системный промпт для секретаря (переопределяет персону)
-            persona: Персона секретаря (gulya, lidia). Default: SECRETARY_PERSONA env или gulya
+            persona: Персона секретаря (anna, marina). Default: SECRETARY_PERSONA env или anna
             timeout: Таймаут запросов в секундах
         """
         self.api_url = api_url or os.getenv("VLLM_API_URL", "http://localhost:11434")
@@ -266,8 +266,8 @@ class VLLMLLMService:
         # Персона секретаря
         self.persona_id = persona or DEFAULT_PERSONA
         if self.persona_id not in SECRETARY_PERSONAS:
-            logger.warning(f"⚠️ Персона '{self.persona_id}' не найдена, используется 'gulya'")
-            self.persona_id = "gulya"
+            logger.warning(f"⚠️ Персона '{self.persona_id}' не найдена, используется 'anna'")
+            self.persona_id = "anna"
         self.persona = SECRETARY_PERSONAS[self.persona_id]
 
         # Системный промпт (явный промпт > персона)
@@ -393,7 +393,7 @@ class VLLMLLMService:
         Меняет персону секретаря.
 
         Args:
-            persona_id: ID персоны (gulya, lidia, или любой из БД)
+            persona_id: ID персоны (anna, marina, или любой из БД)
             persona_data: Данные персоны из БД (name, prompt, и т.д.).
                           Если не указано, ищет в SECRETARY_PERSONAS.
 
@@ -458,7 +458,7 @@ class VLLMLLMService:
     @staticmethod
     def _legacy_system_prompt() -> str:
         """Старый системный промпт (для справки)"""
-        return """Ты — Лидия, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
+        return """Ты — Марина, цифровой секретарь компании Shareware Digital и личный помощник Артёма Юрьевича.
 
 ПРАВИЛА:
 1. Отвечай кратко (2-3 предложения максимум)
@@ -473,7 +473,7 @@ class VLLMLLMService:
 - Будь профессиональной и дружелюбной
 
 ПРИМЕРЫ:
-- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Лидия. Слушаю вас."
+- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Марина. Слушаю вас."
 - "Принято. Я передам Артёму Юрьевичу, что вы звонили."
 - "К сожалению, это предложение сейчас не актуально. Всего доброго."
 """

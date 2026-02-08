@@ -23,12 +23,12 @@ export const useSearchStore = defineStore('search', () => {
   // Static data for quick search
   const staticItems: SearchResult[] = [
     // Personas
-    { id: 'persona-gulya', type: 'persona', title: 'Гуля (Гульнара)', subtitle: 'Персона секретаря', icon: 'user', route: '/llm' },
-    { id: 'persona-lidia', type: 'persona', title: 'Лидия', subtitle: 'Персона секретаря', icon: 'user', route: '/llm' },
+    { id: 'persona-anna', type: 'persona', title: 'Анна', subtitle: 'Персона секретаря', icon: 'user', route: '/llm' },
+    { id: 'persona-marina', type: 'persona', title: 'Марина', subtitle: 'Персона секретаря', icon: 'user', route: '/llm' },
     // Services
     { id: 'service-vllm', type: 'service', title: 'vLLM Server', subtitle: 'Qwen2.5-7B + LoRA', icon: 'server', route: '/services' },
-    { id: 'service-xtts-gulya', type: 'service', title: 'XTTS Gulya', subtitle: 'Голос Гуля', icon: 'volume-2', route: '/services' },
-    { id: 'service-xtts-lidia', type: 'service', title: 'XTTS Lidia', subtitle: 'Голос Лидия', icon: 'volume-2', route: '/services' },
+    { id: 'service-xtts-anna', type: 'service', title: 'XTTS Anna', subtitle: 'Голос Анна', icon: 'volume-2', route: '/services' },
+    { id: 'service-xtts-marina', type: 'service', title: 'XTTS Marina', subtitle: 'Голос Марина', icon: 'volume-2', route: '/services' },
     { id: 'service-piper', type: 'service', title: 'Piper TTS', subtitle: 'CPU голоса', icon: 'cpu', route: '/services' },
     { id: 'service-openvoice', type: 'service', title: 'OpenVoice', subtitle: 'Клонирование голоса', icon: 'mic', route: '/services' },
     // Built-in presets

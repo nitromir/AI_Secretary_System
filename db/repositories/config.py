@@ -48,14 +48,14 @@ DEFAULT_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
     "llm": {
         "backend": "vllm",
-        "persona": "gulya",
+        "persona": "anna",
         "temperature": 0.7,
         "max_tokens": 512,
         "repetition_penalty": 1.1,
     },
     "tts": {
         "engine": "xtts",
-        "voice": "gulya",
+        "voice": "anna",
         "preset": "neutral",
     },
 }

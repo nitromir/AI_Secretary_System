@@ -23,7 +23,7 @@ curl http://localhost:8002/health | jq
 python3 << EOF
 from voice_clone_service import VoiceCloneService
 
-service = VoiceCloneService(voice_folder="./Гуля")
+service = VoiceCloneService(voice_folder="./Анна")
 service.synthesize_to_file(
     text="Добрый день! Это тест клонированного голоса.",
     output_path="test_voice.wav",
@@ -40,7 +40,7 @@ python3 << EOF
 import time
 from voice_clone_service import VoiceCloneService
 
-service = VoiceCloneService(voice_folder="./Гуля")
+service = VoiceCloneService(voice_folder="./Анна")
 
 start = time.time()
 first_chunk_time = None
@@ -135,7 +135,7 @@ curl -X POST http://localhost:8002/admin/tts/stream \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Здравствуйте! Чем могу помочь?",
-    "voice": "gulya",
+    "voice": "anna",
     "target_sample_rate": 8000,
     "output_format": "pcm16"
   }' \
@@ -152,7 +152,7 @@ curl -X POST http://localhost:8002/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
     "input": "Привет! Это тест.",
-    "voice": "gulya",
+    "voice": "anna",
     "model": "tts-1"
   }' \
   -o output.wav
@@ -197,7 +197,7 @@ response = requests.post(
     "http://localhost:8002/admin/tts/stream",
     json={
         "text": "Здравствуйте! Чем могу помочь?",
-        "voice": "gulya",
+        "voice": "anna",
         "target_sample_rate": 8000,
         "output_format": "pcm16"
     },
@@ -228,7 +228,7 @@ async def streaming_tts_websocket():
         # Отправляем запрос
         await ws.send(json.dumps({
             "text": "Здравствуйте! Это тест WebSocket streaming.",
-            "voice": "gulya",
+            "voice": "anna",
             "target_sample_rate": 8000
         }))
 
@@ -256,7 +256,7 @@ from voice_clone_service import VoiceCloneService
 from app.services.audio_pipeline import TelephonyAudioPipeline
 
 # Инициализация
-service = VoiceCloneService(voice_folder="./Гуля")
+service = VoiceCloneService(voice_folder="./Анна")
 pipeline = TelephonyAudioPipeline(target_sample_rate=8000)
 
 # Streaming синтез с обработкой для GSM

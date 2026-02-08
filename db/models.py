@@ -321,7 +321,7 @@ class BotInstance(Base):
 
     # AI configuration
     llm_backend: Mapped[str] = mapped_column(String(20), default="vllm")  # vllm or gemini
-    llm_persona: Mapped[str] = mapped_column(String(50), default="gulya")
+    llm_persona: Mapped[str] = mapped_column(String(50), default="anna")
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     llm_params: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
@@ -329,7 +329,7 @@ class BotInstance(Base):
 
     # TTS configuration
     tts_engine: Mapped[str] = mapped_column(String(20), default="xtts")  # xtts, piper, openvoice
-    tts_voice: Mapped[str] = mapped_column(String(50), default="gulya")
+    tts_voice: Mapped[str] = mapped_column(String(50), default="anna")
     tts_preset: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Payment configuration
@@ -489,13 +489,13 @@ class WidgetInstance(Base):
 
     # AI configuration
     llm_backend: Mapped[str] = mapped_column(String(20), default="vllm")
-    llm_persona: Mapped[str] = mapped_column(String(50), default="gulya")
+    llm_persona: Mapped[str] = mapped_column(String(50), default="anna")
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     llm_params: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON
 
     # TTS configuration
     tts_engine: Mapped[str] = mapped_column(String(20), default="xtts")
-    tts_voice: Mapped[str] = mapped_column(String(50), default="gulya")
+    tts_voice: Mapped[str] = mapped_column(String(50), default="anna")
     tts_preset: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Timestamps
@@ -844,7 +844,7 @@ class LLMPreset(Base):
 
     id: Mapped[str] = mapped_column(
         String(50), primary_key=True
-    )  # slug: "gulya", "lidia", "creative"
+    )  # slug: "anna", "marina", "creative"
     name: Mapped[str] = mapped_column(String(100), index=True)  # Display name
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -896,11 +896,11 @@ class LLMPreset(Base):
 # Default LLM presets (synced with SECRETARY_PERSONAS from vllm_llm_service.py)
 DEFAULT_LLM_PRESETS = [
     {
-        "id": "gulya",
-        "name": "Гуля",
-        "description": "Гульнара - дружелюбная и профессиональная секретарь компании Shareware Digital",
+        "id": "anna",
+        "name": "Анна",
+        "description": "Анна - дружелюбная и профессиональная секретарь компании Shareware Digital",
         "system_prompt": (
-            "Ты — Гуля (Гульнара), цифровой секретарь компании Shareware Digital "
+            "Ты — Анна, цифровой секретарь компании Shareware Digital "
             "и личный помощник Артёма Юрьевича.\n\n"
             "ПРАВИЛА:\n"
             "1. Отвечай кратко (2-3 предложения максимум)\n"
@@ -913,7 +913,7 @@ DEFAULT_LLM_PRESETS = [
             "- Записывай сообщения для Артёма Юрьевича\n"
             "- Будь профессиональной и дружелюбной\n\n"
             "ПРИМЕРЫ:\n"
-            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Гуля. '
+            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Анна. '
             'Слушаю вас."\n'
             '- "Принято. Я передам Артёму Юрьевичу, что вы звонили."\n'
             '- "К сожалению, это предложение сейчас не актуально. Всего доброго."'
@@ -925,11 +925,11 @@ DEFAULT_LLM_PRESETS = [
         "is_default": True,
     },
     {
-        "id": "lidia",
-        "name": "Лидия",
-        "description": "Лидия - строгая и формальная секретарь компании Shareware Digital",
+        "id": "marina",
+        "name": "Марина",
+        "description": "Марина - строгая и формальная секретарь компании Shareware Digital",
         "system_prompt": (
-            "Ты — Лидия, цифровой секретарь компании Shareware Digital "
+            "Ты — Марина, цифровой секретарь компании Shareware Digital "
             "и личный помощник Артёма Юрьевича.\n\n"
             "ПРАВИЛА:\n"
             "1. Отвечай кратко (2-3 предложения максимум)\n"
@@ -942,7 +942,7 @@ DEFAULT_LLM_PRESETS = [
             "- Записывай сообщения для Артёма Юрьевича\n"
             "- Будь профессиональной и дружелюбной\n\n"
             "ПРИМЕРЫ:\n"
-            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Лидия. '
+            '- "Здравствуйте! Компания Шэарвэар Диджитал, помощник Артёма Юрьевича, Марина. '
             'Слушаю вас."\n'
             '- "Принято. Я передам Артёму Юрьевичу, что вы звонили."\n'
             '- "К сожалению, это предложение сейчас не актуально. Всего доброго."'
@@ -1813,6 +1813,66 @@ class AmoCRMSyncLog(Base):
             "status": self.status,
             "error_message": self.error_message,
             "created": self.created.isoformat() if self.created else None,
+        }
+
+
+# =============================================================================
+# GSM Telephony
+# =============================================================================
+
+
+class GSMCallLog(Base):
+    """GSM call history log."""
+
+    __tablename__ = "gsm_call_logs"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    direction: Mapped[str] = mapped_column(String(10), index=True)  # incoming/outgoing
+    state: Mapped[str] = mapped_column(String(20), index=True)
+    caller_number: Mapped[str] = mapped_column(String(20), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    transcript_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    audio_file_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sms_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "direction": self.direction,
+            "state": self.state,
+            "caller_number": self.caller_number,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "answered_at": self.answered_at.isoformat() if self.answered_at else None,
+            "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+            "duration_seconds": self.duration_seconds,
+            "transcript_preview": self.transcript_preview,
+            "sms_sent": self.sms_sent,
+        }
+
+
+class GSMSMSLog(Base):
+    """GSM SMS message log."""
+
+    __tablename__ = "gsm_sms_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    direction: Mapped[str] = mapped_column(String(10), index=True)  # incoming/outgoing
+    number: Mapped[str] = mapped_column(String(20), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    status: Mapped[str] = mapped_column(String(20))  # sent/delivered/failed/received
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "direction": self.direction,
+            "number": self.number,
+            "text": self.text,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "status": self.status,
         }
 
 

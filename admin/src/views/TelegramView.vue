@@ -155,10 +155,10 @@ const formData = ref<Partial<BotInstance>>({
   error_message: 'Произошла ошибка. Попробуйте позже.',
   typing_enabled: true,
   llm_backend: 'vllm',
-  llm_persona: 'gulya',
+  llm_persona: 'anna',
   system_prompt: '',
   tts_engine: 'xtts',
-  tts_voice: 'gulya',
+  tts_voice: 'anna',
   tts_preset: '',
   action_buttons: [],
   payment_enabled: false,
@@ -334,10 +334,10 @@ function openCreateDialog() {
     error_message: 'Произошла ошибка. Попробуйте позже.',
     typing_enabled: true,
     llm_backend: 'vllm',
-    llm_persona: 'gulya',
+    llm_persona: 'anna',
     system_prompt: '',
     tts_engine: 'xtts',
-    tts_voice: 'gulya',
+    tts_voice: 'anna',
     tts_preset: '',
     action_buttons: [],
     payment_enabled: false,
@@ -1502,8 +1502,8 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                   v-model="formData.llm_persona"
                   class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="gulya">Гуля</option>
-                  <option value="lidia">Лидия</option>
+                  <option value="anna">Анна</option>
+                  <option value="marina">Марина</option>
                 </select>
               </div>
             </div>
@@ -1527,8 +1527,8 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                   v-model="formData.tts_voice"
                   class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="gulya">Гуля</option>
-                  <option value="lidia">Лидия</option>
+                  <option value="anna">Анна</option>
+                  <option value="marina">Марина</option>
                 </select>
               </div>
             </div>

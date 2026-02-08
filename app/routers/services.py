@@ -18,8 +18,8 @@ async def admin_services_status():
 
     # Добавляем статус внутренних сервисов из контейнера
     container = get_container()
-    status["services"]["xtts_gulya"]["is_running"] = container.gulya_voice_service is not None
-    status["services"]["xtts_lidia"]["is_running"] = container.voice_service is not None
+    status["services"]["xtts_anna"]["is_running"] = container.anna_voice_service is not None
+    status["services"]["xtts_marina"]["is_running"] = container.voice_service is not None
     status["services"]["piper"]["is_running"] = container.piper_service is not None
     status["services"]["openvoice"]["is_running"] = container.openvoice_service is not None
     status["services"]["orchestrator"]["is_running"] = True

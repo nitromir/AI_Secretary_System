@@ -147,7 +147,7 @@ export const gsmApi = {
     api.post<{ status: string; message: string }>('/admin/gsm/calls/hangup'),
 
   dialNumber: (number: string) =>
-    api.post<{ status: string; message: string }>(`/admin/gsm/calls/dial?number=${encodeURIComponent(number)}`),
+    api.post<{ status: string; message: string }>('/admin/gsm/calls/dial', { number }),
 
   // SMS
   listSMS: (params?: { limit?: number; offset?: number }) => {

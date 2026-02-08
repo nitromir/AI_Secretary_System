@@ -63,7 +63,7 @@ python scripts/benchmark_streaming_tts.py --iterations 5
 # OpenAI-совместимый TTS
 curl -X POST http://localhost:8002/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Привет!", "voice": "gulya"}' \
+  -d '{"input": "Привет!", "voice": "anna"}' \
   -o output.wav
 
 # Чат (streaming)
@@ -77,7 +77,7 @@ curl -X POST http://localhost:8002/admin/chat/sessions/1/stream \
 ```python
 # Batch синтез речи
 from voice_clone_service import VoiceCloneService
-service = VoiceCloneService(voice_folder="./Гуля")
+service = VoiceCloneService(voice_folder="./Анна")
 service.synthesize_to_file("Привет!", "output.wav", preset="warm")
 
 # Streaming синтез (для телефонии)
@@ -98,7 +98,7 @@ print(result["text"])
 
 # LLM (vLLM локальный)
 from vllm_llm_service import VLLMLLMService
-service = VLLMLLMService(persona="gulya")
+service = VLLMLLMService(persona="anna")
 response = await service.generate_response("Здравствуйте")
 print(response)
 ```
@@ -244,7 +244,7 @@ kill -9 <PID>
 ### Плохое качество голоса
 ```bash
 # Проверьте образцы
-ls -lh Лидия/*.wav
+ls -lh Марина/*.wav
 
 # Должны быть чистые WAV файлы
 # Минимум 3 шт, рекомендуется 10+
@@ -296,7 +296,7 @@ time curl -X POST http://localhost:8002/admin/chat/sessions/1/stream \
 
 ```bash
 # Сохранить образцы голоса
-tar -czf lidia_voice_backup.tar.gz Лидия/
+tar -czf marina_voice_backup.tar.gz Марина/
 
 # Сохранить логи звонков
 tar -czf calls_backup_$(date +%Y%m%d).tar.gz calls_log/

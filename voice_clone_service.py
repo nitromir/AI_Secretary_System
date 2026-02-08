@@ -345,7 +345,7 @@ class VoiceCloneService:
 
     def __init__(
         self,
-        voice_samples_dir: str = "./Лидия",
+        voice_samples_dir: str = "./Марина",
         model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2",
         default_preset: str = "natural",
         max_samples: Optional[int] = None,  # None = использовать все

@@ -169,7 +169,7 @@ async def admin_stt_test(text_to_speak: str = "Привет, это тест р�
 
     # Сначала синтезируем речь
     container = get_container()
-    tts_service = container.gulya_voice_service or container.voice_service
+    tts_service = container.anna_voice_service or container.voice_service
     if not tts_service:
         raise HTTPException(status_code=503, detail="TTS сервис недоступен")
 

@@ -28,8 +28,8 @@ class ServiceContainer:
 
     def __init__(self):
         # TTS services
-        self.voice_service: VoiceCloneService | None = None  # XTTS Лидия
-        self.gulya_voice_service: VoiceCloneService | None = None  # XTTS Гуля
+        self.voice_service: VoiceCloneService | None = None  # XTTS Марина
+        self.anna_voice_service: VoiceCloneService | None = None  # XTTS Анна
         self.piper_service: PiperTTSService | None = None  # Piper CPU
         self.openvoice_service = None  # OpenVoice v2
 
@@ -45,18 +45,18 @@ class ServiceContainer:
         # Current voice configuration
         self.current_voice_config = {
             "engine": "xtts",
-            "voice": "gulya",
+            "voice": "anna",
         }
 
     def get_current_voice_service(self) -> VoiceCloneService | None:
         """Get the currently active voice service based on config."""
         engine = self.current_voice_config.get("engine", "xtts")
-        voice = self.current_voice_config.get("voice", "gulya")
+        voice = self.current_voice_config.get("voice", "anna")
 
         if engine == "xtts":
-            if voice == "gulya" and self.gulya_voice_service:
-                return self.gulya_voice_service
-            elif voice == "lidia" and self.voice_service:
+            if voice == "anna" and self.anna_voice_service:
+                return self.anna_voice_service
+            elif voice == "marina" and self.voice_service:
                 return self.voice_service
         elif engine == "piper":
             return self.piper_service
@@ -64,7 +64,7 @@ class ServiceContainer:
             return self.openvoice_service
 
         # Fallback
-        return self.gulya_voice_service or self.voice_service or self.piper_service
+        return self.anna_voice_service or self.voice_service or self.piper_service
 
 
 # Global service container instance

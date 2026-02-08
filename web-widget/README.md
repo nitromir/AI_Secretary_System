@@ -71,7 +71,7 @@ cloudflared tunnel --url http://localhost:8002
 <script>
   window.aiChatSettings = {
     apiUrl: 'https://YOUR-NGROK-URL.ngrok-free.app',  // ← Ваш URL туннеля
-    title: 'Лидия - AI Ассистент',
+    title: 'Марина - AI Ассистент',
     greeting: 'Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?',
     placeholder: 'Введите сообщение...',
     primaryColor: '#6366f1',  // Цвет кнопки
@@ -137,7 +137,7 @@ curl -X POST http://localhost:8002/admin/widget/instances \
 # Обновить инстанс
 curl -X PUT http://localhost:8002/admin/widget/instances/{id} \
   -H "Content-Type: application/json" \
-  -d '{"llm_backend": "cloud:gemini-id", "tts_voice": "lidia"}'
+  -d '{"llm_backend": "cloud:gemini-id", "tts_voice": "marina"}'
 ```
 
 ## Настройки виджета
@@ -175,7 +175,7 @@ function loadAIChat() {
 
   window.aiChatSettings = {
     apiUrl: 'https://YOUR-NGROK-URL.ngrok-free.app',
-    title: 'Лидия - AI Ассистент'
+    title: 'Марина - AI Ассистент'
   };
 
   const script = document.createElement('script');
