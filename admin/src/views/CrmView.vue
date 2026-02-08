@@ -62,6 +62,9 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
   setTimeout(() => { toast.value = null }, 3000)
 }
 
+// Track whether secret is saved on server (masked)
+const clientSecretSaved = ref(false)
+
 async function loadConfig() {
   try {
     const resp = await amocrmApi.getConfig()
@@ -81,6 +84,7 @@ async function loadConfig() {
       stats.value.leads = config.leads_count || 0
       stats.value.lastSync = config.last_sync_at || null
       accountInfo.value = config.account_info || {}
+      clientSecretSaved.value = !!config.client_secret_masked
     }
   } catch {
     // Config not yet created — expected on first load
@@ -140,14 +144,22 @@ async function testConnection() {
 async function saveSettings() {
   isSaving.value = true
   try {
-    await amocrmApi.saveConfig({
+    const data: Record<string, unknown> = {
+      subdomain: settings.value.subdomain,
+      client_id: settings.value.clientId,
+      redirect_uri: settings.value.redirectUri,
       sync_contacts: settings.value.syncContacts,
       sync_leads: settings.value.syncLeads,
       sync_tasks: settings.value.syncTasks,
       auto_create_lead: settings.value.autoCreateLead,
       lead_pipeline_id: settings.value.leadPipelineId ? Number(settings.value.leadPipelineId) : null,
       lead_status_id: settings.value.leadStatusId ? Number(settings.value.leadStatusId) : null,
-    })
+    }
+    // Only send secret if user entered a new one
+    if (settings.value.clientSecret) {
+      data.client_secret = settings.value.clientSecret
+    }
+    await amocrmApi.saveConfig(data)
     showToast(t('crm.settingsSaved'))
   } catch {
     showToast(t('crm.connectionFail'), 'error')
@@ -255,110 +267,93 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Not Connected State -->
-      <template v-if="!isConnected">
-        <div class="p-4 rounded-lg bg-secondary/50 border border-border mb-6">
-          <div class="flex gap-3">
-            <AlertCircle class="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
-            <div>
-              <p class="text-sm font-medium">{{ t('crm.setupRequired') }}</p>
-              <p class="text-sm text-muted-foreground mt-1">{{ t('crm.setupDescription') }}</p>
-            </div>
+      <!-- Setup hint (only when not connected) -->
+      <div v-if="!isConnected" class="p-4 rounded-lg bg-secondary/50 border border-border mb-6">
+        <div class="flex gap-3">
+          <AlertCircle class="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+          <div>
+            <p class="text-sm font-medium">{{ t('crm.setupRequired') }}</p>
+            <p class="text-sm text-muted-foreground mt-1">{{ t('crm.setupDescription') }}</p>
           </div>
         </div>
+      </div>
 
-        <!-- Settings Form -->
-        <div class="space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium mb-1.5">{{ t('crm.subdomain') }}</label>
-              <div class="flex">
-                <input
-                  v-model="settings.subdomain"
-                  type="text"
-                  placeholder="your-company"
-                  class="input rounded-r-none flex-1"
-                />
-                <span class="inline-flex items-center px-3 bg-secondary border border-l-0 border-border rounded-r-lg text-sm text-muted-foreground">
-                  .amocrm.ru
-                </span>
-              </div>
-            </div>
+      <!-- Account Info (when connected) -->
+      <div v-if="isConnected && accountInfo.name" class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 mb-4">
+        <div class="text-sm">
+          <span class="text-muted-foreground">{{ t('crm.accountName') }}:</span>
+          <span class="ml-2 font-medium">{{ accountInfo.name }}</span>
+        </div>
+      </div>
 
-            <div>
-              <label class="block text-sm font-medium mb-1.5">{{ t('crm.clientId') }}</label>
+      <!-- Stats (when connected) -->
+      <div v-if="isConnected" class="grid grid-cols-3 gap-4 mb-6">
+        <div class="p-4 rounded-lg bg-secondary/50">
+          <div class="text-2xl font-bold">{{ stats.contacts }}</div>
+          <div class="text-sm text-muted-foreground">{{ t('crm.contacts') }}</div>
+        </div>
+        <div class="p-4 rounded-lg bg-secondary/50">
+          <div class="text-2xl font-bold">{{ stats.leads }}</div>
+          <div class="text-sm text-muted-foreground">{{ t('crm.leads') }}</div>
+        </div>
+        <div class="p-4 rounded-lg bg-secondary/50">
+          <div class="text-sm text-muted-foreground">{{ t('crm.lastSync') }}</div>
+          <div class="text-sm font-medium">{{ stats.lastSync ? formatDate(stats.lastSync) : t('crm.never') }}</div>
+        </div>
+      </div>
+
+      <!-- Credentials Form (always visible) -->
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{{ t('crm.subdomain') }}</label>
+            <div class="flex">
               <input
-                v-model="settings.clientId"
+                v-model="settings.subdomain"
                 type="text"
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                class="input w-full"
+                placeholder="your-company"
+                class="input rounded-r-none flex-1"
               />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium mb-1.5">{{ t('crm.clientSecret') }}</label>
-              <input
-                v-model="settings.clientSecret"
-                type="password"
-                placeholder="..."
-                class="input w-full"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium mb-1.5">{{ t('crm.redirectUri') }}</label>
-              <input
-                v-model="settings.redirectUri"
-                type="text"
-                readonly
-                class="input w-full bg-secondary/50 cursor-not-allowed"
-              />
+              <span class="inline-flex items-center px-3 bg-secondary border border-l-0 border-border rounded-r-lg text-sm text-muted-foreground">
+                .amocrm.ru
+              </span>
             </div>
           </div>
 
-          <div class="flex justify-end gap-2 pt-4">
-            <button
-              :disabled="!settings.subdomain || !settings.clientId || !settings.clientSecret || isLoading"
-              class="btn btn-primary"
-              @click="connectAmoCRM"
-            >
-              <Link2 v-if="!isLoading" class="w-4 h-4 mr-2" />
-              <RefreshCw v-else class="w-4 h-4 mr-2 animate-spin" />
-              {{ t('crm.connect') }}
-            </button>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{{ t('crm.clientId') }}</label>
+            <input
+              v-model="settings.clientId"
+              type="text"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              class="input w-full"
+            />
           </div>
-        </div>
-      </template>
 
-      <!-- Connected State -->
-      <template v-else>
-        <!-- Account Info -->
-        <div v-if="accountInfo.name" class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 mb-4">
-          <div class="text-sm">
-            <span class="text-muted-foreground">{{ t('crm.accountName') }}:</span>
-            <span class="ml-2 font-medium">{{ accountInfo.name }}</span>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{{ t('crm.clientSecret') }}</label>
+            <input
+              v-model="settings.clientSecret"
+              type="password"
+              :placeholder="clientSecretSaved ? '••••••• (saved)' : '...'"
+              class="input w-full"
+            />
           </div>
-        </div>
 
-        <!-- Stats -->
-        <div class="grid grid-cols-3 gap-4 mb-6">
-          <div class="p-4 rounded-lg bg-secondary/50">
-            <div class="text-2xl font-bold">{{ stats.contacts }}</div>
-            <div class="text-sm text-muted-foreground">{{ t('crm.contacts') }}</div>
-          </div>
-          <div class="p-4 rounded-lg bg-secondary/50">
-            <div class="text-2xl font-bold">{{ stats.leads }}</div>
-            <div class="text-sm text-muted-foreground">{{ t('crm.leads') }}</div>
-          </div>
-          <div class="p-4 rounded-lg bg-secondary/50">
-            <div class="text-sm text-muted-foreground">{{ t('crm.lastSync') }}</div>
-            <div class="text-sm font-medium">{{ stats.lastSync ? formatDate(stats.lastSync) : t('crm.never') }}</div>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{{ t('crm.redirectUri') }}</label>
+            <input
+              v-model="settings.redirectUri"
+              type="text"
+              readonly
+              class="input w-full bg-secondary/50 cursor-not-allowed"
+            />
           </div>
         </div>
 
         <!-- Sync Settings -->
-        <div class="space-y-4">
-          <h3 class="font-medium flex items-center gap-2">
+        <div v-if="isConnected" class="pt-4 border-t border-border">
+          <h3 class="font-medium flex items-center gap-2 mb-3">
             <Settings2 class="w-4 h-4" />
             {{ t('crm.syncSettings') }}
           </h3>
@@ -377,42 +372,53 @@ onMounted(async () => {
               <span>{{ t('crm.autoCreateLeadLabel') }}</span>
             </label>
           </div>
-
-          <div class="flex justify-end pt-2">
-            <button :disabled="isSaving" class="btn btn-secondary" @click="saveSettings">
-              <Save v-if="!isSaving" class="w-4 h-4 mr-2" />
-              <RefreshCw v-else class="w-4 h-4 mr-2 animate-spin" />
-              {{ t('crm.saveSettings') }}
-            </button>
-          </div>
         </div>
 
-        <!-- Actions -->
-        <div class="flex justify-between pt-6 border-t border-border mt-6">
-          <button class="btn btn-ghost text-red-400 hover:bg-red-500/10" @click="disconnectAmoCRM">
-            <XIcon class="w-4 h-4 mr-2" />
-            {{ t('crm.disconnect') }}
+        <!-- Save / Connect buttons -->
+        <div class="flex justify-end gap-2 pt-4">
+          <button :disabled="isSaving" class="btn btn-secondary" @click="saveSettings">
+            <Save v-if="!isSaving" class="w-4 h-4 mr-2" />
+            <RefreshCw v-else class="w-4 h-4 mr-2 animate-spin" />
+            {{ t('crm.saveSettings') }}
           </button>
-          <div class="flex gap-2">
-            <button :disabled="isSyncing" class="btn btn-secondary" @click="syncNow">
-              <ArrowDownUp :class="['w-4 h-4 mr-2', isSyncing && 'animate-spin']" />
-              {{ isSyncing ? t('crm.syncing') : t('crm.syncNow') }}
-            </button>
-            <button :disabled="isLoading" class="btn btn-secondary" @click="testConnection">
-              <RefreshCw :class="['w-4 h-4 mr-2', isLoading && 'animate-spin']" />
-              {{ t('crm.testConnection') }}
-            </button>
-            <a
-              :href="`https://${settings.subdomain}.amocrm.ru`"
-              target="_blank"
-              class="btn btn-primary"
-            >
-              <ExternalLink class="w-4 h-4 mr-2" />
-              {{ t('crm.openAmoCRM') }}
-            </a>
-          </div>
+          <button
+            v-if="!isConnected"
+            :disabled="!settings.subdomain || !settings.clientId || (!settings.clientSecret && !clientSecretSaved) || isLoading"
+            class="btn btn-primary"
+            @click="connectAmoCRM"
+          >
+            <Link2 v-if="!isLoading" class="w-4 h-4 mr-2" />
+            <RefreshCw v-else class="w-4 h-4 mr-2 animate-spin" />
+            {{ t('crm.connect') }}
+          </button>
         </div>
-      </template>
+      </div>
+
+      <!-- Actions (when connected) -->
+      <div v-if="isConnected" class="flex justify-between pt-6 border-t border-border mt-6">
+        <button class="btn btn-ghost text-red-400 hover:bg-red-500/10" @click="disconnectAmoCRM">
+          <XIcon class="w-4 h-4 mr-2" />
+          {{ t('crm.disconnect') }}
+        </button>
+        <div class="flex gap-2">
+          <button :disabled="isSyncing" class="btn btn-secondary" @click="syncNow">
+            <ArrowDownUp :class="['w-4 h-4 mr-2', isSyncing && 'animate-spin']" />
+            {{ isSyncing ? t('crm.syncing') : t('crm.syncNow') }}
+          </button>
+          <button :disabled="isLoading" class="btn btn-secondary" @click="testConnection">
+            <RefreshCw :class="['w-4 h-4 mr-2', isLoading && 'animate-spin']" />
+            {{ t('crm.testConnection') }}
+          </button>
+          <a
+            :href="`https://${settings.subdomain}.amocrm.ru`"
+            target="_blank"
+            class="btn btn-primary"
+          >
+            <ExternalLink class="w-4 h-4 mr-2" />
+            {{ t('crm.openAmoCRM') }}
+          </a>
+        </div>
+      </div>
     </div>
 
     <!-- Sync Log -->
