@@ -2,6 +2,7 @@
 """API routers for admin and public endpoints."""
 
 from app.routers import (
+    amocrm,
     audit,
     auth,
     backup,
@@ -24,6 +25,7 @@ from app.routers import (
 
 
 __all__ = [
+    "amocrm",
     "auth",
     "audit",
     "backup",

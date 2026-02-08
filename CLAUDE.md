@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System — virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony (SIM7600E-H), Vue 3 PWA admin panel, i18n (ru/en), multi-instance Telegram bots with sales/payments, website chat widgets, and LoRA fine-tuning.
+AI Secretary System — virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony (SIM7600E-H), amoCRM integration (OAuth2, contacts, leads, pipelines, sync), Vue 3 PWA admin panel, i18n (ru/en), multi-instance Telegram bots with sales/payments, website chat widgets, and LoRA fine-tuning.
 
 ## Commands
 
@@ -71,7 +71,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (18 routers, ~236 endpoints) │
+│  orchestrator.py + app/routers/ (19 routers, ~345 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (19 views, PWA)                │  │
 │  │                admin/dist/                              │  │
@@ -100,6 +100,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 **Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts). Bots with `auto_start=true` restart on app startup.
 
 **Cloud LLM routing**: `cloud_llm_service.py` has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`.
+
+**amoCRM integration**: `app/services/amocrm_service.py` is a pure async HTTP client (no DB). `app/routers/amocrm.py` handles OAuth2 flow, token auto-refresh, and proxies API calls. Config/tokens stored via `AsyncAmoCRMManager` in `db/integration.py`. Webhook at `POST /webhooks/amocrm`.
 
 ## Code Patterns
 
