@@ -34,8 +34,8 @@ services:
       - ./logs:/app/logs
       - ./models:/app/models
       # Voice samples
-      - ./Гуля:/app/Гуля:ro
-      - ./Лидия:/app/Лидия:ro
+      - ./Анна:/app/Анна:ro
+      - ./Марина:/app/Марина:ro
       # Mount LOCAL caches (no re-download)
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.local/share/tts:/root/.local/share/tts
@@ -66,7 +66,7 @@ services:
       - LLM_BACKEND=${LLM_BACKEND:-gemini}
       - VLLM_API_URL=http://ai-secretary-vllm:8000/v1
       - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-}
-      - SECRETARY_PERSONA=${SECRETARY_PERSONA:-gulya}
+      - SECRETARY_PERSONA=${SECRETARY_PERSONA:-anna}
       # Cloud LLM fallback
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       # Database

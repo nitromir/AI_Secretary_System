@@ -125,7 +125,7 @@ curl -X POST http://localhost:8002/admin/stt/transcribe \
 
 ## Что дальше?
 
-1. **Настройте персону** - Admin → LLM → выберите Gulya или Lidia
+1. **Настройте персону** - Admin → LLM → выберите Anna или Marina
 2. **Добавьте облачный LLM** - Admin → LLM → Cloud Providers
 3. **Настройте виджет** - Admin → Widget → включите и скопируйте код
 4. **Настройте Telegram бота** - Admin → Telegram → добавьте токен

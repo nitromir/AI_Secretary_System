@@ -104,11 +104,11 @@ class TelegramBotService:
                         "max_message_length": DEFAULT_CONFIG["max_message_length"],
                         # AI config
                         "llm_backend": instance.get("llm_backend", "vllm"),
-                        "llm_persona": instance.get("llm_persona", "gulya"),
+                        "llm_persona": instance.get("llm_persona", "anna"),
                         "system_prompt": instance.get("system_prompt"),
                         "llm_params": instance.get("llm_params", {}),
                         "tts_engine": instance.get("tts_engine", "xtts"),
-                        "tts_voice": instance.get("tts_voice", "gulya"),
+                        "tts_voice": instance.get("tts_voice", "anna"),
                         # Action buttons
                         "action_buttons": instance.get("action_buttons", []),
                         # Payment

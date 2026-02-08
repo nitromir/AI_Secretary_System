@@ -69,7 +69,7 @@ class StreamingTTSRequest(BaseModel):
     text: str
     language: str = "ru"
     preset: str = "natural"
-    voice: str = "gulya"  # gulya, lidia
+    voice: str = "anna"  # anna, marina
     target_sample_rate: Optional[int] = 8000  # 8000 для GSM, None для 24kHz
     stream_chunk_size: int = 20  # Размер чанка XTTS (меньше = быстрее первый чанк)
     output_format: str = "pcm16"  # pcm16, float32
@@ -87,7 +87,7 @@ async def _reload_voice_presets():
     container = get_container()
     presets_dict = await async_preset_manager.get_custom()
     # Reload for all XTTS voice services
-    for svc in [container.voice_service, container.gulya_voice_service]:
+    for svc in [container.voice_service, container.anna_voice_service]:
         if svc and hasattr(svc, "reload_presets"):
             svc.reload_presets(presets_dict)
 
@@ -110,7 +110,7 @@ async def admin_tts_presets():
             "speed": preset.speed,
         }
 
-    xtts_svc = container.gulya_voice_service or container.voice_service
+    xtts_svc = container.anna_voice_service or container.voice_service
     current = xtts_svc.default_preset if xtts_svc else "natural"
 
     return {
@@ -129,7 +129,7 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
             detail=f"Неизвестный пресет: {request.preset}. Доступные: {list(INTONATION_PRESETS.keys())}",
         )
 
-    xtts_svc = container.gulya_voice_service or container.voice_service
+    xtts_svc = container.anna_voice_service or container.voice_service
     if xtts_svc:
         xtts_svc.default_preset = request.preset
         preset = INTONATION_PRESETS[request.preset]
@@ -158,7 +158,7 @@ async def admin_tts_test(request: Request, tts_request: AdminTTSTestRequest):
     container = get_container()
     # Используем текущий голос
     engine = container.current_voice_config.get("engine", "xtts")
-    voice = container.current_voice_config.get("voice", "gulya")
+    voice = container.current_voice_config.get("voice", "anna")
 
     try:
         start = t.time()
@@ -182,12 +182,12 @@ async def admin_tts_test(request: Request, tts_request: AdminTTSTestRequest):
         elif engine == "xtts":
             # XTTS v2
             tts_service = None
-            if voice == "gulya" and container.gulya_voice_service:
-                tts_service = container.gulya_voice_service
-            elif voice == "lidia" and container.voice_service:
+            if voice == "anna" and container.anna_voice_service:
+                tts_service = container.anna_voice_service
+            elif voice == "marina" and container.voice_service:
                 tts_service = container.voice_service
-            elif container.gulya_voice_service:
-                tts_service = container.gulya_voice_service
+            elif container.anna_voice_service:
+                tts_service = container.anna_voice_service
             elif container.voice_service:
                 tts_service = container.voice_service
 
@@ -206,8 +206,8 @@ async def admin_tts_test(request: Request, tts_request: AdminTTSTestRequest):
             container.piper_service.synthesize_to_file(
                 text=tts_request.text, output_path=str(output_file), voice="dmitri"
             )
-        elif container.gulya_voice_service:
-            container.gulya_voice_service.synthesize_to_file(
+        elif container.anna_voice_service:
+            container.anna_voice_service.synthesize_to_file(
                 text=tts_request.text,
                 output_path=str(output_file),
                 preset=tts_request.preset,
@@ -275,7 +275,7 @@ async def admin_clear_tts_cache():
 async def admin_get_xtts_params():
     """Получить параметры XTTS"""
     container = get_container()
-    service = container.gulya_voice_service or container.voice_service
+    service = container.anna_voice_service or container.voice_service
     if not service:
         raise HTTPException(status_code=503, detail="XTTS service not available")
 
@@ -390,12 +390,12 @@ async def tts_stream(request: Request, stream_request: StreamingTTSRequest):
 
     # Выбираем XTTS сервис по голосу
     tts_service = None
-    if stream_request.voice == "gulya" and container.gulya_voice_service:
-        tts_service = container.gulya_voice_service
-    elif stream_request.voice == "lidia" and container.voice_service:
+    if stream_request.voice == "anna" and container.anna_voice_service:
+        tts_service = container.anna_voice_service
+    elif stream_request.voice == "marina" and container.voice_service:
         tts_service = container.voice_service
-    elif container.gulya_voice_service:
-        tts_service = container.gulya_voice_service
+    elif container.anna_voice_service:
+        tts_service = container.anna_voice_service
     elif container.voice_service:
         tts_service = container.voice_service
 
@@ -483,7 +483,7 @@ async def websocket_tts_stream(websocket: WebSocket):
     WebSocket endpoint для real-time TTS стриминга.
 
     Protocol:
-    1. Client sends JSON: {"text": "...", "voice": "gulya", "preset": "natural", ...}
+    1. Client sends JSON: {"text": "...", "voice": "anna", "preset": "natural", ...}
     2. Server sends binary audio chunks as they're generated
     3. Server sends JSON: {"done": true, "first_chunk_ms": 123, "total_ms": 456}
 
@@ -502,7 +502,7 @@ async def websocket_tts_stream(websocket: WebSocket):
                 await websocket.send_json({"error": "text is required"})
                 continue
 
-            voice = data.get("voice", "gulya")
+            voice = data.get("voice", "anna")
             language = data.get("language", "ru")
             preset = data.get("preset", "natural")
             target_sample_rate = data.get("target_sample_rate", 8000)
@@ -511,12 +511,12 @@ async def websocket_tts_stream(websocket: WebSocket):
 
             # Выбираем TTS сервис
             tts_service = None
-            if voice == "gulya" and container.gulya_voice_service:
-                tts_service = container.gulya_voice_service
-            elif voice == "lidia" and container.voice_service:
+            if voice == "anna" and container.anna_voice_service:
+                tts_service = container.anna_voice_service
+            elif voice == "marina" and container.voice_service:
                 tts_service = container.voice_service
-            elif container.gulya_voice_service:
-                tts_service = container.gulya_voice_service
+            elif container.anna_voice_service:
+                tts_service = container.anna_voice_service
             elif container.voice_service:
                 tts_service = container.voice_service
 

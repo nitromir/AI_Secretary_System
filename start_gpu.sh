@@ -1,6 +1,6 @@
 #!/bin/bash
 # Запуск AI Secretary System на RTX 3060 (GPU 1)
-# XTTS (Лидия) + vLLM работают вместе на одном GPU
+# XTTS (Марина) + vLLM работают вместе на одном GPU
 #
 # Доступные модели:
 #   ./start_gpu.sh           # Qwen2.5-7B + Lydia LoRA (default)

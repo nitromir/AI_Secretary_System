@@ -4,7 +4,7 @@ import { ttsApi, type Voice, type VoiceConfig, type XttsParams } from '@/api'
 
 export const useTtsStore = defineStore('tts', () => {
   const voices = ref<Voice[]>([])
-  const currentVoice = ref<VoiceConfig>({ engine: 'xtts', voice: 'gulya' })
+  const currentVoice = ref<VoiceConfig>({ engine: 'xtts', voice: 'anna' })
   const currentPreset = ref<string>('natural')
   const xttsParams = ref<XttsParams>({
     temperature: 0.75,

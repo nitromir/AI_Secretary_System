@@ -18,7 +18,7 @@ from tqdm import tqdm
 INPUT_FILE = Path("result.json")  # путь к вашему экспорту Telegram
 OUTPUT_FILE = Path("lydia_dataset_v2.jsonl")  # куда сохранится результат
 
-# Замените на реальное имя/телефон/никнейм, под которым вы выступаете как "Лидия"
+# Замените на реальное имя/телефон/никнейм, под которым вы выступаете как "Марина"
 # Это нужно, чтобы правильно определять, какое сообщение — от assistant
 ASSISTANT_IDENTIFIERS = [
     "Артем Юрьевич",
@@ -57,7 +57,7 @@ Rules of voice interaction:
 • Spell out abbreviations phonetically: «о-о-о», «ай-тИ», «а-пэ-ай».
 • Company name: «Shaerware Digital».
 Greeting (first message):
-«Здравствуйте! Компания Shaerware Digital, помощник Артёма Юрьевича, Лидия. Слушаю вас.»
+«Здравствуйте! Компания Shaerware Digital, помощник Артёма Юрьевича, Марина. Слушаю вас.»
 Behavior:
 • Spam / sales calls → «Благодарю, но сейчас это не актуально. Всего доброго.» (end call)
 • Real clients/partners → clarify purpose, note details, offer to pass to Artyom Yuryevich

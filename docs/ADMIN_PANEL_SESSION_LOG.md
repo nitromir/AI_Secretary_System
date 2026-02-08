@@ -18,8 +18,8 @@
 class ServiceManager:
     SERVICES = {
         "vllm": { "start_script": "start_qwen.sh", "port": 11434, ... },
-        "xtts_gulya": { "internal": True, "gpu_required": True },
-        "xtts_lidia": { "internal": True, "gpu_required": True },
+        "xtts_anna": { "internal": True, "gpu_required": True },
+        "xtts_marina": { "internal": True, "gpu_required": True },
         "piper": { "internal": True, "cpu_only": True },
         "openvoice": { "internal": True, "gpu_required": True }
     }
@@ -100,7 +100,7 @@ GET  /admin/llm/backend
 POST /admin/llm/backend          # {"backend": "vllm"|"gemini"}
 GET  /admin/llm/personas
 GET  /admin/llm/persona
-POST /admin/llm/persona          # {"persona": "gulya"|"lidia"}
+POST /admin/llm/persona          # {"persona": "anna"|"marina"}
 GET  /admin/llm/params
 POST /admin/llm/params           # {"temperature": 0.7, ...}
 GET  /admin/llm/prompt/{persona}
@@ -243,7 +243,7 @@ admin/
 
 **LlmView:**
 - Backend toggle (vLLM / Gemini)
-- Persona cards (Gulya / Lidia)
+- Persona cards (Anna / Marina)
 - Parameter sliders (temperature, max_tokens, top_p, repetition_penalty)
 - System prompt editor per persona
 

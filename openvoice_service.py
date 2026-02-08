@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # ============== Конфигурация ==============
 OPENVOICE_PORT = int(os.getenv("OPENVOICE_PORT", "8003"))
-VOICE_SAMPLES_DIR = os.getenv("VOICE_SAMPLES_DIR", "./Лидия")
+VOICE_SAMPLES_DIR = os.getenv("VOICE_SAMPLES_DIR", "./Марина")
 CHECKPOINTS_DIR = os.getenv("OPENVOICE_CHECKPOINTS", "./checkpoints_v2")
 
 
@@ -365,7 +365,7 @@ async def list_voices():
     return {
         "voices": [
             VoiceInfo(
-                name="lidia_openvoice",
+                name="marina_openvoice",
                 engine="openvoice",
                 description=f"Клонированный голос Лидии ({len(service.voice_samples)} образцов)",
             )

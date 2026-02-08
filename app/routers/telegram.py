@@ -57,11 +57,11 @@ class BotInstanceCreateRequest(BaseModel):
     error_message: str = "Произошла ошибка. Попробуйте позже."
     typing_enabled: bool = True
     llm_backend: str = "vllm"
-    llm_persona: str = "gulya"
+    llm_persona: str = "anna"
     system_prompt: Optional[str] = None
     llm_params: Optional[dict] = None
     tts_engine: str = "xtts"
-    tts_voice: str = "gulya"
+    tts_voice: str = "anna"
     tts_preset: Optional[str] = None
     action_buttons: Optional[List[dict]] = None
     payment_enabled: bool = False

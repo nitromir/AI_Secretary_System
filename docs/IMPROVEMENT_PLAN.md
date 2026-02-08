@@ -809,7 +809,7 @@ async def test_llm_generate(client: AsyncClient):
     response = await client.post(
         "/v1/chat/completions",
         json={
-            "model": "gulya-secretary-qwen",
+            "model": "anna-secretary-qwen",
             "messages": [{"role": "user", "content": "Hello!"}]
         }
     )
@@ -824,7 +824,7 @@ async def test_usage_limit(client: AsyncClient, mock_user_at_limit):
     """Test limit exceeded"""
     response = await client.post(
         "/v1/audio/speech",
-        json={"input": "Test", "voice": "gulya"},
+        json={"input": "Test", "voice": "anna"},
         headers={"Authorization": f"Bearer {mock_user_at_limit.token}"}
     )
     assert response.status_code == 402
