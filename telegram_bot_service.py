@@ -229,8 +229,8 @@ class TelegramBotService:
         if not enabled_buttons and not has_payment:
             return None
 
-        # Sort by order
-        enabled_buttons.sort(key=lambda x: x.get("order", 0))
+        # Sort by order (handle None values explicitly)
+        enabled_buttons.sort(key=lambda x: x.get("order") if x.get("order") is not None else 0)
 
         # Create rows of buttons (2 per row)
         keyboard = []
