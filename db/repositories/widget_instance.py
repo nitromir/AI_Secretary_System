@@ -22,7 +22,7 @@ DEFAULT_WIDGET_CONFIG = {
     "title": "AI Ассистент",
     "greeting": "Здравствуйте! Чем могу помочь?",
     "placeholder": "Введите сообщение...",
-    "primary_color": "#6366f1",
+    "primary_color": "#c2410c",
     "position": "right",
     "llm_backend": "vllm",
     "llm_persona": "anna",

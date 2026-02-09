@@ -28,7 +28,7 @@ class AdminWidgetConfigRequest(BaseModel):
     title: str = ""
     greeting: str = ""
     placeholder: str = ""
-    primary_color: str = "#6366f1"
+    primary_color: str = "#c2410c"
     position: str = "right"
     allowed_domains: List[str] = []
     tunnel_url: str = ""
@@ -41,7 +41,7 @@ class WidgetInstanceCreateRequest(BaseModel):
     title: str = "AI Ассистент"
     greeting: str = "Здравствуйте! Чем могу помочь?"
     placeholder: str = "Введите сообщение..."
-    primary_color: str = "#6366f1"
+    primary_color: str = "#c2410c"
     position: str = "right"
     allowed_domains: List[str] = []
     tunnel_url: Optional[str] = None
@@ -89,7 +89,7 @@ async def admin_get_widget_config(user: User = Depends(get_current_user)):
             "title": instance.get("title", ""),
             "greeting": instance.get("greeting", ""),
             "placeholder": instance.get("placeholder", ""),
-            "primary_color": instance.get("primary_color", "#6366f1"),
+            "primary_color": instance.get("primary_color", "#c2410c"),
             "position": instance.get("position", "right"),
             "allowed_domains": instance.get("allowed_domains", []),
             "tunnel_url": instance.get("tunnel_url", ""),

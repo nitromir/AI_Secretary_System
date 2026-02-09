@@ -1660,7 +1660,7 @@ class AdminWidgetConfigRequest(BaseModel):
     title: str = "AI Ассистент"
     greeting: str = "Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?"
     placeholder: str = "Введите сообщение..."
-    primary_color: str = "#6366f1"
+    primary_color: str = "#c2410c"
     position: str = "right"  # "left" or "right"
     allowed_domains: List[str] = []
     tunnel_url: str = ""
@@ -3152,7 +3152,7 @@ window.aiChatSettings = {{
   title: '{config.get("title", "AI Ассистент")}',
   greeting: '{_escape_js_string(config.get("greeting") or "")}',
   placeholder: '{_escape_js_string(config.get("placeholder") or "")}',
-  primaryColor: '{config.get("primary_color", "#6366f1")}',
+  primaryColor: '{config.get("primary_color", "#c2410c")}',
   position: '{config.get("position", "right")}'
 }};
 
