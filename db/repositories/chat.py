@@ -36,29 +36,40 @@ class ChatRepository(BaseRepository[ChatSession]):
         hash_suffix = hashlib.md5(ts.encode()).hexdigest()[:6]
         return f"msg_{int(time.time() * 1000)}_{hash_suffix}"
 
-    async def list_sessions(self) -> List[dict]:
-        """Get list of all sessions with summary info."""
-        result = await self.session.execute(
+    async def list_sessions(self, owner_id: Optional[int] = None) -> List[dict]:
+        """Get list of sessions with summary info, filtered by owner."""
+        query = (
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
             .order_by(ChatSession.updated.desc())
         )
+        if owner_id is not None:
+            query = query.where(
+                (ChatSession.owner_id == owner_id) | (ChatSession.owner_id.is_(None))
+            )
+        result = await self.session.execute(query)
         sessions = result.scalars().all()
         return [s.to_summary() for s in sessions]
 
-    async def get_session(self, session_id: str) -> Optional[dict]:
+    async def get_session(self, session_id: str, owner_id: Optional[int] = None) -> Optional[dict]:
         """Get full session with messages, with Redis caching."""
-        # Try cache first
-        cached = await get_cached_session(session_id)
-        if cached:
-            return cached
+        # Try cache first (skip cache if owner filtering needed)
+        if owner_id is None:
+            cached = await get_cached_session(session_id)
+            if cached:
+                return cached
 
         # Fetch from database
-        result = await self.session.execute(
+        query = (
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
             .where(ChatSession.id == session_id)
         )
+        if owner_id is not None:
+            query = query.where(
+                (ChatSession.owner_id == owner_id) | (ChatSession.owner_id.is_(None))
+            )
+        result = await self.session.execute(query)
         session = result.scalar_one_or_none()
 
         if session:
@@ -74,6 +85,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         system_prompt: Optional[str] = None,
         source: Optional[str] = None,
         source_id: Optional[str] = None,
+        owner_id: Optional[int] = None,
     ) -> dict:
         """Create new chat session."""
         session_id = self._generate_session_id()
@@ -85,6 +97,7 @@ class ChatRepository(BaseRepository[ChatSession]):
             system_prompt=system_prompt,
             source=source,
             source_id=source_id,
+            owner_id=owner_id,
             created=now,
             updated=now,
         )
@@ -134,21 +147,31 @@ class ChatRepository(BaseRepository[ChatSession]):
         data_result: dict[str, Any] = session.to_dict()
         return data_result
 
-    async def delete_session(self, session_id: str) -> bool:
+    async def delete_session(self, session_id: str, owner_id: Optional[int] = None) -> bool:
         """Delete session and all its messages."""
-        result = await self.session.execute(delete(ChatSession).where(ChatSession.id == session_id))
+        query = delete(ChatSession).where(ChatSession.id == session_id)
+        if owner_id is not None:
+            query = query.where(
+                (ChatSession.owner_id == owner_id) | (ChatSession.owner_id.is_(None))
+            )
+        result = await self.session.execute(query)
         await self.session.commit()
         await invalidate_session_cache(session_id)
         return bool(result.rowcount > 0)  # type: ignore[attr-defined]
 
-    async def delete_sessions_bulk(self, session_ids: List[str]) -> int:
+    async def delete_sessions_bulk(
+        self, session_ids: List[str], owner_id: Optional[int] = None
+    ) -> int:
         """Delete multiple sessions by ID list."""
         if not session_ids:
             return 0
 
-        result = await self.session.execute(
-            delete(ChatSession).where(ChatSession.id.in_(session_ids))
-        )
+        query = delete(ChatSession).where(ChatSession.id.in_(session_ids))
+        if owner_id is not None:
+            query = query.where(
+                (ChatSession.owner_id == owner_id) | (ChatSession.owner_id.is_(None))
+            )
+        result = await self.session.execute(query)
         await self.session.commit()
 
         # Invalidate cache for all deleted sessions
@@ -157,13 +180,18 @@ class ChatRepository(BaseRepository[ChatSession]):
 
         return int(result.rowcount)  # type: ignore[attr-defined]
 
-    async def list_sessions_grouped(self) -> dict:
+    async def list_sessions_grouped(self, owner_id: Optional[int] = None) -> dict:
         """Get sessions grouped by source."""
-        result = await self.session.execute(
+        query = (
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
             .order_by(ChatSession.updated.desc())
         )
+        if owner_id is not None:
+            query = query.where(
+                (ChatSession.owner_id == owner_id) | (ChatSession.owner_id.is_(None))
+            )
+        result = await self.session.execute(query)
         sessions = result.scalars().all()
 
         grouped: Dict[str, List[dict[str, Any]]] = {

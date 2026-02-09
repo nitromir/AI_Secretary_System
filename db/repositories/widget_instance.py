@@ -57,20 +57,32 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         instance: Optional[WidgetInstance] = result.scalar_one_or_none()
         return instance
 
-    async def list_instances(self, enabled_only: bool = False) -> List[dict]:
-        """List all widget instances."""
+    async def list_instances(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
+        """List widget instances, filtered by owner."""
         query = select(WidgetInstance).order_by(WidgetInstance.updated.desc())
         if enabled_only:
             query = query.where(WidgetInstance.enabled == True)
+        if owner_id is not None:
+            query = query.where(
+                (WidgetInstance.owner_id == owner_id) | (WidgetInstance.owner_id.is_(None))
+            )
 
         result = await self.session.execute(query)
         instances = result.scalars().all()
         return [i.to_dict() for i in instances]
 
-    async def get_instance(self, instance_id: str) -> Optional[dict]:
-        """Get widget instance by ID."""
+    async def get_instance(
+        self, instance_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
+        """Get widget instance by ID, with optional owner check."""
         instance = await self.session.get(WidgetInstance, instance_id)
-        return instance.to_dict() if instance else None
+        if not instance:
+            return None
+        if owner_id is not None and instance.owner_id is not None and instance.owner_id != owner_id:
+            return None
+        return instance.to_dict()
 
     async def create_instance(
         self, name: str, description: Optional[str] = None, **kwargs: Any
@@ -89,6 +101,7 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
             name=name,
             description=description,
             enabled=kwargs.get("enabled", True),
+            owner_id=kwargs.get("owner_id"),
             # Appearance
             title=kwargs.get("title", DEFAULT_WIDGET_CONFIG["title"]),
             greeting=kwargs.get("greeting", DEFAULT_WIDGET_CONFIG["greeting"]),
@@ -165,10 +178,12 @@ class WidgetInstanceRepository(BaseRepository[WidgetInstance]):
         data: dict[str, Any] = instance.to_dict()
         return data
 
-    async def delete_instance(self, instance_id: str) -> bool:
-        """Delete widget instance."""
+    async def delete_instance(self, instance_id: str, owner_id: Optional[int] = None) -> bool:
+        """Delete widget instance, with optional owner check."""
         instance = await self.session.get(WidgetInstance, instance_id)
         if not instance:
+            return False
+        if owner_id is not None and instance.owner_id is not None and instance.owner_id != owner_id:
             return False
 
         await self.session.delete(instance)

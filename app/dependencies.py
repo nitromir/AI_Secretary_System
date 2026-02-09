@@ -39,6 +39,9 @@ class ServiceContainer:
         # STT service
         self.stt_service: STTService | None = None
 
+        # GSM telephony service
+        self.gsm_service = None
+
         # Streaming TTS manager
         self.streaming_tts_manager = None
 
@@ -116,3 +119,8 @@ def get_voice_config():
 def get_streaming_tts_manager():
     """Dependency: Get streaming TTS manager."""
     return get_container().streaming_tts_manager
+
+
+def get_gsm_service():
+    """Dependency: Get GSM telephony service."""
+    return get_container().gsm_service

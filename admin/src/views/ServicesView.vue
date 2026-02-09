@@ -14,8 +14,10 @@ import {
   X
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 
 const queryClient = useQueryClient()
+const authStore = useAuthStore()
 
 // State
 const selectedLog = ref<string | null>(null)
@@ -125,6 +127,7 @@ watch(logSearch, async () => {
     <!-- Toolbar -->
     <div class="flex items-center gap-4">
       <button
+        v-if="authStore.isAdmin"
         :disabled="startAllMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
         @click="startAllMutation.mutate()"
@@ -133,6 +136,7 @@ watch(logSearch, async () => {
         Start All
       </button>
       <button
+        v-if="authStore.isAdmin"
         :disabled="stopAllMutation.isPending.value"
         class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
         @click="stopAllMutation.mutate()"
@@ -196,7 +200,7 @@ watch(logSearch, async () => {
               <Terminal class="w-4 h-4" />
             </button>
             <button
-              v-if="!service.is_running"
+              v-if="!service.is_running && authStore.isAdmin"
               :disabled="startMutation.isPending.value"
               class="p-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
               title="Start"
@@ -206,7 +210,7 @@ watch(logSearch, async () => {
               <Play v-else class="w-4 h-4" />
             </button>
             <button
-              v-if="service.is_running"
+              v-if="service.is_running && authStore.isAdmin"
               :disabled="stopMutation.isPending.value"
               class="p-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
               title="Stop"
@@ -216,6 +220,7 @@ watch(logSearch, async () => {
               <Square v-else class="w-4 h-4" />
             </button>
             <button
+              v-if="authStore.isAdmin"
               :disabled="restartMutation.isPending.value"
               class="p-2 rounded-lg bg-secondary hover:bg-secondary/80 disabled:opacity-50 transition-colors"
               title="Restart"

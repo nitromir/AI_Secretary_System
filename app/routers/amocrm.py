@@ -23,7 +23,7 @@ from app.services.amocrm_service import (
     get_pipelines,
     refresh_access_token,
 )
-from auth_manager import User, get_current_user
+from auth_manager import User, require_admin, require_not_guest
 from db.integration import async_amocrm_manager, async_audit_logger
 
 
@@ -130,7 +130,7 @@ class AddNoteRequest(BaseModel):
 
 
 @router.get("/status")
-async def crm_status(user: User = Depends(get_current_user)):
+async def crm_status(user: User = Depends(require_not_guest)):
     """Quick status: connected? token expired? last sync."""
     config = await async_amocrm_manager.get_config()
     if not config:
@@ -152,7 +152,7 @@ async def crm_status(user: User = Depends(get_current_user)):
 
 
 @router.get("/config")
-async def crm_get_config(user: User = Depends(get_current_user)):
+async def crm_get_config(user: User = Depends(require_not_guest)):
     """Get amoCRM config (secrets masked)."""
     config = await async_amocrm_manager.get_config()
     return {"config": config or {}}
@@ -161,7 +161,7 @@ async def crm_get_config(user: User = Depends(get_current_user)):
 @router.post("/config")
 async def crm_save_config(
     request: AmoCRMConfigRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Save OAuth credentials and sync settings."""
     kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
@@ -180,7 +180,7 @@ async def crm_save_config(
 
 
 @router.get("/auth-url")
-async def crm_auth_url(request: Request, user: User = Depends(get_current_user)):
+async def crm_auth_url(request: Request, user: User = Depends(require_admin)):
     """Build OAuth authorization URL for amoCRM."""
     config = await async_amocrm_manager.get_config_with_secrets()
     if not config or not config.get("client_id"):
@@ -276,7 +276,7 @@ async def crm_oauth_redirect(
 
 
 @router.post("/disconnect")
-async def crm_disconnect(user: User = Depends(get_current_user)):
+async def crm_disconnect(user: User = Depends(require_admin)):
     """Clear tokens — disconnect from amoCRM."""
     await async_amocrm_manager.clear_tokens()
 
@@ -297,7 +297,7 @@ async def crm_disconnect(user: User = Depends(get_current_user)):
 
 
 @router.post("/test")
-async def crm_test_connection(user: User = Depends(get_current_user)):
+async def crm_test_connection(user: User = Depends(require_not_guest)):
     """Test connection by fetching account info."""
     config = await _get_valid_token()
     try:
@@ -308,7 +308,7 @@ async def crm_test_connection(user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh-token")
-async def crm_force_refresh_token(user: User = Depends(get_current_user)):
+async def crm_force_refresh_token(user: User = Depends(require_admin)):
     """Force token refresh."""
     config = await async_amocrm_manager.get_config_with_secrets()
     if not config or not config.get("refresh_token"):
@@ -344,7 +344,7 @@ async def crm_get_contacts(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=250),
     query: Optional[str] = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """List contacts from amoCRM (proxied)."""
     config = await _get_valid_token()
@@ -358,7 +358,7 @@ async def crm_get_contacts(
 @router.post("/contacts")
 async def crm_create_contact(
     request: CreateContactRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """Create a contact in amoCRM."""
     config = await _get_valid_token()
@@ -390,7 +390,7 @@ async def crm_get_leads(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=250),
     query: Optional[str] = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """List leads from amoCRM (proxied)."""
     config = await _get_valid_token()
@@ -404,7 +404,7 @@ async def crm_get_leads(
 @router.post("/leads")
 async def crm_create_lead(
     request: CreateLeadRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """Create a lead in amoCRM."""
     config = await _get_valid_token()
@@ -434,7 +434,7 @@ async def crm_create_lead(
 async def crm_add_note_to_lead(
     lead_id: int,
     request: AddNoteRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """Add a note to a lead."""
     config = await _get_valid_token()
@@ -454,7 +454,7 @@ async def crm_add_note_to_lead(
 
 
 @router.get("/pipelines")
-async def crm_get_pipelines(user: User = Depends(get_current_user)):
+async def crm_get_pipelines(user: User = Depends(require_not_guest)):
     """List pipelines with their statuses."""
     config = await _get_valid_token()
     try:
@@ -468,7 +468,7 @@ async def crm_get_pipelines(user: User = Depends(get_current_user)):
 
 
 @router.post("/sync")
-async def crm_sync(user: User = Depends(get_current_user)):
+async def crm_sync(user: User = Depends(require_not_guest)):
     """Manual sync — fetch counts from amoCRM and update local stats."""
     config = await _get_valid_token()
     subdomain = config["subdomain"]
@@ -515,7 +515,7 @@ async def crm_sync(user: User = Depends(get_current_user)):
 @router.get("/sync-log")
 async def crm_sync_log(
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_not_guest),
 ):
     """Get sync event log."""
     logs = await async_amocrm_manager.get_sync_logs(limit)

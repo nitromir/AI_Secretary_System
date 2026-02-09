@@ -232,7 +232,12 @@ const messages = {
       page: 'Страница',
       timestamp: 'Время',
       fromDate: 'С даты',
-      toDate: 'По дату'
+      toDate: 'По дату',
+      create: 'Создать',
+      created: 'Создано',
+      saved: 'Сохранено',
+      enabled: 'Включён',
+      disabled: 'Выключен',
     },
     // Chat View
     chatView: {
@@ -445,6 +450,34 @@ const messages = {
         deleteItem: 'Удалить',
         noData: 'Нет данных. Нажмите + чтобы добавить.',
         seedDefaults: 'Загрузить дефолты',
+        form: {
+          promptKey: 'Ключ промпта',
+          name: 'Название',
+          description: 'Описание',
+          systemPrompt: 'Системный промпт',
+          temperature: 'Температура',
+          maxTokens: 'Max tokens',
+          order: 'Порядок',
+          questionKey: 'Ключ вопроса',
+          questionText: 'Текст вопроса',
+          options: 'Варианты ответов',
+          addOption: 'Добавить вариант',
+          optionLabel: 'Текст варианта',
+          optionValue: 'Значение',
+          segmentKey: 'Ключ сегмента',
+          path: 'Путь (path)',
+          priority: 'Приоритет',
+          agentPromptKey: 'Промпт агента',
+          matchRules: 'Правила (match_rules)',
+          trigger: 'Триггер',
+          delayHours: 'Задержка (ч)',
+          maxSends: 'Макс. отправок',
+          segmentFilter: 'Фильтр сегмента',
+          messageTemplate: 'Шаблон сообщения',
+          author: 'Автор',
+          text: 'Текст',
+          rating: 'Рейтинг',
+        },
       },
       // Action buttons
       actionButtons: 'Кнопки действий',
@@ -648,6 +681,28 @@ const messages = {
         webhook: 'Вебхуки',
         webhookDesc: 'Уведомления о событиях в CRM'
       }
+    },
+    roles: {
+      admin: 'Администратор',
+      user: 'Пользователь',
+      guest: 'Гость'
+    },
+    profile: {
+      title: 'Профиль',
+      displayName: 'Отображаемое имя',
+      username: 'Логин',
+      role: 'Роль',
+      created: 'Зарегистрирован',
+      lastLogin: 'Последний вход',
+      changePassword: 'Сменить пароль',
+      currentPassword: 'Текущий пароль',
+      newPassword: 'Новый пароль',
+      confirmPassword: 'Подтвердите пароль',
+      save: 'Сохранить',
+      passwordChanged: 'Пароль успешно изменён',
+      passwordMismatch: 'Пароли не совпадают',
+      profileUpdated: 'Профиль обновлён',
+      guestReadOnly: 'Гостевой аккаунт (только чтение)'
     }
   },
   en: {
@@ -881,7 +936,12 @@ const messages = {
       page: 'Page',
       timestamp: 'Timestamp',
       fromDate: 'From Date',
-      toDate: 'To Date'
+      toDate: 'To Date',
+      create: 'Create',
+      created: 'Created',
+      saved: 'Saved',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
     },
     // Chat View
     chatView: {
@@ -1094,6 +1154,34 @@ const messages = {
         deleteItem: 'Delete',
         noData: 'No data. Click + to add.',
         seedDefaults: 'Load defaults',
+        form: {
+          promptKey: 'Prompt key',
+          name: 'Name',
+          description: 'Description',
+          systemPrompt: 'System prompt',
+          temperature: 'Temperature',
+          maxTokens: 'Max tokens',
+          order: 'Order',
+          questionKey: 'Question key',
+          questionText: 'Question text',
+          options: 'Answer options',
+          addOption: 'Add option',
+          optionLabel: 'Option label',
+          optionValue: 'Value',
+          segmentKey: 'Segment key',
+          path: 'Path',
+          priority: 'Priority',
+          agentPromptKey: 'Agent prompt',
+          matchRules: 'Match rules',
+          trigger: 'Trigger',
+          delayHours: 'Delay (hours)',
+          maxSends: 'Max sends',
+          segmentFilter: 'Segment filter',
+          messageTemplate: 'Message template',
+          author: 'Author',
+          text: 'Text',
+          rating: 'Rating',
+        },
       },
       // Action buttons
       actionButtons: 'Action Buttons',
@@ -1297,6 +1385,28 @@ const messages = {
         webhook: 'Webhooks',
         webhookDesc: 'CRM event notifications'
       }
+    },
+    roles: {
+      admin: 'Admin',
+      user: 'User',
+      guest: 'Guest'
+    },
+    profile: {
+      title: 'Profile',
+      displayName: 'Display Name',
+      username: 'Username',
+      role: 'Role',
+      created: 'Registered',
+      lastLogin: 'Last Login',
+      changePassword: 'Change Password',
+      currentPassword: 'Current Password',
+      newPassword: 'New Password',
+      confirmPassword: 'Confirm Password',
+      save: 'Save',
+      passwordChanged: 'Password changed successfully',
+      passwordMismatch: 'Passwords do not match',
+      profileUpdated: 'Profile updated',
+      guestReadOnly: 'Guest account (read-only)'
     }
   }
 }

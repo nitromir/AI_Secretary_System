@@ -45,19 +45,19 @@ const router = createRouter({
       path: '/services',
       name: 'services',
       component: ServicesView,
-      meta: { title: 'Services', icon: 'Server' }
+      meta: { title: 'Services', icon: 'Server', minRole: 'user' }
     },
     {
       path: '/llm',
       name: 'llm',
       component: LlmView,
-      meta: { title: 'LLM', icon: 'Brain' }
+      meta: { title: 'LLM', icon: 'Brain', minRole: 'user' }
     },
     {
       path: '/tts',
       name: 'tts',
       component: TtsView,
-      meta: { title: 'TTS', icon: 'Mic' }
+      meta: { title: 'TTS', icon: 'Mic', minRole: 'user' }
     },
     {
       path: '/faq',
@@ -69,67 +69,67 @@ const router = createRouter({
       path: '/finetune',
       name: 'finetune',
       component: FinetuneView,
-      meta: { title: 'Fine-tune', icon: 'Sparkles' }
+      meta: { title: 'Fine-tune', icon: 'Sparkles', minRole: 'admin' }
     },
     {
       path: '/monitoring',
       name: 'monitoring',
       component: MonitoringView,
-      meta: { title: 'Monitoring', icon: 'Activity' }
+      meta: { title: 'Monitoring', icon: 'Activity', minRole: 'user' }
     },
     {
       path: '/models',
       name: 'models',
       component: ModelsView,
-      meta: { title: 'Models', icon: 'HardDrive' }
+      meta: { title: 'Models', icon: 'HardDrive', minRole: 'admin' }
     },
     {
       path: '/widget',
       name: 'widget',
       component: WidgetView,
-      meta: { title: 'Widget', icon: 'Code2' }
+      meta: { title: 'Widget', icon: 'Code2', minRole: 'user' }
     },
     {
       path: '/telegram',
       name: 'telegram',
       component: TelegramView,
-      meta: { title: 'Telegram', icon: 'Send' }
+      meta: { title: 'Telegram', icon: 'Send', minRole: 'user' }
     },
     {
       path: '/gsm',
       name: 'gsm',
       component: GSMView,
-      meta: { title: 'GSM Telephony', icon: 'Phone' }
+      meta: { title: 'GSM Telephony', icon: 'Phone', minRole: 'admin' }
     },
     {
       path: '/audit',
       name: 'audit',
       component: AuditView,
-      meta: { title: 'Audit', icon: 'FileText' }
+      meta: { title: 'Audit', icon: 'FileText', minRole: 'user' }
     },
     {
       path: '/usage',
       name: 'usage',
       component: UsageView,
-      meta: { title: 'Usage', icon: 'BarChart3' }
+      meta: { title: 'Usage', icon: 'BarChart3', minRole: 'user' }
     },
     {
       path: '/settings',
       name: 'settings',
       component: SettingsView,
-      meta: { title: 'Settings', icon: 'Settings' }
+      meta: { title: 'Settings', icon: 'Settings', minRole: 'user' }
     },
     {
       path: '/crm',
       name: 'crm',
       component: CrmView,
-      meta: { title: 'CRM', icon: 'Users' }
+      meta: { title: 'CRM', icon: 'Users', minRole: 'user' }
     },
     {
       path: '/sales',
       name: 'sales',
       component: SalesView,
-      meta: { title: 'Sales', icon: 'ShoppingCart' }
+      meta: { title: 'Sales', icon: 'ShoppingCart', minRole: 'user' }
     },
     {
       path: '/about',
@@ -140,7 +140,10 @@ const router = createRouter({
   ]
 })
 
-// Navigation guard for authentication
+// Role level mapping for route guards
+const ROLE_LEVEL: Record<string, number> = { guest: 0, user: 1, admin: 2 }
+
+// Navigation guard for authentication and authorization
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
@@ -151,18 +154,30 @@ router.beforeEach((to, from, next) => {
     // Check if token is in localStorage but store not initialized
     const token = localStorage.getItem('admin_token')
     if (token && !authStore.isTokenExpired()) {
-      // Token exists and valid, allow navigation
-      next()
+      // Token exists and valid, check role below
     } else {
       // Redirect to login
       next({ name: 'login', query: { redirect: to.fullPath } })
+      return
     }
   } else if (to.name === 'login' && authStore.isAuthenticated) {
     // Already logged in, redirect to dashboard
     next({ name: 'dashboard' })
-  } else {
-    next()
+    return
   }
+
+  // Check role-based access
+  const minRole = to.meta.minRole as string | undefined
+  if (minRole) {
+    const userRole = authStore.user?.role || 'guest'
+    if (ROLE_LEVEL[userRole] < ROLE_LEVEL[minRole]) {
+      // Insufficient role, redirect to dashboard
+      next({ name: 'dashboard' })
+      return
+    }
+  }
+
+  next()
 })
 
 export default router

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from auth_manager import User, get_current_user
+from auth_manager import User, require_admin
 from db.database import AsyncSessionLocal
 from db.models import CONSENT_TYPES
 from db.repositories.consent import ConsentRepository
@@ -85,7 +85,7 @@ async def get_consent_types():
 @router.get("/admin/legal/consents/{user_id}")
 async def admin_get_user_consents(
     user_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Get all consents for a user."""
     async with AsyncSessionLocal() as session:
@@ -189,7 +189,7 @@ async def admin_grant_required_consents(
 async def admin_revoke_consent(
     user_id: str,
     consent_type: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Revoke a consent (admin only)."""
     if consent_type not in CONSENT_TYPES:
@@ -213,7 +213,7 @@ async def admin_check_consents(user_id: str):
 
 
 @router.get("/admin/legal/stats")
-async def admin_get_consent_stats(user: User = Depends(get_current_user)):
+async def admin_get_consent_stats(user: User = Depends(require_admin)):
     """Get consent statistics."""
     async with AsyncSessionLocal() as session:
         repo = ConsentRepository(session)
@@ -229,7 +229,7 @@ async def admin_get_consent_stats(user: User = Depends(get_current_user)):
 @router.post("/admin/legal/gdpr/delete")
 async def admin_gdpr_delete_data(
     request: DataDeletionRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Delete all user data (GDPR right to erasure)."""
     if not request.confirm:

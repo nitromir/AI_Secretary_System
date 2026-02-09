@@ -5,14 +5,19 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.dependencies import get_container
 from app.rate_limiter import RATE_LIMIT_CHAT, limiter
+from auth_manager import User, get_current_user
 from cloud_llm_service import CloudLLMService
-from db.integration import async_chat_manager, async_cloud_provider_manager
+from db.integration import (
+    async_chat_manager,
+    async_cloud_provider_manager,
+    async_widget_instance_manager,
+)
 from llm_service import LLMService
 
 
@@ -49,6 +54,7 @@ class LLMOverrideConfig(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     llm_override: Optional[LLMOverrideConfig] = None
+    widget_instance_id: Optional[str] = None
 
 
 class EditMessageRequest(BaseModel):
@@ -59,42 +65,66 @@ class EditMessageRequest(BaseModel):
 
 
 @router.get("/sessions")
-async def admin_list_chat_sessions(group_by: Optional[str] = None):
+async def admin_list_chat_sessions(
+    group_by: Optional[str] = None, user: User = Depends(get_current_user)
+):
     """Список всех чат-сессий. group_by=source для группировки по источнику."""
+    owner_id = None if user.role == "admin" else user.id
     if group_by == "source":
-        grouped = await async_chat_manager.list_sessions_grouped()
+        grouped = await async_chat_manager.list_sessions_grouped(owner_id=owner_id)
         return {"sessions": grouped, "grouped": True}
-    sessions = await async_chat_manager.list_sessions()
+    sessions = await async_chat_manager.list_sessions(owner_id=owner_id)
     return {"sessions": sessions}
 
 
 @router.post("/sessions")
-async def admin_create_chat_session(request: CreateSessionRequest):
+async def admin_create_chat_session(
+    request: CreateSessionRequest, user: User = Depends(get_current_user)
+):
     """Создать новую чат-сессию"""
+    owner_id = None if user.role == "admin" else user.id
+
+    # Auto-apply widget system_prompt if not explicitly provided
+    system_prompt = request.system_prompt
+    if request.source == "widget" and request.source_id and not system_prompt:
+        widget = await async_widget_instance_manager.get_instance(request.source_id)
+        if widget and widget.get("system_prompt"):
+            system_prompt = widget["system_prompt"]
+
     session = await async_chat_manager.create_session(
-        request.title, request.system_prompt, request.source, request.source_id
+        request.title,
+        system_prompt,
+        request.source,
+        request.source_id,
+        owner_id=owner_id,
     )
     return {"session": session}
 
 
 @router.post("/sessions/bulk-delete")
-async def admin_bulk_delete_sessions(request: BulkDeleteRequest):
+async def admin_bulk_delete_sessions(
+    request: BulkDeleteRequest, user: User = Depends(get_current_user)
+):
     """Удалить несколько сессий сразу"""
-    count = await async_chat_manager.delete_sessions_bulk(request.session_ids)
+    owner_id = None if user.role == "admin" else user.id
+    count = await async_chat_manager.delete_sessions_bulk(request.session_ids, owner_id=owner_id)
     return {"status": "ok", "deleted": count}
 
 
 @router.get("/sessions/{session_id}")
-async def admin_get_chat_session(session_id: str):
+async def admin_get_chat_session(session_id: str, user: User = Depends(get_current_user)):
     """Получить чат-сессию"""
-    session = await async_chat_manager.get_session(session_id)
+    owner_id = None if user.role == "admin" else user.id
+    session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session}
 
 
 @router.put("/sessions/{session_id}")
-async def admin_update_chat_session(session_id: str, request: UpdateSessionRequest):
+async def admin_update_chat_session(
+    session_id: str, request: UpdateSessionRequest, user: User = Depends(get_current_user)
+):
     """Обновить чат-сессию"""
     session = await async_chat_manager.update_session(
         session_id, request.title, request.system_prompt
@@ -105,9 +135,10 @@ async def admin_update_chat_session(session_id: str, request: UpdateSessionReque
 
 
 @router.delete("/sessions/{session_id}")
-async def admin_delete_chat_session(session_id: str):
+async def admin_delete_chat_session(session_id: str, user: User = Depends(get_current_user)):
     """Удалить чат-сессию"""
-    if not await async_chat_manager.delete_session(session_id):
+    owner_id = None if user.role == "admin" else user.id
+    if not await async_chat_manager.delete_session(session_id, owner_id=owner_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"status": "ok"}
 
@@ -118,11 +149,15 @@ async def admin_delete_chat_session(session_id: str):
 @router.post("/sessions/{session_id}/messages")
 @limiter.limit(RATE_LIMIT_CHAT)
 async def admin_send_chat_message(
-    request: Request, session_id: str, msg_request: SendMessageRequest
+    request: Request,
+    session_id: str,
+    msg_request: SendMessageRequest,
+    user: User = Depends(get_current_user),
 ):
     """Отправить сообщение и получить ответ (non-streaming)"""
     container = get_container()
-    session = await async_chat_manager.get_session(session_id)
+    owner_id = None if user.role == "admin" else user.id
+    session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -156,11 +191,15 @@ async def admin_send_chat_message(
 @router.post("/sessions/{session_id}/stream")
 @limiter.limit(RATE_LIMIT_CHAT)
 async def admin_stream_chat_message(
-    request: Request, session_id: str, msg_request: SendMessageRequest
+    request: Request,
+    session_id: str,
+    msg_request: SendMessageRequest,
+    user: User = Depends(get_current_user),
 ):
     """Отправить сообщение и получить streaming ответ"""
     container = get_container()
-    session = await async_chat_manager.get_session(session_id)
+    owner_id = None if user.role == "admin" else user.id
+    session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -194,6 +233,32 @@ async def admin_stream_chat_message(
         # else use default vllm/llm_service
 
         custom_prompt = override.system_prompt
+
+    elif msg_request.widget_instance_id:
+        widget = await async_widget_instance_manager.get_instance(msg_request.widget_instance_id)
+        if widget:
+            backend = widget.get("llm_backend")
+            if backend and backend.startswith("cloud:"):
+                provider_id = backend.split(":", 1)[1]
+                try:
+                    provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                        provider_id
+                    )
+                    if provider_config:
+                        active_llm = CloudLLMService(provider_config)
+                        logger.info(
+                            f"Widget {msg_request.widget_instance_id}: using cloud provider {provider_id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Widget LLM override failed: {e}")
+            elif backend == "gemini":
+                try:
+                    active_llm = LLMService()
+                    logger.info(f"Widget {msg_request.widget_instance_id}: using Gemini")
+                except Exception as e:
+                    logger.warning(f"Widget Gemini override failed: {e}")
+            # else use default vllm/llm_service
+            custom_prompt = widget.get("system_prompt")
 
     if not active_llm:
         raise HTTPException(status_code=503, detail="LLM service not available")
@@ -240,10 +305,16 @@ async def admin_stream_chat_message(
 
 
 @router.put("/sessions/{session_id}/messages/{message_id}")
-async def admin_edit_chat_message(session_id: str, message_id: str, request: EditMessageRequest):
+async def admin_edit_chat_message(
+    session_id: str,
+    message_id: str,
+    request: EditMessageRequest,
+    user: User = Depends(get_current_user),
+):
     """Редактировать сообщение пользователя и перегенерировать ответ"""
     container = get_container()
-    session = await async_chat_manager.get_session(session_id)
+    owner_id = None if user.role == "admin" else user.id
+    session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -290,7 +361,9 @@ async def admin_edit_chat_message(session_id: str, message_id: str, request: Edi
 
 
 @router.delete("/sessions/{session_id}/messages/{message_id}")
-async def admin_delete_chat_message(session_id: str, message_id: str):
+async def admin_delete_chat_message(
+    session_id: str, message_id: str, user: User = Depends(get_current_user)
+):
     """Удалить сообщение и все последующие"""
     if not await async_chat_manager.delete_message(session_id, message_id):
         raise HTTPException(status_code=404, detail="Message not found")
@@ -298,10 +371,13 @@ async def admin_delete_chat_message(session_id: str, message_id: str):
 
 
 @router.post("/sessions/{session_id}/messages/{message_id}/regenerate")
-async def admin_regenerate_chat_response(session_id: str, message_id: str):
+async def admin_regenerate_chat_response(
+    session_id: str, message_id: str, user: User = Depends(get_current_user)
+):
     """Перегенерировать ответ на сообщение"""
     container = get_container()
-    session = await async_chat_manager.get_session(session_id)
+    owner_id = None if user.role == "admin" else user.id
+    session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 

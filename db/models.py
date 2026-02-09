@@ -2,6 +2,7 @@
 SQLAlchemy ORM models for AI Secretary System.
 
 Tables:
+- users: System users with roles (guest, user, admin)
 - chat_sessions: Chat session metadata
 - chat_messages: Individual chat messages
 - faq_entries: FAQ question-answer pairs
@@ -46,6 +47,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -54,6 +56,52 @@ class Base(DeclarativeBase):
     """Base class for all models"""
 
     pass
+
+
+# ============== User Management ==============
+
+
+class User(Base):
+    """System user with role-based access."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    salt: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(20), default="user")  # guest, user, admin
+    display_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    created: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    def to_dict(self, include_sensitive: bool = False) -> dict:
+        result: dict[str, Any] = {
+            "id": self.id,
+            "username": self.username,
+            "role": self.role,
+            "display_name": self.display_name,
+            "is_active": self.is_active,
+            "created": self.created.isoformat() if self.created else None,
+            "updated": self.updated.isoformat() if self.updated else None,
+            "last_login": self.last_login.isoformat() if self.last_login else None,
+        }
+        if include_sensitive:
+            result["password_hash"] = self.password_hash
+            result["salt"] = self.salt
+        return result
+
+
+# ============== Chat ==============
 
 
 class ChatSession(Base):
@@ -67,6 +115,11 @@ class ChatSession(Base):
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # Owner (multi-user isolation, NULL = admin/legacy)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
     )
 
     # Source tracking (admin, telegram, widget)
@@ -185,6 +238,9 @@ class TTSPreset(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     params: Mapped[str] = mapped_column(Text)  # JSON object with TTS parameters
     builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -305,6 +361,9 @@ class BotInstance(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     auto_start: Mapped[bool] = mapped_column(Boolean, default=False)  # Auto-start on app launch
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
 
     # Telegram configuration
     bot_token: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -475,6 +534,9 @@ class WidgetInstance(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
 
     # Appearance
     title: Mapped[str] = mapped_column(String(100), default="AI Ассистент")
@@ -583,6 +645,9 @@ class CloudLLMProvider(Base):
     # Status
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
 
     # Extended configuration (JSON)
     config: Mapped[Optional[str]] = mapped_column(

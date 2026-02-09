@@ -5,9 +5,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.dependencies import get_container
+from auth_manager import User, get_current_user
 from stt_service import UnifiedSTTService, VoskSTTService
 
 
@@ -45,7 +46,7 @@ def get_unified_stt() -> Optional[UnifiedSTTService]:
 
 
 @router.get("/status")
-async def admin_stt_status():
+async def admin_stt_status(user: User = Depends(get_current_user)):
     """Статус STT сервисов"""
     vosk_available = False
     whisper_available = False
@@ -81,7 +82,7 @@ async def admin_stt_status():
 
 
 @router.get("/models")
-async def admin_stt_models():
+async def admin_stt_models(user: User = Depends(get_current_user)):
     """Список доступных моделей STT"""
     models_dir = Path("models/vosk")
     models = []
@@ -111,7 +112,10 @@ async def admin_stt_models():
 
 @router.post("/transcribe")
 async def admin_stt_transcribe(
-    file: UploadFile = File(...), language: str = "ru", engine: str = "auto"
+    file: UploadFile = File(...),
+    language: str = "ru",
+    engine: str = "auto",
+    user: User = Depends(get_current_user),
 ):
     """
     Распознать речь из загруженного аудио файла
@@ -159,7 +163,10 @@ async def admin_stt_transcribe(
 
 
 @router.post("/test")
-async def admin_stt_test(text_to_speak: str = "Привет, это тест распознавания речи"):
+async def admin_stt_test(
+    text_to_speak: str = "Привет, это тест распознавания речи",
+    user: User = Depends(get_current_user),
+):
     """
     Тест STT: синтезируем речь через TTS, затем распознаём обратно
 
