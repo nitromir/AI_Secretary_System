@@ -79,7 +79,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Install remaining dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install setuptools wheel \
+    && pip install --no-build-isolation openai-whisper==20231117 \
+    && pip install -r requirements.txt
 
 # Application code
 COPY *.py ./

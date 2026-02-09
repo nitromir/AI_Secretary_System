@@ -455,6 +455,11 @@
     addMessage('assistant', '...', true);
 
     try {
+      // Build headers with auth token if available
+      const hdrs = { 'Content-Type': 'application/json' };
+      const jwt = localStorage.getItem('admin_token');
+      if (jwt) hdrs['Authorization'] = 'Bearer ' + jwt;
+
       // Create session if needed
       if (!sessionId) {
         const body = {};
@@ -464,7 +469,7 @@
         }
         const sessionRes = await fetch(`${settings.apiUrl}/admin/chat/sessions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: hdrs,
           body: JSON.stringify(body)
         });
         const sessionData = await sessionRes.json();
@@ -479,7 +484,7 @@
       }
       const response = await fetch(`${settings.apiUrl}/admin/chat/sessions/${sessionId}/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: hdrs,
         body: JSON.stringify(streamBody)
       });
 
