@@ -39,9 +39,11 @@ Default login: admin / admin
 ruff check .                # Lint (see pyproject.toml for full rule config)
 ruff check . --fix          # Auto-fix
 ruff format .               # Format
+ruff format --check .       # Check formatting (CI uses this)
 
 # Frontend
-cd admin && npm run lint
+cd admin && npm run lint       # Lint + auto-fix
+cd admin && npm run lint:check # Lint without auto-fix (CI-style)
 
 # All pre-commit hooks
 pre-commit run --all-files
@@ -62,7 +64,7 @@ cd admin && npm test                   # Frontend tests
 ### CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and on PRs:
-- `lint-backend` — ruff check + format check + mypy
+- `lint-backend` — ruff check + format check + mypy (mypy is soft — `|| true`, won't fail build)
 - `lint-frontend` — npm ci + eslint + build (includes type check)
 - `security` — Trivy vulnerability scanner
 
@@ -99,11 +101,19 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts). Bots with `auto_start=true` restart on app startup.
 
-**Cloud LLM routing**: `cloud_llm_service.py` has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`.
+**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`).
+
+**Cloud LLM routing**: `cloud_llm_service.py` (project root) has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`.
 
 **amoCRM integration**: `app/services/amocrm_service.py` is a pure async HTTP client (no DB) with optional proxy support (`AMOCRM_PROXY` env var for Docker/VPN environments). `app/routers/amocrm.py` handles OAuth2 flow, token auto-refresh, and proxies API calls. Config/tokens stored via `AsyncAmoCRMManager` in `db/integration.py`. Webhook at `POST /webhooks/amocrm`. For private amoCRM integrations, auth codes are obtained from the integration settings (not OAuth redirect). If Docker can't reach amoCRM (VPN on host), run `scripts/amocrm_proxy.py` on the host.
 
 **GSM telephony**: `app/services/gsm_service.py` manages SIM7600E-H modem via AT commands over serial port (`/dev/ttyUSB2`). Auto-switches to mock mode when hardware is unavailable. `app/routers/gsm.py` exposes call/SMS management endpoints. Call and SMS logs stored via `GSMCallLogRepository` and `GSMSMSLogRepository` in `db/repositories/gsm.py`. Models: `GSMCallLog`, `GSMSMSLog` in `db/models.py`. Manager: `AsyncGSMManager` in `db/integration.py`. Migration: `scripts/migrate_gsm_tables.py`.
+
+**Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels. `app/services/sales_funnel.py` implements funnel logic. `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`.
+
+**Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
+
+**Other routers**: `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
 
 ## Code Patterns
 
@@ -132,6 +142,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 - `GET/PUT/DELETE /admin/{resource}/{id}` — CRUD
 - `POST /admin/{resource}/{id}/action` — Actions (start, stop, test)
 - `GET /admin/{resource}/stream` — SSE endpoints
+- `POST /webhooks/{service}` — External webhooks (amocrm, yoomoney, github)
 - `POST /v1/chat/completions`, `POST /v1/audio/speech`, `GET /v1/models` — OpenAI-compatible
 
 ## Key Environment Variables
@@ -144,6 +155,7 @@ ORCHESTRATOR_PORT=8002
 ADMIN_JWT_SECRET=...                # Auto-generated if empty
 REDIS_URL=redis://localhost:6379/0  # Optional, graceful fallback if unavailable
 DEV_MODE=1                          # Makes backend proxy to Vite dev server (:5173)
+AMOCRM_PROXY=http://host:8888      # Optional, for Docker/VPN environments
 ```
 
 ## Codebase Conventions
