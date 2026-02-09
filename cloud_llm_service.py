@@ -114,7 +114,7 @@ PROVIDER_TYPES = {
     },
     "claude_bridge": {
         "name": "Claude Bridge (Local CLI)",
-        "default_base_url": "http://127.0.0.1:8787",
+        "default_base_url": "http://127.0.0.1:8787/v1",
         "default_models": ["sonnet", "opus", "haiku"],
         "requires_base_url": False,
     },

@@ -280,8 +280,8 @@ class BridgeProcessManager:
         return result
 
     def get_base_url(self) -> str:
-        """Return the bridge base URL."""
-        return f"http://{self._bridge_host}:{self._port}"
+        """Return the bridge base URL (OpenAI-compatible /v1 prefix)."""
+        return f"http://{self._bridge_host}:{self._port}/v1"
 
     def _write_env(self, port: int, permission_level: str) -> None:
         """Write/update .env file for the bridge."""

@@ -15,7 +15,7 @@
  * <script src="ai-chat-widget.js"></script>
  */
 
-(function() {
+(async function() {
   'use strict';
 
   const defaultSettings = {
@@ -38,6 +38,20 @@
   if (!settings.apiUrl) {
     console.error('AI Chat Widget: apiUrl is required in window.aiChatSettings');
     return;
+  }
+
+  // Runtime check: is widget enabled on the server?
+  try {
+    const instanceParam = settings.instanceId || 'default';
+    const statusRes = await fetch(`${settings.apiUrl}/widget/status?instance=${instanceParam}`);
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      if (!statusData.enabled) {
+        return; // Widget is disabled — don't render
+      }
+    }
+  } catch (e) {
+    // If check fails (network error, CORS, etc.) — render anyway (fail-open)
   }
 
   // State

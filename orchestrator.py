@@ -3169,6 +3169,20 @@ window.aiChatSettings = {{
     )
 
 
+@app.get("/widget/status")
+async def get_widget_status(instance: Optional[str] = None):
+    """Public endpoint — check if a widget instance is enabled.
+
+    Used by the widget JS at runtime to hide itself when disabled.
+    No authentication required.
+    """
+    instance_id = instance or "default"
+    instance_data = await async_widget_instance_manager.get_instance(instance_id)
+    if not instance_data:
+        return {"enabled": False}
+    return {"enabled": bool(instance_data.get("enabled", False))}
+
+
 # ============== Static Files for Vue Admin ==============
 
 DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
