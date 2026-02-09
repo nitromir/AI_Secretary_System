@@ -2,7 +2,7 @@ import type { DemoRoute } from './types'
 import { daysAgo } from './store'
 
 const prompts = [
-  { id: 1, bot_id: 'bot-sales', prompt_key: 'sales_main', name: 'Основной промпт продаж', description: 'Главный промпт для консультирования', system_prompt: 'Ты — Лидия, менеджер по продажам AI-секретаря. Помогай выбрать тариф, отвечай на вопросы о продукте.', temperature: 0.7, max_tokens: 2048, enabled: true, order: 1, created: daysAgo(14) },
+  { id: 1, bot_id: 'bot-sales', prompt_key: 'sales_main', name: 'Основной промпт продаж', description: 'Главный промпт для консультирования', system_prompt: 'Ты — Марина, менеджер по продажам AI-секретаря. Помогай выбрать тариф, отвечай на вопросы о продукте.', temperature: 0.7, max_tokens: 2048, enabled: true, order: 1, created: daysAgo(14) },
   { id: 2, bot_id: 'bot-sales', prompt_key: 'objection_handler', name: 'Обработка возражений', description: 'Промпт для работы с возражениями клиентов', system_prompt: 'Ты — опытный менеджер. Клиент высказал возражение. Мягко и аргументированно развей сомнения.', temperature: 0.6, max_tokens: 1024, enabled: true, order: 2, created: daysAgo(14) },
   { id: 3, bot_id: 'bot-sales', prompt_key: 'closer', name: 'Закрытие сделки', description: 'Промпт для завершения продажи', system_prompt: 'Клиент готов к покупке. Помоги оформить заказ, предложи оптимальный тариф.', temperature: 0.5, max_tokens: 1024, enabled: true, order: 3, created: daysAgo(14) },
 ]

@@ -165,15 +165,15 @@ export const llmRoutes: DemoRoute[] = [
     pattern: /^\/admin\/llm\/personas$/,
     handler: () => ({
       personas: {
-        gulya: { name: 'gulya', full_name: 'Гуля — дружелюбный AI-секретарь' },
-        lidia: { name: 'lidia', full_name: 'Лидия — строгий бизнес-ассистент' },
+        anna: { name: 'anna', full_name: 'Анна — дружелюбный AI-секретарь' },
+        marina: { name: 'marina', full_name: 'Марина — строгий бизнес-ассистент' },
       },
     }),
   },
   {
     method: 'GET',
     pattern: /^\/admin\/llm\/persona$/,
-    handler: () => ({ id: 'gulya', name: 'Гуля' }),
+    handler: () => ({ id: 'anna', name: 'Анна' }),
   },
   {
     method: 'POST',
@@ -208,7 +208,7 @@ export const llmRoutes: DemoRoute[] = [
     pattern: /^\/admin\/llm\/prompt\/([^/]+)$/,
     handler: ({ matches }) => ({
       persona: matches[1],
-      prompt: `Ты — ${matches[1] === 'gulya' ? 'Гуля' : 'Лидия'}, виртуальный AI-секретарь компании. Отвечай вежливо, кратко и по делу. Помогай клиентам с вопросами о услугах, ценах и записи.`,
+      prompt: `Ты — ${matches[1] === 'anna' ? 'Анна' : 'Марина'}, виртуальный AI-секретарь компании. Отвечай вежливо, кратко и по делу. Помогай клиентам с вопросами о услугах, ценах и записи.`,
     }),
   },
   {
@@ -459,8 +459,8 @@ export const llmRoutes: DemoRoute[] = [
     method: 'GET',
     pattern: /^\/admin\/llm\/prompt$/,
     handler: () => ({
-      prompt: 'Ты — Гуля, виртуальный AI-секретарь. Отвечай вежливо и помогай клиентам.',
-      persona: 'gulya',
+      prompt: 'Ты — Анна, виртуальный AI-секретарь. Отвечай вежливо и помогай клиентам.',
+      persona: 'anna',
     }),
   },
 ]

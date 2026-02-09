@@ -91,7 +91,7 @@ const logLines = [
   '[2024-01-15 10:00:01] INFO: System started successfully',
   '[2024-01-15 10:00:02] INFO: vLLM backend initialized with Qwen2.5-7B-Instruct-AWQ',
   '[2024-01-15 10:00:03] INFO: XTTS v2 voice clone service ready',
-  '[2024-01-15 10:00:04] INFO: Loading voice profiles: gulya, lidia',
+  '[2024-01-15 10:00:04] INFO: Loading voice profiles: anna, marina',
   '[2024-01-15 10:00:05] INFO: Piper TTS initialized with dmitri voice',
   '[2024-01-15 10:00:06] INFO: Vosk STT model loaded: vosk-model-ru-0.42',
   '[2024-01-15 10:00:07] INFO: FAQ loaded: 12 entries',

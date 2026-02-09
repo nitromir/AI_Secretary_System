@@ -2,8 +2,8 @@ import type { DemoRoute } from './types'
 import { getStore } from './store'
 
 const voices = [
-  { id: 'gulya', name: 'Гуля', engine: 'xtts', description: 'XTTS v2 клонированный голос — дружелюбный женский', available: true, samples_count: 12, default: true },
-  { id: 'lidia', name: 'Лидия', engine: 'xtts', description: 'XTTS v2 клонированный голос — строгий деловой', available: true, samples_count: 8, default: false },
+  { id: 'anna', name: 'Анна', engine: 'xtts', description: 'XTTS v2 клонированный голос — дружелюбный женский', available: true, samples_count: 12, default: true },
+  { id: 'marina', name: 'Марина', engine: 'xtts', description: 'XTTS v2 клонированный голос — строгий деловой', available: true, samples_count: 8, default: false },
   { id: 'dmitri', name: 'Дмитрий', engine: 'piper', description: 'Piper TTS (CPU) — мужской русский голос', available: true, samples_count: 0, default: false },
 ]
 
@@ -45,13 +45,13 @@ export const ttsRoutes: DemoRoute[] = [
     pattern: /^\/admin\/voices$/,
     handler: () => ({
       voices,
-      current: { engine: 'xtts', voice: 'gulya' },
+      current: { engine: 'xtts', voice: 'anna' },
     }),
   },
   {
     method: 'GET',
     pattern: /^\/admin\/voice$/,
-    handler: () => ({ engine: 'xtts', voice: 'gulya' }),
+    handler: () => ({ engine: 'xtts', voice: 'anna' }),
   },
   {
     method: 'POST',

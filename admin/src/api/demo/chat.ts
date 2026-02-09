@@ -12,7 +12,7 @@ const defaultSessions: ChatSessionData[] = [
     updated: minutesAgo(30),
     messages: [
       { id: 'msg-1', role: 'user', content: 'Привет! Проверяю как работает чат.', timestamp: daysAgo(2) },
-      { id: 'msg-2', role: 'assistant', content: 'Здравствуйте! Я — Гуля, ваш AI-секретарь. Чат работает корректно. Чем могу помочь?', timestamp: daysAgo(2) },
+      { id: 'msg-2', role: 'assistant', content: 'Здравствуйте! Я — Анна, ваш AI-секретарь. Чат работает корректно. Чем могу помочь?', timestamp: daysAgo(2) },
       { id: 'msg-3', role: 'user', content: 'Какие функции у тебя есть?', timestamp: minutesAgo(35) },
       { id: 'msg-4', role: 'assistant', content: 'Я умею:\n• Отвечать на вопросы клиентов 24/7\n• Синтезировать речь (TTS)\n• Распознавать речь (STT)\n• Работать в Telegram и на сайте\n• Записывать на приём\n• Принимать оплату\n\nЧто именно вас интересует?', timestamp: minutesAgo(34) },
     ],
