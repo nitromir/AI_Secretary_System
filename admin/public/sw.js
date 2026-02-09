@@ -1,5 +1,5 @@
 // Service Worker for AI Secretary Admin
-const CACHE_NAME = 'ai-admin-v1';
+const CACHE_NAME = 'ai-admin-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
