@@ -1,4 +1,4 @@
-import { api, createSSE } from './client'
+import { api, createSSE, getAuthHeaders } from './client'
 
 export interface ChatMessage {
   id: string
@@ -49,11 +49,12 @@ export const chatApi = {
   getSession: (sessionId: string) =>
     api.get<{ session: ChatSession }>(`/admin/chat/sessions/${sessionId}`),
 
-  createSession: (title?: string, systemPrompt?: string, source?: string) =>
+  createSession: (title?: string, systemPrompt?: string, source?: string, sourceId?: string) =>
     api.post<{ session: ChatSession }>('/admin/chat/sessions', {
       title,
       system_prompt: systemPrompt,
       source,
+      source_id: sourceId,
     }),
 
   updateSession: (sessionId: string, data: { title?: string; system_prompt?: string }) =>
@@ -95,7 +96,8 @@ export const chatApi = {
     sessionId: string,
     content: string,
     onChunk: (data: { type: string; content?: string; message?: ChatMessage }) => void,
-    llmOverride?: { llm_backend?: string; system_prompt?: string }
+    llmOverride?: { llm_backend?: string; system_prompt?: string },
+    widgetInstanceId?: string
   ) => {
     const controller = new AbortController()
 
@@ -103,10 +105,16 @@ export const chatApi = {
     if (llmOverride) {
       body.llm_override = llmOverride
     }
+    if (widgetInstanceId) {
+      body.widget_instance_id = widgetInstanceId
+    }
 
     fetch(`/admin/chat/sessions/${sessionId}/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     }).then(async (response) => {
