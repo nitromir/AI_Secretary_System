@@ -8,7 +8,7 @@ const defaultAuditLogs: AuditLogData[] = [
   { id: 3, timestamp: daysAgo(2), action: 'create', resource: 'faq', resource_id: 'привет', user_id: 'admin', user_ip: '192.168.1.100', details: 'FAQ entry created' },
   { id: 4, timestamp: daysAgo(2), action: 'start', resource: 'telegram', resource_id: 'bot-support', user_id: 'admin', user_ip: '192.168.1.100', details: 'Bot started' },
   { id: 5, timestamp: daysAgo(2), action: 'start', resource: 'telegram', resource_id: 'bot-sales', user_id: 'admin', user_ip: '192.168.1.100', details: 'Bot started' },
-  { id: 6, timestamp: daysAgo(1), action: 'update', resource: 'tts', resource_id: 'voice', user_id: 'admin', user_ip: '192.168.1.100', details: 'Voice changed to gulya' },
+  { id: 6, timestamp: daysAgo(1), action: 'update', resource: 'tts', resource_id: 'voice', user_id: 'admin', user_ip: '192.168.1.100', details: 'Voice changed to anna' },
   { id: 7, timestamp: daysAgo(1), action: 'create', resource: 'chat', resource_id: 'session-admin-1', user_id: 'admin', user_ip: '192.168.1.100', details: 'Chat session created' },
   { id: 8, timestamp: daysAgo(1), action: 'update', resource: 'llm', resource_id: 'params', user_id: 'admin', user_ip: '192.168.1.100', details: 'Temperature set to 0.7' },
   { id: 9, timestamp: minutesAgo(300), action: 'login', resource: 'auth', resource_id: null, user_id: 'admin', user_ip: '192.168.1.100', details: 'Successful login' },
