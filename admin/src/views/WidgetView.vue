@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import {
@@ -24,9 +24,13 @@ import {
   ChevronRight,
   Cpu,
   Volume2,
-  Settings2
+  Settings2,
+  Send,
+  MessageCircle,
+  RotateCcw
 } from 'lucide-vue-next'
 import { widgetInstancesApi, type WidgetInstance } from '@/api'
+import { chatApi, type ChatMessage } from '@/api/chat'
 import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
@@ -37,7 +41,7 @@ const toast = useToastStore()
 const selectedInstanceId = ref<string | null>(null)
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
-const activeTab = ref<'settings' | 'appearance' | 'domains' | 'ai' | 'code'>('settings')
+const activeTab = ref<'settings' | 'appearance' | 'domains' | 'ai' | 'code' | 'test'>('settings')
 const copied = ref<string | null>(null)
 
 // Form state for create/edit
@@ -217,6 +221,127 @@ watch(instances, (newInstances) => {
     selectedInstanceId.value = newInstances[0].id
   }
 }, { immediate: true })
+
+// === Test Chat ===
+interface TestMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+const testSessionMap = ref<Map<string, string>>(new Map())
+const testMessages = ref<TestMessage[]>([])
+const testInput = ref('')
+const testStreaming = ref(false)
+const testChatContainer = ref<HTMLElement | null>(null)
+let currentAbort: (() => void) | null = null
+
+const testSessionId = computed(() =>
+  selectedInstanceId.value ? testSessionMap.value.get(selectedInstanceId.value) ?? null : null
+)
+
+// Reset messages when switching instances
+watch(selectedInstanceId, () => {
+  testMessages.value = []
+  testInput.value = ''
+  if (testStreaming.value && currentAbort) {
+    currentAbort()
+    testStreaming.value = false
+    currentAbort = null
+  }
+})
+
+function scrollTestChat() {
+  nextTick(() => {
+    if (testChatContainer.value) {
+      testChatContainer.value.scrollTop = testChatContainer.value.scrollHeight
+    }
+  })
+}
+
+async function sendTestMessage() {
+  const content = testInput.value.trim()
+  if (!content || testStreaming.value || !selectedInstance.value) return
+
+  const instanceId = selectedInstance.value.id
+  testInput.value = ''
+
+  // Add user message
+  testMessages.value.push({ role: 'user', content })
+  scrollTestChat()
+
+  // Create session if needed
+  let sessionId = testSessionMap.value.get(instanceId)
+  if (!sessionId) {
+    try {
+      const res = await chatApi.createSession(
+        `Widget test: ${selectedInstance.value.name}`,
+        undefined,
+        'widget',
+        instanceId
+      )
+      sessionId = res.session.id
+      testSessionMap.value.set(instanceId, sessionId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to create session'
+      testMessages.value.push({ role: 'assistant', content: `Error: ${msg}` })
+      scrollTestChat()
+      return
+    }
+  }
+
+  // Add empty assistant message for streaming
+  testMessages.value.push({ role: 'assistant', content: '' })
+  testStreaming.value = true
+  scrollTestChat()
+
+  const assistantIdx = testMessages.value.length - 1
+
+  const { abort } = chatApi.streamMessage(
+    sessionId,
+    content,
+    (data) => {
+      if (data.type === 'chunk' && data.content) {
+        testMessages.value[assistantIdx].content += data.content
+        scrollTestChat()
+      } else if (data.type === 'done') {
+        testStreaming.value = false
+        currentAbort = null
+      } else if (data.type === 'error') {
+        testMessages.value[assistantIdx].content += `\n[Error: ${data.content}]`
+        testStreaming.value = false
+        currentAbort = null
+        scrollTestChat()
+      }
+    },
+    undefined,
+    instanceId
+  )
+
+  currentAbort = abort
+}
+
+function clearTestChat() {
+  if (testStreaming.value && currentAbort) {
+    currentAbort()
+    testStreaming.value = false
+    currentAbort = null
+  }
+  testMessages.value = []
+  if (selectedInstanceId.value) {
+    const sessionId = testSessionMap.value.get(selectedInstanceId.value)
+    if (sessionId) {
+      chatApi.deleteSession(sessionId).catch(() => {})
+      testSessionMap.value.delete(selectedInstanceId.value)
+    }
+  }
+}
+
+function handleTestKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendTestMessage()
+  }
+}
 </script>
 
 <template>
@@ -386,7 +511,7 @@ watch(instances, (newInstances) => {
         <!-- Tabs -->
         <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6">
           <button
-            v-for="tab in ['settings', 'appearance', 'domains', 'ai', 'code'] as const"
+            v-for="tab in ['settings', 'appearance', 'domains', 'ai', 'code', 'test'] as const"
             :key="tab"
             :class="[
               'px-4 py-2 text-sm rounded-md transition-colors',
@@ -401,7 +526,8 @@ watch(instances, (newInstances) => {
               <Palette v-else-if="tab === 'appearance'" class="w-4 h-4" />
               <Globe v-else-if="tab === 'domains'" class="w-4 h-4" />
               <Cpu v-else-if="tab === 'ai'" class="w-4 h-4" />
-              <Code2 v-else class="w-4 h-4" />
+              <Code2 v-else-if="tab === 'code'" class="w-4 h-4" />
+              <MessageCircle v-else class="w-4 h-4" />
               {{ t(`widget.tabs.${tab}`) }}
             </span>
           </button>
@@ -554,6 +680,107 @@ watch(instances, (newInstances) => {
                 <p>2. {{ t('widget.step2Desc') }}</p>
                 <p>3. {{ t('widget.step3Desc') }}</p>
                 <p>4. {{ t('widget.step4Desc') }}</p>
+              </div>
+            </div>
+          </template>
+
+          <!-- Test Chat Tab -->
+          <template v-if="activeTab === 'test'">
+            <div class="bg-card rounded-xl border border-border flex flex-col" style="height: calc(100vh - 380px); min-height: 400px;">
+              <!-- Chat Header -->
+              <div class="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-3">
+                  <MessageCircle class="w-5 h-5" :style="{ color: selectedInstance.primary_color }" />
+                  <div>
+                    <h3 class="font-medium">{{ t('widget.testChat') }}</h3>
+                    <p class="text-xs text-muted-foreground">{{ t('widget.testChatDesc') }}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs px-2 py-1 bg-secondary rounded-full text-muted-foreground">
+                    {{ selectedInstance.llm_backend }}
+                  </span>
+                  <button
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                    :title="t('widget.testClearChat')"
+                    @click="clearTestChat"
+                  >
+                    <RotateCcw class="w-3.5 h-3.5" />
+                    {{ t('widget.testClearChat') }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Messages -->
+              <div ref="testChatContainer" class="flex-1 overflow-y-auto p-4 space-y-3">
+                <!-- Greeting -->
+                <div v-if="selectedInstance.greeting && testMessages.length === 0" class="flex justify-start">
+                  <div
+                    class="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-bl-sm text-sm"
+                    :style="{ backgroundColor: selectedInstance.primary_color + '20', color: 'var(--foreground)' }"
+                  >
+                    {{ selectedInstance.greeting }}
+                  </div>
+                </div>
+
+                <!-- Empty state -->
+                <div v-if="testMessages.length === 0 && !selectedInstance.greeting" class="flex-1 flex items-center justify-center h-full">
+                  <div class="text-center text-muted-foreground">
+                    <MessageCircle class="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    <p class="text-sm">{{ t('widget.testNoMessages') }}</p>
+                  </div>
+                </div>
+
+                <!-- Messages -->
+                <template v-for="(msg, idx) in testMessages" :key="idx">
+                  <!-- User message -->
+                  <div v-if="msg.role === 'user'" class="flex justify-end">
+                    <div
+                      class="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-sm text-sm text-white"
+                      :style="{ backgroundColor: selectedInstance.primary_color }"
+                    >
+                      {{ msg.content }}
+                    </div>
+                  </div>
+                  <!-- Assistant message -->
+                  <div v-else class="flex justify-start">
+                    <div
+                      class="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-bl-sm text-sm whitespace-pre-wrap"
+                      :style="{ backgroundColor: selectedInstance.primary_color + '20', color: 'var(--foreground)' }"
+                    >
+                      <template v-if="msg.content">{{ msg.content }}</template>
+                      <span v-else class="inline-flex gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full animate-bounce" :style="{ backgroundColor: selectedInstance.primary_color, animationDelay: '0ms' }" />
+                        <span class="w-1.5 h-1.5 rounded-full animate-bounce" :style="{ backgroundColor: selectedInstance.primary_color, animationDelay: '150ms' }" />
+                        <span class="w-1.5 h-1.5 rounded-full animate-bounce" :style="{ backgroundColor: selectedInstance.primary_color, animationDelay: '300ms' }" />
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Input -->
+              <div class="p-4 border-t border-border flex-shrink-0">
+                <div class="flex gap-2">
+                  <textarea
+                    v-model="testInput"
+                    :placeholder="t('widget.testPlaceholder')"
+                    class="flex-1 px-4 py-2.5 bg-secondary rounded-xl focus:outline-none focus:ring-2 focus:ring-primary resize-none text-sm"
+                    rows="1"
+                    :disabled="testStreaming"
+                    @keydown="handleTestKeydown"
+                  />
+                  <button
+                    class="px-4 py-2.5 rounded-xl text-white transition-colors disabled:opacity-50"
+                    :style="{ backgroundColor: testInput.trim() && !testStreaming ? selectedInstance.primary_color : undefined }"
+                    :class="{ 'bg-gray-500': !testInput.trim() || testStreaming }"
+                    :disabled="!testInput.trim() || testStreaming"
+                    @click="sendTestMessage"
+                  >
+                    <Loader2 v-if="testStreaming" class="w-5 h-5 animate-spin" />
+                    <Send v-else class="w-5 h-5" />
+                  </button>
+                </div>
               </div>
             </div>
           </template>

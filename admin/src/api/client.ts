@@ -13,7 +13,7 @@ export interface ApiResponse<T> {
 }
 
 // Get auth headers from localStorage
-function getAuthHeaders(): Record<string, string> {
+export function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('admin_token')
   if (token) {
     return { 'Authorization': `Bearer ${token}` }

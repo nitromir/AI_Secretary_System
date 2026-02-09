@@ -305,7 +305,8 @@ const messages = {
         appearance: 'Внешний вид',
         domains: 'Домены',
         ai: 'AI настройки',
-        code: 'Код'
+        code: 'Код',
+        test: 'Тест'
       },
       tunnelUrl: 'URL туннеля',
       tunnelUrlDesc: 'Публичный URL для доступа к API (ngrok, Cloudflare Tunnel)',
@@ -357,7 +358,14 @@ const messages = {
       helperScript: 'Скрипт для запуска',
       helperScriptDesc: 'Запустите AI Secretary вместе с туннелем одной командой',
       recommended: 'рекомендуется',
-      or: 'или'
+      or: 'или',
+      testChat: 'Тест чата',
+      testChatDesc: 'Проверьте работу виджета прямо здесь',
+      testSend: 'Отправить',
+      testClearChat: 'Очистить чат',
+      testPlaceholder: 'Введите сообщение...',
+      testSessionCreated: 'Сессия создана',
+      testNoMessages: 'Начните диалог для проверки виджета'
     },
     // Telegram
     telegram: {
@@ -1009,7 +1017,8 @@ const messages = {
         appearance: 'Appearance',
         domains: 'Domains',
         ai: 'AI Settings',
-        code: 'Code'
+        code: 'Code',
+        test: 'Test'
       },
       tunnelUrl: 'Tunnel URL',
       tunnelUrlDesc: 'Public URL to access API (ngrok, Cloudflare Tunnel)',
@@ -1061,7 +1070,14 @@ const messages = {
       helperScript: 'Startup script',
       helperScriptDesc: 'Start AI Secretary with tunnel in one command',
       recommended: 'recommended',
-      or: 'or'
+      or: 'or',
+      testChat: 'Test Chat',
+      testChatDesc: 'Test widget chat right here',
+      testSend: 'Send',
+      testClearChat: 'Clear chat',
+      testPlaceholder: 'Type a message...',
+      testSessionCreated: 'Session created',
+      testNoMessages: 'Start a conversation to test the widget'
     },
     // Telegram
     telegram: {
