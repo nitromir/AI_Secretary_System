@@ -62,7 +62,7 @@ function randomDelay(): Promise<void> {
 
 function createStreamResponse(content: string): Response {
   const encoder = new TextEncoder()
-  const chunks = content.split(/(?<=[\.\!\?。])\s*/g).filter(Boolean)
+  const chunks = content.split(/(?<=[.!?。])\s*/g).filter(Boolean)
 
   const stream = new ReadableStream({
     async start(controller) {
