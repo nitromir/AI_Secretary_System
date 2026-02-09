@@ -9,7 +9,7 @@
  *     title: 'AI Ассистент',
  *     greeting: 'Здравствуйте! Чем могу помочь?',
  *     placeholder: 'Введите сообщение...',
- *     primaryColor: '#6366f1'
+ *     primaryColor: '#c2410c'
  *   };
  * </script>
  * <script src="ai-chat-widget.js"></script>
@@ -23,7 +23,7 @@
     title: 'AI Ассистент',
     greeting: 'Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?',
     placeholder: 'Введите сообщение...',
-    primaryColor: '#6366f1',
+    primaryColor: '#c2410c',
     position: 'right', // 'left' or 'right'
     sessionKey: 'ai_chat_session'
   };
@@ -73,6 +73,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      z-index: 999999;
     }
 
     .ai-chat-button:hover {
@@ -112,6 +113,7 @@
       display: none;
       flex-direction: column;
       overflow: hidden;
+      z-index: 999999;
     }
 
     .ai-chat-window.open {

@@ -52,7 +52,7 @@ const formData = ref<Partial<WidgetInstance>>({
   title: 'AI Ассистент',
   greeting: 'Здравствуйте! Чем могу помочь?',
   placeholder: 'Введите сообщение...',
-  primary_color: '#6366f1',
+  primary_color: '#c2410c',
   position: 'right',
   allowed_domains: [],
   tunnel_url: '',
@@ -123,7 +123,7 @@ function openCreateDialog() {
     title: 'AI Ассистент',
     greeting: 'Здравствуйте! Чем могу помочь?',
     placeholder: 'Введите сообщение...',
-    primary_color: '#6366f1',
+    primary_color: '#c2410c',
     position: 'right',
     allowed_domains: [],
     tunnel_url: '',
@@ -207,12 +207,12 @@ const fullSnippet = computed(() => {
 
 // Color presets
 const colorPresets = [
+  { name: 'Orange', value: '#c2410c' },
   { name: 'Indigo', value: '#6366f1' },
   { name: 'Blue', value: '#3b82f6' },
   { name: 'Green', value: '#22c55e' },
   { name: 'Purple', value: '#a855f7' },
   { name: 'Pink', value: '#ec4899' },
-  { name: 'Orange', value: '#f97316' },
 ]
 
 // Auto-select first instance

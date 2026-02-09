@@ -542,7 +542,7 @@ class WidgetInstance(Base):
     title: Mapped[str] = mapped_column(String(100), default="AI Ассистент")
     greeting: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     placeholder: Mapped[str] = mapped_column(String(200), default="Введите сообщение...")
-    primary_color: Mapped[str] = mapped_column(String(20), default="#6366f1")
+    primary_color: Mapped[str] = mapped_column(String(20), default="#c2410c")
     position: Mapped[str] = mapped_column(String(20), default="right")  # left or right
 
     # Access control

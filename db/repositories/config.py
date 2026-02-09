@@ -41,7 +41,7 @@ DEFAULT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "title": "AI Ассистент",
         "welcome_message": "Здравствуйте! Чем могу помочь?",
         "placeholder": "Введите сообщение...",
-        "primary_color": "#4f46e5",
+        "primary_color": "#c2410c",
         "position": "bottom-right",
         "api_url": "",
         "tunnel_url": "",

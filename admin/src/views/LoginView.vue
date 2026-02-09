@@ -107,9 +107,9 @@ async function handleSubmit() {
 <template>
   <div class="min-h-screen bg-zinc-950 flex flex-col items-center py-8 sm:py-12 sm:px-6 lg:px-8 relative overflow-hidden">
     <!-- Matrix rain background -->
-    <canvas ref="matrixCanvas" class="absolute inset-0 w-full h-full" style="z-index: 0;" />
+    <canvas ref="matrixCanvas" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;" />
     <!-- Vignette overlay -->
-    <div class="absolute inset-0 bg-gradient-to-b from-zinc-950/60 via-transparent to-zinc-950/80" style="z-index: 1;" />
+    <div class="absolute inset-0 bg-gradient-to-b from-zinc-950/60 via-transparent to-zinc-950/80 pointer-events-none" style="z-index: 1;" />
 
     <!-- Login section -->
     <div class="w-full flex flex-col items-center" :class="showAbout ? 'mb-6' : 'flex-1 justify-center'">

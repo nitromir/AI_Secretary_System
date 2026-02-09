@@ -25,10 +25,10 @@ AI Secretary System - виртуальный секретарь с клонир�
     │                    ORCHESTRATOR (FastAPI :8002)                     │
     │                                                                     │
     │  ┌─────────────────────────────────────────────────────────────┐   │
-    │  │ 18 роутеров (~236 endpoints)                                │   │
+    │  │ 19 роутеров (~346 endpoints)                                │   │
     │  │ auth │ audit │ services │ monitor │ faq │ stt │ llm │ tts  │   │
     │  │ chat │ telegram │ widget │ gsm │ bot_sales │ usage │ legal │   │
-    │  │ backup │ github_webhook │ yoomoney_webhook                  │   │
+    │  │ backup │ github_webhook │ yoomoney_webhook │ amocrm         │   │
     │  └─────────────────────────────────────────────────────────────┘   │
     │                                                                     │
     │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐   │
@@ -173,6 +173,7 @@ AI Secretary System - виртуальный секретарь с клонир�
 │  chat_sessions:                                                         │
 │    source = "telegram" | "widget" | "gsm"                              │
 │    source_id = "bot_id:user_id"                                        │
+│    owner_id → users.id (RBAC data isolation)                           │
 │                                                                         │
 │  chat_messages:                                                         │
 │    role = "user" | "assistant"                                         │
@@ -265,31 +266,42 @@ voice_clone_service.py (XTTS v2)
 ```
 data/secretary.db (SQLite)
 │
+├─ USERS & RBAC
+│  └─ users (id, username, password_hash, salt, role, display_name,
+│           is_active, created, updated, last_login)
+│     Roles: admin (full) │ user (own resources) │ guest (read-only)
+│
 ├─ CHAT SYSTEM
-│  ├─ chat_sessions (id, title, system_prompt, source, source_id)
+│  ├─ chat_sessions (id, title, system_prompt, source, source_id, owner_id)
 │  └─ chat_messages (id, session_id, role, content, created)
 │
 ├─ LLM & TTS CONFIG
 │  ├─ llm_presets (id, name, system_prompt, temp, max_tokens)
-│  ├─ tts_presets (name, params, intonation, speed)
-│  ├─ cloud_llm_providers (provider_type, api_key, config, enabled)
+│  ├─ tts_presets (name, params, intonation, speed, owner_id)
+│  ├─ cloud_llm_providers (provider_type, api_key, config, enabled, owner_id)
 │  └─ system_config (key-value pairs)
 │
 ├─ TELEGRAM BOTS (Multi-instance)
-│  ├─ bot_instances (instance_id, bot_token, llm_backend, tts_engine...)
+│  ├─ bot_instances (instance_id, bot_token, llm_backend, tts_engine, owner_id...)
 │  └─ telegram_sessions (bot_id, user_id, state, context)
 │
 ├─ WEBSITE WIDGETS (Multi-instance)
-│  └─ widget_instances (instance_id, name, allowed_domains, config)
+│  └─ widget_instances (instance_id, name, allowed_domains, config, owner_id)
 │
-├─ SALES BOT (44 endpoints)
+├─ SALES BOT (14 tables, 13 repositories)
+│  ├─ bot_agent_prompts
 │  ├─ bot_quiz_questions
 │  ├─ bot_segments
 │  ├─ bot_user_profiles
 │  ├─ bot_followup_rules
+│  ├─ bot_followup_queue
 │  ├─ bot_events
+│  ├─ bot_testimonials
+│  ├─ bot_hardware_specs
 │  ├─ bot_ab_tests
-│  └─ ... (14 repositories)
+│  ├─ bot_discovery_responses
+│  ├─ bot_subscribers
+│  └─ bot_github_configs
 │
 ├─ PAYMENTS & USAGE
 │  ├─ payment_log (bot_id, user_id, amount, provider, status)
@@ -300,6 +312,10 @@ data/secretary.db (SQLite)
 │  ├─ audit_log (timestamp, user_id, action, resource, details)
 │  ├─ user_consents (GDPR)
 │  └─ amocrm_config, amocrm_sync_log (CRM integration)
+│
+├─ GSM TELEPHONY
+│  ├─ gsm_call_logs (id, phone, direction, duration, status)
+│  └─ gsm_sms_logs (id, phone, direction, message, status)
 │
 └─ FAQ
    └─ faq_entries (id, trigger, response, fuzzy_match_score)
@@ -346,7 +362,7 @@ Fallback: если Redis недоступен → только SQLite
 ├─────────────────────────────────────────────────────────────┤
 │ • ChatView        - Session CRUD, messages, grouped         │
 │ • TelegramView    - Bot instances, payment config           │
-│ • WidgetView      - Widget instances CRUD                   │
+│ • WidgetView      - Widget instances CRUD + test chat        │
 │ • GSMView         - SIM7600E-H config, call history         │
 ├─────────────────────────────────────────────────────────────┤
 │ БИЗНЕС                                                      │
@@ -357,7 +373,7 @@ Fallback: если Redis недоступен → только SQLite
 ├─────────────────────────────────────────────────────────────┤
 │ СИСТЕМА                                                     │
 ├─────────────────────────────────────────────────────────────┤
-│ • SettingsView    - Config, security, CORS, backups         │
+│ • SettingsView    - Profile, config, backups, audit          │
 │ • UsageView       - Usage tracking, limits, statistics      │
 │ • AboutView       - Version, GitHub, docs                   │
 └─────────────────────────────────────────────────────────────┘
@@ -367,7 +383,9 @@ Fallback: если Redis недоступен → только SQLite
 
 ```
 admin/src/stores/
-├─ auth.ts      - JWT token, user info
+├─ auth.ts      - JWT token, user info, RBAC roles & permissions
+│                 Roles: admin (*) │ user (chat, cloud, bots) │ guest (demo)
+│                 hasPermission(), can(action, resource)
 ├─ theme.ts     - Current theme (8 variants)
 ├─ toast.ts     - Notifications
 ├─ services.ts  - Service status (vLLM, cloud)
@@ -474,6 +492,16 @@ POST /v1/audio/speech         - TTS
 GET  /v1/models               - Available models
 ```
 
+### Auth API
+
+```
+POST /admin/auth/login                - Login → JWT token
+GET  /admin/auth/me                   - Current user info
+GET  /admin/auth/profile              - Full profile
+PUT  /admin/auth/profile              - Update display name
+POST /admin/auth/change-password      - Change password
+```
+
 ### Admin API (JWT required)
 
 ```
@@ -481,6 +509,7 @@ GET/POST   /admin/{resource}           - List/create
 GET/PUT/DELETE /admin/{resource}/{id}  - CRUD
 POST /admin/{resource}/{id}/action     - Actions (start, stop, test)
 GET  /admin/{resource}/stream          - SSE endpoints
+POST /webhooks/{service}               - External webhooks (amocrm, yoomoney, github)
 ```
 
 ### Streaming TTS
@@ -507,7 +536,10 @@ WS   /admin/tts/ws/stream     - WebSocket real-time
 
 ## Security
 
-- **JWT Authentication** - Admin panel + API
+- **Multi-user RBAC** - 3 roles: admin (full), user (own resources), guest (read-only)
+- **JWT Authentication** - HS256 tokens with user_id + role, DB-backed auth
+- **Data Isolation** - `owner_id` on resources; users see only their data, admins see all
+- **Auth Guards** - `get_current_user` (read), `require_not_guest` (write), `require_admin` (system)
 - **Rate Limiting** - Configurable per endpoint
 - **Security Headers** - X-Frame-Options, CSP, etc.
 - **CORS** - Whitelist domains
@@ -546,7 +578,7 @@ cd admin && npm run dev           # Dev mode (:5173)
 | File | Purpose |
 |------|---------|
 | `orchestrator.py` | FastAPI entry point |
-| `app/routers/*.py` | 18 modular routers |
+| `app/routers/*.py` | 19 modular routers |
 | `app/dependencies.py` | Service container (DI) |
 | `cloud_llm_service.py` | Cloud LLM factory |
 | `voice_clone_service.py` | XTTS v2 synthesis |
@@ -554,5 +586,6 @@ cd admin && npm run dev           # Dev mode (:5173)
 | `stt_service.py` | Vosk + Whisper STT |
 | `multi_bot_manager.py` | Telegram multi-bot |
 | `telegram_bot/` | Standalone bot module |
-| `db/repositories/` | 28 data access classes |
+| `auth_manager.py` | RBAC auth + JWT + 3-level guards |
+| `db/repositories/` | 33 data access classes |
 | `admin/src/views/` | 19 Vue 3 views |
