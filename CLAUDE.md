@@ -31,6 +31,26 @@ DEV_MODE=1 ./start_gpu.sh   # Backend proxies to Vite dev server
 ```
 
 Default login: admin / admin
+Guest demo: demo / demo (read-only access)
+
+### User Management
+
+```bash
+python scripts/manage_users.py list                          # List all users
+python scripts/manage_users.py create <user> <pass> --role user  # Create user (admin|user|guest)
+python scripts/manage_users.py set-password <user> <pass>    # Reset password
+python scripts/manage_users.py set-role <user> <role>        # Change role
+python scripts/manage_users.py disable <user>                # Deactivate user
+python scripts/manage_users.py enable <user>                 # Reactivate user
+python scripts/manage_users.py delete <user>                 # Delete user
+```
+
+### Database Migrations
+
+```bash
+python scripts/migrate_users.py              # Create users table, seed admin + demo
+python scripts/migrate_user_ownership.py     # Add owner_id to resource tables
+```
 
 ### Lint & Format
 
@@ -73,7 +93,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (19 routers, ~345 endpoints) │
+│  orchestrator.py + app/routers/ (19 routers, ~347 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (19 views, PWA)                │  │
 │  │                admin/dist/                              │  │
@@ -133,6 +153,12 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Adding a new secretary persona:**
 1. Add entry to `SECRETARY_PERSONAS` dict in `vllm_llm_service.py`
+
+**RBAC auth guards** (3 levels in `auth_manager.py`):
+- `Depends(get_current_user)` — any authenticated user (read endpoints)
+- `Depends(require_not_guest)` — user + admin only (write endpoints)
+- `Depends(require_admin)` — admin only (vLLM, GSM, backups, models)
+- Data isolation: `owner_id = None if user.role == "admin" else user.id` in routers
 
 **Adding i18n translations:**
 1. Edit `admin/src/plugins/i18n.ts` — add keys to both `ru` and `en` message objects
