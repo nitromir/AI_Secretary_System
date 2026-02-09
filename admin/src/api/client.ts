@@ -1,3 +1,8 @@
+// Demo mode interceptor — must run before any API calls
+if (import.meta.env.VITE_DEMO_MODE === 'true') {
+  import('./demo/index').then(({ setupDemoInterceptor }) => setupDemoInterceptor())
+}
+
 // Base API client
 const BASE_URL = ''
 
@@ -77,6 +82,30 @@ export const api = {
 
 // SSE helper with generic type support
 export function createSSE<T = unknown>(endpoint: string, onMessage: (data: T) => void) {
+  // In demo mode, use polling via fetch instead of real EventSource
+  if (import.meta.env.VITE_DEMO_MODE === 'true') {
+    let stopped = false
+    const poll = async () => {
+      while (!stopped) {
+        try {
+          const res = await fetch(`${BASE_URL}${endpoint}`)
+          if (res.ok) {
+            const data = await res.json()
+            onMessage(data as T)
+          }
+        } catch {
+          // ignore
+        }
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+    poll()
+    return {
+      close: () => { stopped = true },
+      eventSource: null as unknown as EventSource,
+    }
+  }
+
   const eventSource = new EventSource(`${BASE_URL}${endpoint}`)
 
   eventSource.onmessage = (event) => {

@@ -31,6 +31,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 
 // Check if we're in dev mode (Vite sets this)
 const isDev = import.meta.env.DEV
+const isDemo = import.meta.env.VITE_DEMO_MODE === 'true'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('admin_token'))
@@ -108,8 +109,8 @@ export const useAuthStore = defineStore('auth', () => {
       return true
     } catch (e) {
       // In dev mode, allow login without backend
-      if (isDev && username === 'admin' && password === 'admin') {
-        console.warn('⚠️ Dev mode: Backend unavailable, using mock authentication')
+      if ((isDev || isDemo) && username === 'admin' && password === 'admin') {
+        console.warn('⚠️ Dev/Demo mode: Backend unavailable, using mock authentication')
         const devToken = createDevToken(username)
         token.value = devToken
         localStorage.setItem('admin_token', devToken)

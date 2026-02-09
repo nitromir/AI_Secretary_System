@@ -3,8 +3,28 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#6366f1">
-    <meta name="description" content="Admin panel for AI Secretary System">
+    <meta name="theme-color" content="#c2410c">
+
+    <!-- SEO -->
+    <title>AI-Секретарь — Виртуальный секретарь с ИИ | ShaerWare Digital</title>
+    <meta name="description" content="AI-Секретарь — виртуальный секретарь с локальным и облачным ИИ. Работает с любыми LLM вместе и порознь: Qwen, Gemini, Claude, GPT. Клонирование голоса, Telegram-боты, GSM-телефония. Максимальная приватность: обучение на своих данных, работа без интернета. Open-source от ShaerWare Digital.">
+    <meta name="keywords" content="AI секретарь, виртуальный секретарь, локальный LLM, облачный LLM, гибридный ИИ, приватность, клонирование голоса, Telegram бот, дообучение модели, LoRA, vLLM, Qwen, Gemini, Claude, open source, ShaerWare">
+    <meta name="author" content="ShaerWare Digital">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://ai-sekretar24.ru/">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ai-sekretar24.ru/">
+    <meta property="og:title" content="AI-Секретарь — Виртуальный секретарь с ИИ">
+    <meta property="og:description" content="Гибридный виртуальный секретарь: локальные и облачные LLM вместе и порознь, произвольные роли, клонирование голоса, максимальная приватность. Демо-панель управления.">
+    <meta property="og:site_name" content="AI-Секретарь">
+    <meta property="og:locale" content="ru_RU">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="AI-Секретарь — Виртуальный секретарь с ИИ">
+    <meta name="twitter:description" content="Локальный и облачный ИИ вместе и порознь. Произвольные роли, максимальная приватность, обучение на своих данных. Open-source.">
 
     <!-- PWA -->
     <link rel="manifest" href="./manifest.json">
@@ -14,9 +34,32 @@
     <!-- iOS PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="AI Admin">
+    <meta name="apple-mobile-web-app-title" content="AI-Секретарь">
 
-    <title>AI Secretary Admin</title>
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "AI-Секретарь",
+      "description": "Гибридный виртуальный секретарь: локальные и облачные LLM вместе и порознь, настраиваемые роли, клонирование голоса, максимальная приватность, дообучение на своих данных, Telegram-боты, GSM-телефония",
+      "url": "https://ai-sekretar24.ru",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Linux",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "RUB"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "ShaerWare Digital",
+        "url": "https://shaerware.digital/ru"
+      },
+      "codeRepository": "https://github.com/ShaerWare/AI_Secretary_System",
+      "license": "https://github.com/ShaerWare/AI_Secretary_System/blob/main/LICENSE"
+    }
+    </script>
   </head>
   <body class="bg-background text-foreground">
     <div id="app"></div>
@@ -26,7 +69,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/admin/sw.js')
+          navigator.serviceWorker.register('./sw.js')
             .then(reg => console.log('SW registered:', reg.scope))
             .catch(err => console.log('SW registration failed:', err));
         });
