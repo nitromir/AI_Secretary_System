@@ -85,6 +85,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY *.py ./
 COPY app/ ./app/
 COPY db/ ./db/
+COPY telegram_bot/ ./telegram_bot/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 
@@ -182,6 +183,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY *.py ./
 COPY app/ ./app/
 COPY db/ ./db/
+COPY telegram_bot/ ./telegram_bot/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/

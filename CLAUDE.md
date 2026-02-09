@@ -105,7 +105,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (19 routers, ~347 endpoints) │
+│  orchestrator.py + app/routers/ (19 routers, ~348 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (19 views, PWA)                │  │
 │  │                admin/dist/                              │  │
@@ -125,7 +125,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 ### Key Architectural Decisions
 
-**Global state in orchestrator.py** (~3200 lines, ~105 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
+**Global state in orchestrator.py** (~3200 lines, ~106 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
 
 **ServiceContainer (`app/dependencies.py`)**: Singleton holding references to all initialized services (TTS, LLM, STT). Routers get services via FastAPI `Depends`. Populated during app startup in `orchestrator.py`.
 
@@ -147,7 +147,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
 
-**Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab.
+**Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site.
 
 **Other routers**: `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
 
