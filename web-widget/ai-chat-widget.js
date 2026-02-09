@@ -30,6 +30,11 @@
 
   const settings = { ...defaultSettings, ...(window.aiChatSettings || {}) };
 
+  // Per-instance session key to avoid collisions between multiple widgets
+  if (settings.instanceId) {
+    settings.sessionKey = `ai_chat_session_${settings.instanceId}`;
+  }
+
   if (!settings.apiUrl) {
     console.error('AI Chat Widget: apiUrl is required in window.aiChatSettings');
     return;
@@ -436,9 +441,15 @@
     try {
       // Create session if needed
       if (!sessionId) {
+        const body = {};
+        if (settings.instanceId) {
+          body.source = 'widget';
+          body.source_id = settings.instanceId;
+        }
         const sessionRes = await fetch(`${settings.apiUrl}/admin/chat/sessions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
         });
         const sessionData = await sessionRes.json();
         sessionId = sessionData.session.id;
@@ -446,10 +457,14 @@
       }
 
       // Stream response
+      const streamBody = { content };
+      if (settings.instanceId) {
+        streamBody.widget_instance_id = settings.instanceId;
+      }
       const response = await fetch(`${settings.apiUrl}/admin/chat/sessions/${sessionId}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify(streamBody)
       });
 
       if (!response.ok) {

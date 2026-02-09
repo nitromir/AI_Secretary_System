@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth_manager import User, get_current_user
+from auth_manager import User, get_current_user, require_admin
 from db.database import AsyncSessionLocal
 from db.repositories.usage import UsageLimitsRepository, UsageRepository
 
@@ -134,7 +134,7 @@ async def admin_log_usage(request: UsageLogRequest):
 @router.post("/cleanup")
 async def admin_cleanup_usage_logs(
     days: int = 90,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Delete usage logs older than specified days."""
     if days < 7:
@@ -156,7 +156,7 @@ async def admin_cleanup_usage_logs(
 @router.get("/limits")
 async def admin_get_limits(
     enabled_only: bool = True,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Get all usage limits."""
     async with AsyncSessionLocal() as session:
@@ -169,7 +169,7 @@ async def admin_get_limits(
 async def admin_get_limit(
     service_type: str,
     limit_type: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Get a specific usage limit."""
     async with AsyncSessionLocal() as session:
@@ -183,7 +183,7 @@ async def admin_get_limit(
 @router.post("/limits")
 async def admin_set_limit(
     request: UsageLimitRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Create or update a usage limit."""
     if request.service_type not in ("tts", "stt", "llm"):
@@ -207,7 +207,7 @@ async def admin_set_limit(
 async def admin_delete_limit(
     service_type: str,
     limit_type: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Delete a usage limit."""
     async with AsyncSessionLocal() as session:

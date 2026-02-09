@@ -9,12 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.dependencies import get_container
 from app.rate_limiter import RATE_LIMIT_TTS, limiter
+from auth_manager import User, get_current_user, require_not_guest
 from db.integration import async_preset_manager
 from voice_clone_service import INTONATION_PRESETS
 
@@ -96,7 +97,7 @@ async def _reload_voice_presets():
 
 
 @router.get("/presets")
-async def admin_tts_presets():
+async def admin_tts_presets(user: User = Depends(get_current_user)):
     """Список доступных TTS пресетов"""
     container = get_container()
     presets = {}
@@ -120,7 +121,9 @@ async def admin_tts_presets():
 
 
 @router.post("/preset")
-async def admin_set_tts_preset(request: AdminTTSPresetRequest):
+async def admin_set_tts_preset(
+    request: AdminTTSPresetRequest, user: User = Depends(require_not_guest)
+):
     """Установить текущий пресет TTS"""
     container = get_container()
     if request.preset not in INTONATION_PRESETS:
@@ -151,7 +154,9 @@ async def admin_set_tts_preset(request: AdminTTSPresetRequest):
 
 @router.post("/test")
 @limiter.limit(RATE_LIMIT_TTS)
-async def admin_tts_test(request: Request, tts_request: AdminTTSTestRequest):
+async def admin_tts_test(
+    request: Request, tts_request: AdminTTSTestRequest, user: User = Depends(get_current_user)
+):
     """Тестовый синтез речи - возвращает аудио-файл для воспроизведения в браузере"""
     import time as t
 
@@ -248,7 +253,7 @@ async def admin_tts_test(request: Request, tts_request: AdminTTSTestRequest):
 
 
 @router.get("/cache")
-async def admin_tts_cache():
+async def admin_tts_cache(user: User = Depends(get_current_user)):
     """Статистика кэша streaming TTS"""
     container = get_container()
     if container.streaming_tts_manager:
@@ -257,7 +262,7 @@ async def admin_tts_cache():
 
 
 @router.delete("/cache")
-async def admin_clear_tts_cache():
+async def admin_clear_tts_cache(user: User = Depends(require_not_guest)):
     """Очистить кэш streaming TTS"""
     container = get_container()
     if container.streaming_tts_manager:
@@ -272,7 +277,7 @@ async def admin_clear_tts_cache():
 
 
 @router.get("/xtts/params")
-async def admin_get_xtts_params():
+async def admin_get_xtts_params(user: User = Depends(get_current_user)):
     """Получить параметры XTTS"""
     container = get_container()
     service = container.anna_voice_service or container.voice_service
@@ -295,7 +300,9 @@ async def admin_get_xtts_params():
 
 
 @router.post("/xtts/params")
-async def admin_set_xtts_params(request: AdminXTTSParamsRequest):
+async def admin_set_xtts_params(
+    request: AdminXTTSParamsRequest, user: User = Depends(require_not_guest)
+):
     """Установить параметры XTTS (для следующего синтеза)"""
     params = {k: v for k, v in request.model_dump().items() if v is not None}
     _xtts_param_overrides.update(params)
@@ -306,7 +313,7 @@ async def admin_set_xtts_params(request: AdminXTTSParamsRequest):
 
 
 @router.get("/piper/params")
-async def admin_get_piper_params():
+async def admin_get_piper_params(user: User = Depends(get_current_user)):
     """Получить параметры Piper TTS"""
     container = get_container()
     if not container.piper_service:
@@ -319,7 +326,9 @@ async def admin_get_piper_params():
 
 
 @router.post("/piper/params")
-async def admin_set_piper_params(request: AdminPiperParamsRequest):
+async def admin_set_piper_params(
+    request: AdminPiperParamsRequest, user: User = Depends(require_not_guest)
+):
     """Установить параметры Piper TTS"""
     container = get_container()
     if not container.piper_service:
@@ -333,22 +342,27 @@ async def admin_set_piper_params(request: AdminPiperParamsRequest):
 
 
 @router.get("/presets/custom")
-async def admin_get_custom_presets():
+async def admin_get_custom_presets(user: User = Depends(get_current_user)):
     """Получить пользовательские пресеты TTS"""
     presets = await async_preset_manager.get_custom()
     return {"presets": presets}
 
 
 @router.post("/presets/custom")
-async def admin_create_custom_preset(request: AdminCustomPresetRequest):
+async def admin_create_custom_preset(
+    request: AdminCustomPresetRequest, user: User = Depends(require_not_guest)
+):
     """Создать пользовательский пресет TTS"""
-    await async_preset_manager.create(request.name, request.params)
+    owner_id = None if user.role == "admin" else user.id
+    await async_preset_manager.create(request.name, request.params, owner_id=owner_id)
     await _reload_voice_presets()
     return {"status": "ok", "preset": request.name}
 
 
 @router.put("/presets/custom/{name}")
-async def admin_update_custom_preset(name: str, request: AdminCustomPresetRequest):
+async def admin_update_custom_preset(
+    name: str, request: AdminCustomPresetRequest, user: User = Depends(require_not_guest)
+):
     """Обновить пользовательский пресет TTS"""
     result = await async_preset_manager.update(name, request.params)
     if not result:
@@ -359,7 +373,7 @@ async def admin_update_custom_preset(name: str, request: AdminCustomPresetReques
 
 
 @router.delete("/presets/custom/{name}")
-async def admin_delete_custom_preset(name: str):
+async def admin_delete_custom_preset(name: str, user: User = Depends(require_not_guest)):
     """Удалить пользовательский пресет TTS"""
     if not await async_preset_manager.delete(name):
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
@@ -373,7 +387,9 @@ async def admin_delete_custom_preset(name: str):
 
 @router.post("/stream")
 @limiter.limit(RATE_LIMIT_TTS)
-async def tts_stream(request: Request, stream_request: StreamingTTSRequest):
+async def tts_stream(
+    request: Request, stream_request: StreamingTTSRequest, user: User = Depends(get_current_user)
+):
     """
     Потоковый синтез речи - выдаёт аудио чанки по мере генерации.
 

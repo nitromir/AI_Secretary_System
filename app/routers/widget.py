@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from auth_manager import User, get_current_user
+from auth_manager import User, get_current_user, require_not_guest
 from db.integration import (
     async_audit_logger,
     async_config_manager,
@@ -78,7 +78,7 @@ class WidgetInstanceUpdateRequest(BaseModel):
 
 
 @router.get("/config")
-async def admin_get_widget_config():
+async def admin_get_widget_config(user: User = Depends(get_current_user)):
     """Получить конфигурацию виджета (legacy endpoint - uses 'default' instance)"""
     # Try to get from default instance first
     instance = await async_widget_instance_manager.get_instance("default")
@@ -102,7 +102,7 @@ async def admin_get_widget_config():
 
 @router.post("/config")
 async def admin_save_widget_config(
-    request: AdminWidgetConfigRequest, user: User = Depends(get_current_user)
+    request: AdminWidgetConfigRequest, user: User = Depends(require_not_guest)
 ):
     """Сохранить конфигурацию виджета (legacy endpoint - saves to 'default' instance)"""
     config = {
@@ -145,18 +145,25 @@ async def admin_save_widget_config(
 
 
 @router.get("/instances")
-async def admin_list_widget_instances(enabled_only: bool = False):
+async def admin_list_widget_instances(
+    enabled_only: bool = False, user: User = Depends(get_current_user)
+):
     """List all widget instances"""
-    instances = await async_widget_instance_manager.list_instances(enabled_only=enabled_only)
+    owner_id = None if user.role == "admin" else user.id
+    instances = await async_widget_instance_manager.list_instances(
+        enabled_only=enabled_only, owner_id=owner_id
+    )
     return {"instances": instances}
 
 
 @router.post("/instances")
 async def admin_create_widget_instance(
-    request: WidgetInstanceCreateRequest, user: User = Depends(get_current_user)
+    request: WidgetInstanceCreateRequest, user: User = Depends(require_not_guest)
 ):
     """Create a new widget instance"""
+    owner_id = None if user.role == "admin" else user.id
     kwargs = {k: v for k, v in request.model_dump().items() if v is not None}
+    kwargs["owner_id"] = owner_id
 
     instance = await async_widget_instance_manager.create_instance(**kwargs)
 
@@ -173,9 +180,10 @@ async def admin_create_widget_instance(
 
 
 @router.get("/instances/{instance_id}")
-async def admin_get_widget_instance(instance_id: str):
+async def admin_get_widget_instance(instance_id: str, user: User = Depends(get_current_user)):
     """Get a specific widget instance"""
-    instance = await async_widget_instance_manager.get_instance(instance_id)
+    owner_id = None if user.role == "admin" else user.id
+    instance = await async_widget_instance_manager.get_instance(instance_id, owner_id=owner_id)
     if not instance:
         raise HTTPException(status_code=404, detail="Widget instance not found")
 
@@ -184,10 +192,11 @@ async def admin_get_widget_instance(instance_id: str):
 
 @router.put("/instances/{instance_id}")
 async def admin_update_widget_instance(
-    instance_id: str, request: WidgetInstanceUpdateRequest, user: User = Depends(get_current_user)
+    instance_id: str, request: WidgetInstanceUpdateRequest, user: User = Depends(require_not_guest)
 ):
     """Update a widget instance"""
-    existing = await async_widget_instance_manager.get_instance(instance_id)
+    owner_id = None if user.role == "admin" else user.id
+    existing = await async_widget_instance_manager.get_instance(instance_id, owner_id=owner_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Widget instance not found")
 
@@ -208,9 +217,10 @@ async def admin_update_widget_instance(
 
 
 @router.delete("/instances/{instance_id}")
-async def admin_delete_widget_instance(instance_id: str, user: User = Depends(get_current_user)):
+async def admin_delete_widget_instance(instance_id: str, user: User = Depends(require_not_guest)):
     """Delete a widget instance"""
-    success = await async_widget_instance_manager.delete_instance(instance_id)
+    owner_id = None if user.role == "admin" else user.id
+    success = await async_widget_instance_manager.delete_instance(instance_id, owner_id=owner_id)
     if not success:
         raise HTTPException(status_code=404, detail="Widget instance not found")
 

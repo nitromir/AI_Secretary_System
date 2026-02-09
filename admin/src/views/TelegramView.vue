@@ -79,6 +79,94 @@ const salesSubscriberCount = ref(0)
 const salesGithub = ref<GithubConfig | null>(null)
 const salesLoading = ref(false)
 
+// Sales CRUD dialog state
+const showSalesDialog = ref(false)
+const salesDialogMode = ref<'create' | 'edit'>('create')
+const salesDialogType = ref<'prompt' | 'quiz' | 'segment' | 'followup' | 'testimonial'>('prompt')
+const salesEditingId = ref<number | null>(null)
+
+// Sales form data
+const salesForm = ref<Record<string, any>>({})
+
+function openSalesCreate(type: 'prompt' | 'quiz' | 'segment' | 'followup' | 'testimonial') {
+  salesDialogType.value = type
+  salesDialogMode.value = 'create'
+  salesEditingId.value = null
+  if (type === 'prompt') {
+    salesForm.value = { prompt_key: '', name: '', description: '', system_prompt: '', temperature: 0.7, max_tokens: 1024, enabled: true, order: 0 }
+  } else if (type === 'quiz') {
+    salesForm.value = { question_key: '', text: '', order: 1, enabled: true, options: [{ label: '', value: '', icon: '' }] }
+  } else if (type === 'segment') {
+    salesForm.value = { segment_key: '', name: '', description: '', path: 'custom', match_rules: '{}', priority: 0, agent_prompt_key: '', enabled: true }
+  } else if (type === 'followup') {
+    salesForm.value = { name: '', trigger: '', delay_hours: 24, segment_filter: '', message_template: '', max_sends: 2, enabled: true, order: 0 }
+  } else if (type === 'testimonial') {
+    salesForm.value = { text: '', author: '', rating: 5, enabled: true, order: 0 }
+  }
+  showSalesDialog.value = true
+}
+
+function openSalesEdit(type: 'prompt' | 'quiz' | 'segment' | 'followup' | 'testimonial', item: any) {
+  salesDialogType.value = type
+  salesDialogMode.value = 'edit'
+  salesEditingId.value = item.id
+  if (type === 'prompt') {
+    salesForm.value = { prompt_key: item.prompt_key, name: item.name, description: item.description || '', system_prompt: item.system_prompt, temperature: item.temperature, max_tokens: item.max_tokens, enabled: item.enabled, order: item.order }
+  } else if (type === 'quiz') {
+    salesForm.value = { question_key: item.question_key, text: item.text, order: item.order, enabled: item.enabled, options: Array.isArray(item.options) ? [...item.options] : [] }
+  } else if (type === 'segment') {
+    salesForm.value = { segment_key: item.segment_key, name: item.name, description: item.description || '', path: item.path, match_rules: typeof item.match_rules === 'string' ? item.match_rules : JSON.stringify(item.match_rules || {}), priority: item.priority, agent_prompt_key: item.agent_prompt_key || '', enabled: item.enabled }
+  } else if (type === 'followup') {
+    salesForm.value = { name: item.name, trigger: item.trigger, delay_hours: item.delay_hours, segment_filter: item.segment_filter || '', message_template: item.message_template, max_sends: item.max_sends, enabled: item.enabled, order: item.order }
+  } else if (type === 'testimonial') {
+    salesForm.value = { text: item.text, author: item.author, rating: item.rating, enabled: item.enabled, order: item.order }
+  }
+  showSalesDialog.value = true
+}
+
+async function saveSalesItem() {
+  if (!selectedInstanceId.value) return
+  const id = selectedInstanceId.value
+  const type = salesDialogType.value
+  const data = { ...salesForm.value }
+
+  // Parse match_rules from string to object for segments
+  if (type === 'segment' && typeof data.match_rules === 'string') {
+    try { data.match_rules = JSON.parse(data.match_rules) } catch { data.match_rules = {} }
+  }
+
+  try {
+    if (salesDialogMode.value === 'create') {
+      if (type === 'prompt') await botSalesApi.createPrompt(id, data)
+      else if (type === 'quiz') await botSalesApi.createQuiz(id, data)
+      else if (type === 'segment') await botSalesApi.createSegment(id, data)
+      else if (type === 'followup') await botSalesApi.createFollowup(id, data)
+      else if (type === 'testimonial') await botSalesApi.createTestimonial(id, data)
+    } else {
+      const eid = salesEditingId.value!
+      if (type === 'prompt') await botSalesApi.updatePrompt(id, eid, data)
+      else if (type === 'quiz') await botSalesApi.updateQuiz(id, eid, data)
+      else if (type === 'segment') await botSalesApi.updateSegment(id, eid, data)
+      else if (type === 'followup') await botSalesApi.updateFollowup(id, eid, data)
+      else if (type === 'testimonial') await botSalesApi.updateTestimonial(id, eid, data)
+    }
+    toast.success(salesDialogMode.value === 'create' ? t('common.created') : t('common.saved'))
+    showSalesDialog.value = false
+    await loadSalesData()
+  } catch (e) {
+    toast.error(String(e))
+  }
+}
+
+function addQuizOption() {
+  if (!salesForm.value.options) salesForm.value.options = []
+  salesForm.value.options.push({ label: '', value: '', icon: '' })
+}
+
+function removeQuizOption(index: number) {
+  salesForm.value.options?.splice(index, 1)
+}
+
 async function loadSalesData(section?: string) {
   if (!selectedInstanceId.value) return
   const id = selectedInstanceId.value
@@ -987,6 +1075,10 @@ watch(instances, (newInstances) => {
                     <h3 class="font-medium">{{ t('telegram.sales.prompts') }}</h3>
                     <p class="text-xs text-muted-foreground">{{ t('telegram.sales.promptsDesc') }}</p>
                   </div>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90" @click="openSalesCreate('prompt')">
+                    <Plus class="w-3 h-3" />
+                    {{ t('common.create') }}
+                  </button>
                 </div>
                 <div v-if="salesPrompts.length === 0" class="text-center py-6 text-muted-foreground text-sm">
                   {{ t('telegram.sales.noData') }}
@@ -1007,8 +1099,11 @@ v-for="p in salesPrompts" :key="p.id"
                         <span>max={{ p.max_tokens }}</span>
                       </div>
                     </div>
+                    <button class="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors" @click="openSalesEdit('prompt', p)">
+                      <Edit3 class="w-4 h-4" />
+                    </button>
                     <button
-class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                       @click="deleteSalesItem('prompt', p.id)">
                       <Trash2 class="w-4 h-4" />
                     </button>
@@ -1025,6 +1120,10 @@ class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
                     <h3 class="font-medium">{{ t('telegram.sales.quiz') }}</h3>
                     <p class="text-xs text-muted-foreground">{{ t('telegram.sales.quizDesc') }}</p>
                   </div>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90" @click="openSalesCreate('quiz')">
+                    <Plus class="w-3 h-3" />
+                    {{ t('common.create') }}
+                  </button>
                 </div>
                 <div v-if="salesQuiz.length === 0" class="text-center py-6 text-muted-foreground text-sm">
                   {{ t('telegram.sales.noData') }}
@@ -1039,6 +1138,9 @@ v-for="q in salesQuiz" :key="q.id"
                         <span class="font-medium text-sm">{{ q.question_key }}</span>
                         <span v-if="!q.enabled" class="text-xs text-red-400">OFF</span>
                       </div>
+                      <button class="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors" @click="openSalesEdit('quiz', q)">
+                        <Edit3 class="w-4 h-4" />
+                      </button>
                       <button
 class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                         @click="deleteSalesItem('quiz', q.id)">
@@ -1066,6 +1168,10 @@ v-for="(opt, i) in (Array.isArray(q.options) ? q.options : [])" :key="i"
                     <h3 class="font-medium">{{ t('telegram.sales.segments') }}</h3>
                     <p class="text-xs text-muted-foreground">{{ t('telegram.sales.segmentsDesc') }}</p>
                   </div>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90" @click="openSalesCreate('segment')">
+                    <Plus class="w-3 h-3" />
+                    {{ t('common.create') }}
+                  </button>
                 </div>
                 <div v-if="salesSegments.length === 0" class="text-center py-6 text-muted-foreground text-sm">
                   {{ t('telegram.sales.noData') }}
@@ -1089,8 +1195,11 @@ class="text-xs px-1.5 py-0.5 rounded"
                         <span v-if="s.agent_prompt_key"> | Prompt: {{ s.agent_prompt_key }}</span>
                       </p>
                     </div>
+                    <button class="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors" @click="openSalesEdit('segment', s)">
+                      <Edit3 class="w-4 h-4" />
+                    </button>
                     <button
-class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
+class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                       @click="deleteSalesItem('segment', s.id)">
                       <Trash2 class="w-4 h-4" />
                     </button>
@@ -1107,6 +1216,10 @@ class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors ml-2"
                     <h3 class="font-medium">{{ t('telegram.sales.followups') }}</h3>
                     <p class="text-xs text-muted-foreground">{{ t('telegram.sales.followupsDesc') }}</p>
                   </div>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90" @click="openSalesCreate('followup')">
+                    <Plus class="w-3 h-3" />
+                    {{ t('common.create') }}
+                  </button>
                 </div>
                 <div v-if="salesFollowups.length === 0" class="text-center py-6 text-muted-foreground text-sm">
                   {{ t('telegram.sales.noData') }}
@@ -1121,6 +1234,9 @@ v-for="r in salesFollowups" :key="r.id"
                         <span class="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400">{{ r.trigger }}</span>
                         <span class="text-xs text-muted-foreground">{{ r.delay_hours }}h</span>
                       </div>
+                      <button class="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors" @click="openSalesEdit('followup', r)">
+                        <Edit3 class="w-4 h-4" />
+                      </button>
                       <button
 class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                         @click="deleteSalesItem('followup', r.id)">
@@ -1141,6 +1257,10 @@ class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                     <h3 class="font-medium">{{ t('telegram.sales.testimonials') }}</h3>
                     <p class="text-xs text-muted-foreground">{{ t('telegram.sales.testimonialsDesc') }}</p>
                   </div>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90" @click="openSalesCreate('testimonial')">
+                    <Plus class="w-3 h-3" />
+                    {{ t('common.create') }}
+                  </button>
                 </div>
                 <div v-if="salesTestimonials.length === 0" class="text-center py-6 text-muted-foreground text-sm">
                   {{ t('telegram.sales.noData') }}
@@ -1153,6 +1273,9 @@ v-for="t2 in salesTestimonials" :key="t2.id"
                       <div class="flex items-center gap-1">
                         <Star v-for="n in t2.rating" :key="n" class="w-3 h-3 text-yellow-400 fill-yellow-400" />
                       </div>
+                      <button class="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors" @click="openSalesEdit('testimonial', t2)">
+                        <Edit3 class="w-4 h-4" />
+                      </button>
                       <button
 class="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
                         @click="deleteSalesItem('testimonial', t2.id)">
@@ -1865,6 +1988,250 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
           </div>
           <div class="p-4 max-h-[calc(90vh-80px)] overflow-y-auto">
             <pre class="bg-secondary rounded-lg p-4 text-sm font-mono whitespace-pre-wrap overflow-x-auto">{{ logsData?.logs || t('telegram.noLogs') }}</pre>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Sales CRUD Dialog -->
+    <Teleport to="body">
+      <div
+        v-if="showSalesDialog"
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+        @click.self="showSalesDialog = false"
+      >
+        <div class="bg-card rounded-xl border border-border w-full max-w-2xl max-h-[90vh] overflow-hidden">
+          <div class="p-4 border-b border-border flex items-center justify-between">
+            <h2 class="text-lg font-semibold">
+              {{ salesDialogMode === 'create' ? t('common.create') : t('common.edit') }}
+              — {{ t(`telegram.sales.${salesDialogType === 'prompt' ? 'prompts' : salesDialogType === 'quiz' ? 'quiz' : salesDialogType === 'segment' ? 'segments' : salesDialogType === 'followup' ? 'followups' : 'testimonials'}`) }}
+            </h2>
+            <button class="p-1 hover:bg-secondary rounded" @click="showSalesDialog = false">
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+
+          <div class="p-4 overflow-y-auto max-h-[calc(90vh-120px)] space-y-4">
+            <!-- Agent Prompt Form -->
+            <template v-if="salesDialogType === 'prompt'">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.promptKey') }} *</label>
+                  <input v-model="salesForm.prompt_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. tz_qualified" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.name') }} *</label>
+                  <input v-model="salesForm.name" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.description') }}</label>
+                <input v-model="salesForm.description" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.systemPrompt') }} *</label>
+                <textarea v-model="salesForm.system_prompt" rows="8" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-y font-mono text-sm" />
+              </div>
+              <div class="grid grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.temperature') }}</label>
+                  <input v-model.number="salesForm.temperature" type="number" step="0.1" min="0" max="2" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.maxTokens') }}</label>
+                  <input v-model.number="salesForm.max_tokens" type="number" step="256" min="256" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.order') }}</label>
+                  <input v-model.number="salesForm.order" type="number" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                <span class="font-medium text-sm">{{ t('common.enabled') }}</span>
+                <button :class="['relative w-11 h-6 rounded-full transition-colors', salesForm.enabled ? 'bg-green-500' : 'bg-gray-500']" @click="salesForm.enabled = !salesForm.enabled">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform', salesForm.enabled ? 'translate-x-5' : 'translate-x-0']" />
+                </button>
+              </div>
+            </template>
+
+            <!-- Quiz Question Form -->
+            <template v-if="salesDialogType === 'quiz'">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.questionKey') }} *</label>
+                  <input v-model="salesForm.question_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. project_type" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.order') }}</label>
+                  <input v-model.number="salesForm.order" type="number" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.questionText') }} *</label>
+                <textarea v-model="salesForm.text" rows="3" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <label class="block text-sm font-medium">{{ t('telegram.sales.form.options') }}</label>
+                  <button class="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90" @click="addQuizOption">
+                    <Plus class="w-3 h-3" />
+                    {{ t('telegram.sales.form.addOption') }}
+                  </button>
+                </div>
+                <div class="space-y-2">
+                  <div v-for="(opt, i) in salesForm.options" :key="i" class="flex items-center gap-2">
+                    <input v-model="opt.icon" type="text" maxlength="2" class="w-12 px-2 py-1.5 bg-secondary rounded text-center text-lg" placeholder="🔹" />
+                    <input v-model="opt.label" type="text" class="flex-1 px-2 py-1.5 bg-secondary rounded text-sm" :placeholder="t('telegram.sales.form.optionLabel')" />
+                    <input v-model="opt.value" type="text" class="w-32 px-2 py-1.5 bg-secondary rounded text-sm font-mono" :placeholder="t('telegram.sales.form.optionValue')" />
+                    <button class="p-1 text-red-400 hover:bg-red-500/20 rounded" @click="removeQuizOption(i)">
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                <span class="font-medium text-sm">{{ t('common.enabled') }}</span>
+                <button :class="['relative w-11 h-6 rounded-full transition-colors', salesForm.enabled ? 'bg-green-500' : 'bg-gray-500']" @click="salesForm.enabled = !salesForm.enabled">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform', salesForm.enabled ? 'translate-x-5' : 'translate-x-0']" />
+                </button>
+              </div>
+            </template>
+
+            <!-- Segment Form -->
+            <template v-if="salesDialogType === 'segment'">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.segmentKey') }} *</label>
+                  <input v-model="salesForm.segment_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. tz_qualified" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.name') }} *</label>
+                  <input v-model="salesForm.name" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.description') }}</label>
+                <input v-model="salesForm.description" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div class="grid grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.path') }}</label>
+                  <select v-model="salesForm.path" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option value="diy">diy</option>
+                    <option value="basic">basic</option>
+                    <option value="custom">custom</option>
+                    <option value="qualified">qualified</option>
+                    <option value="unqualified">unqualified</option>
+                    <option value="needs_analysis">needs_analysis</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.priority') }}</label>
+                  <input v-model.number="salesForm.priority" type="number" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.agentPromptKey') }}</label>
+                  <select v-model="salesForm.agent_prompt_key" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option value="">—</option>
+                    <option v-for="p in salesPrompts" :key="p.prompt_key" :value="p.prompt_key">{{ p.name }} ({{ p.prompt_key }})</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.matchRules') }} (JSON)</label>
+                <textarea v-model="salesForm.match_rules" rows="4" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none font-mono text-sm" placeholder='{"project_type": ["ai_assistant"], "budget_range": ["200k_500k"]}' />
+              </div>
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                <span class="font-medium text-sm">{{ t('common.enabled') }}</span>
+                <button :class="['relative w-11 h-6 rounded-full transition-colors', salesForm.enabled ? 'bg-green-500' : 'bg-gray-500']" @click="salesForm.enabled = !salesForm.enabled">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform', salesForm.enabled ? 'translate-x-5' : 'translate-x-0']" />
+                </button>
+              </div>
+            </template>
+
+            <!-- Follow-up Rule Form -->
+            <template v-if="salesDialogType === 'followup'">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.name') }} *</label>
+                  <input v-model="salesForm.name" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.trigger') }} *</label>
+                  <input v-model="salesForm.trigger" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. quiz_incomplete" />
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.delayHours') }}</label>
+                  <input v-model.number="salesForm.delay_hours" type="number" min="1" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.maxSends') }}</label>
+                  <input v-model.number="salesForm.max_sends" type="number" min="1" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.order') }}</label>
+                  <input v-model.number="salesForm.order" type="number" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.segmentFilter') }}</label>
+                <input v-model="salesForm.segment_filter" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. tz_qualified" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.messageTemplate') }} *</label>
+                <textarea v-model="salesForm.message_template" rows="4" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-y" />
+              </div>
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                <span class="font-medium text-sm">{{ t('common.enabled') }}</span>
+                <button :class="['relative w-11 h-6 rounded-full transition-colors', salesForm.enabled ? 'bg-green-500' : 'bg-gray-500']" @click="salesForm.enabled = !salesForm.enabled">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform', salesForm.enabled ? 'translate-x-5' : 'translate-x-0']" />
+                </button>
+              </div>
+            </template>
+
+            <!-- Testimonial Form -->
+            <template v-if="salesDialogType === 'testimonial'">
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.author') }} *</label>
+                <input v-model="salesForm.author" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.text') }} *</label>
+                <textarea v-model="salesForm.text" rows="4" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-y" />
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.rating') }}</label>
+                  <div class="flex gap-1">
+                    <button v-for="n in 5" :key="n" class="p-1" @click="salesForm.rating = n">
+                      <Star :class="['w-5 h-5', n <= salesForm.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-500']" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.order') }}</label>
+                  <input v-model.number="salesForm.order" type="number" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                <span class="font-medium text-sm">{{ t('common.enabled') }}</span>
+                <button :class="['relative w-11 h-6 rounded-full transition-colors', salesForm.enabled ? 'bg-green-500' : 'bg-gray-500']" @click="salesForm.enabled = !salesForm.enabled">
+                  <span :class="['absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform', salesForm.enabled ? 'translate-x-5' : 'translate-x-0']" />
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <div class="p-4 border-t border-border flex justify-end gap-2">
+            <button class="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors" @click="showSalesDialog = false">
+              {{ t('common.cancel') }}
+            </button>
+            <button class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors" @click="saveSalesItem">
+              <Check class="w-4 h-4" />
+              {{ t('common.save') }}
+            </button>
           </div>
         </div>
       </div>

@@ -648,6 +648,18 @@ async def startup_event():
         container.llm_service = llm_service
         container.streaming_tts_manager = streaming_tts_manager
         container.current_voice_config = current_voice_config
+
+        # Initialize GSM telephony service (auto mock mode if no hardware)
+        try:
+            from app.services.gsm_service import GSMService
+
+            gsm_service = GSMService(mock_mode=True)
+            await gsm_service.initialize()
+            container.gsm_service = gsm_service
+            logger.info("✅ GSM service initialized (mock mode)")
+        except Exception as gsm_err:
+            logger.warning(f"⚠️ GSM service not available: {gsm_err}")
+
         logger.info("✅ Service container populated for modular routers")
 
         # Auto-start Telegram bots that were running before restart
@@ -1170,11 +1182,11 @@ async def admin_login(request: LoginRequest):
     Default credentials: admin / admin
     Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH env vars for production.
     """
-    user = authenticate_user(request.username, request.password)
+    user = await authenticate_user(request.username, request.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token, expires_in = create_access_token(user.username, user.role)
+    token, expires_in = create_access_token(user.username, user.role, user.id)
 
     # Audit log
     await async_audit_logger.log(

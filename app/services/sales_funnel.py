@@ -363,30 +363,95 @@ class SalesFunnelHandler:
                     ],
                 ]
             )
-        else:  # custom
+        elif path == "qualified":
             text = (
-                f"\U0001f3af \u0412\u0430\u0448 \u043f\u0440\u043e\u0444\u0438\u043b\u044c: {name}\n\n"
-                "\U0001f3e2 \u041a\u0430\u0441\u0442\u043e\u043c\u043d\u0430\u044f \u0438\u043d\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u044f \u043f\u043e\u0434 \u0432\u0430\u0448 \u0431\u0438\u0437\u043d\u0435\u0441\n"
-                "\U0001f4de CRM, \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0438\u044f, \u043a\u0430\u0441\u0442\u043e\u043c\u043d\u044b\u0435 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0438\n\n"
-                "\U0001f4ac \u0414\u0430\u0432\u0430\u0439\u0442\u0435 \u043e\u0431\u0441\u0443\u0434\u0438\u043c \u0432\u0430\u0448\u0443 \u0437\u0430\u0434\u0430\u0447\u0443!"
+                f"\U0001f3af Ваш профиль: {name}\n\n"
+                "\u2705 Ваш проект подходит под формат работы.\n\n"
+                "\U0001f4cb Опишите проект подробнее, и я составлю ТЗ "
+                "с разбивкой на спринты и оценкой стоимости."
             )
             buttons = InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "\U0001f4dd \u041d\u0430\u0447\u0430\u0442\u044c discovery",
+                            "\U0001f4cb Описать проект",
+                            callback_data="action:describe_project",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "\U0001f4d1 Условия работы",
+                            callback_data="action:conditions",
+                        )
+                    ],
+                ]
+            )
+        elif path == "unqualified":
+            text = (
+                f"\U0001f3af Ваш профиль: {name}\n\n"
+                "\u26a0\ufe0f Минимальный заказ — 1 спринт (50,000\u20bd / неделя).\n\n"
+                "Для небольших задач рекомендуем:\n"
+                "\u2022 Kwork — kwork.ru\n"
+                "\u2022 FL.ru — fl.ru\n"
+                "\u2022 Habr Freelance — freelance.habr.com\n\n"
+                "Если проект побольше — расскажите подробнее!"
+            )
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "\U0001f4cb У меня проект побольше",
+                            callback_data="action:describe_project",
+                        )
+                    ],
+                ]
+            )
+        elif path == "needs_analysis":
+            text = (
+                f"\U0001f3af Ваш профиль: {name}\n\n"
+                "\U0001f9ee Опишите проект, и я рассчитаю стоимость "
+                "с разбивкой на спринты."
+            )
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "\U0001f4cb Описать проект",
+                            callback_data="action:describe_project",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "\U0001f4bc Портфолио",
+                            callback_data="action:portfolio",
+                        )
+                    ],
+                ]
+            )
+        else:  # custom (default fallback)
+            text = (
+                f"\U0001f3af Ваш профиль: {name}\n\n"
+                "\U0001f3e2 Кастомная интеграция под ваш бизнес\n"
+                "\U0001f4de CRM, телефония, кастомные сценарии\n\n"
+                "\U0001f4ac Давайте обсудим вашу задачу!"
+            )
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "\U0001f4dd Начать discovery",
                             callback_data="action:discovery_start",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "\U0001f4bc \u041a\u0435\u0439\u0441\u044b \u0432\u043d\u0435\u0434\u0440\u0435\u043d\u0438\u044f",
+                            "\U0001f4bc Кейсы внедрения",
                             callback_data="action:cases",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "\U0001f4b0 \u041f\u0440\u0435\u0434\u0432\u0430\u0440\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u0440\u0430\u0441\u0447\u0451\u0442",
+                            "\U0001f4b0 Предварительный расчёт",
                             callback_data="action:quote",
                         )
                     ],

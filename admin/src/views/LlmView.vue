@@ -27,10 +27,12 @@ import {
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const queryClient = useQueryClient()
 const toast = useToastStore()
+const authStore = useAuthStore()
 
 // State
 const stopUnusedVllm = ref(false)
@@ -623,8 +625,8 @@ function switchToCloudProvider(providerId: string) {
       <div class="p-4">
         <div v-if="backendLoading" class="text-muted-foreground">Loading...</div>
         <div v-else class="space-y-4">
-          <!-- Backend Toggle -->
-          <div class="flex items-center gap-4">
+          <!-- Backend Toggle (admin only can switch to vLLM) -->
+          <div v-if="authStore.isAdmin" class="flex items-center gap-4">
             <div class="grid grid-cols-2 gap-2 p-1 bg-secondary rounded-lg">
               <button
                 :disabled="setBackendMutation.isPending.value"
@@ -814,8 +816,8 @@ function switchToCloudProvider(providerId: string) {
       </div>
     </div>
 
-    <!-- Available Models (vLLM) -->
-    <div v-if="isVllm" class="bg-card rounded-lg border border-border">
+    <!-- Available Models (vLLM) — admin only -->
+    <div v-if="isVllm && authStore.isAdmin" class="bg-card rounded-lg border border-border">
       <div class="p-4 border-b border-border">
         <h2 class="text-lg font-semibold flex items-center gap-2">
           <Cpu class="w-5 h-5" />

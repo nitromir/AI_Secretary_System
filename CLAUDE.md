@@ -109,7 +109,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **GSM telephony**: `app/services/gsm_service.py` manages SIM7600E-H modem via AT commands over serial port (`/dev/ttyUSB2`). Auto-switches to mock mode when hardware is unavailable. `app/routers/gsm.py` exposes call/SMS management endpoints. Call and SMS logs stored via `GSMCallLogRepository` and `GSMSMSLogRepository` in `db/repositories/gsm.py`. Models: `GSMCallLog`, `GSMSMSLog` in `db/models.py`. Manager: `AsyncGSMManager` in `db/integration.py`. Migration: `scripts/migrate_gsm_tables.py`.
 
-**Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels. `app/services/sales_funnel.py` implements funnel logic. `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`.
+**Multi-user RBAC**: `User` model in `db/models.py` with roles: `guest` (read-only), `user` (own resources), `admin` (full access). `auth_manager.py` provides DB-backed auth with salted password hashing, JWT tokens with `user_id`, and `require_not_guest` dependency for write endpoints. Resources with `owner_id` column (ChatSession, BotInstance, WidgetInstance, CloudLLMProvider, TTSPreset) are filtered by ownership for non-admin users. `UserRepository` in `db/repositories/user.py`, `AsyncUserManager` in `db/integration.py`. Profile/password endpoints in `app/routers/auth.py`. Migration: `scripts/migrate_users.py`, `scripts/migrate_user_ownership.py`. CLI management: `scripts/manage_users.py`.
+
+**Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
 
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
 
@@ -153,6 +155,8 @@ VLLM_API_URL=http://localhost:11434 # Auto-normalized: trailing /v1 is stripped
 SECRETARY_PERSONA=anna             # "anna" or "marina"
 ORCHESTRATOR_PORT=8002
 ADMIN_JWT_SECRET=...                # Auto-generated if empty
+ADMIN_USERNAME=admin                # Legacy fallback when users table is empty
+ADMIN_PASSWORD_HASH=...             # Legacy fallback (SHA-256 of password)
 REDIS_URL=redis://localhost:6379/0  # Optional, graceful fallback if unavailable
 DEV_MODE=1                          # Makes backend proxy to Vite dev server (:5173)
 AMOCRM_PROXY=http://host:8888      # Optional, for Docker/VPN environments

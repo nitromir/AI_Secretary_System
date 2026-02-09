@@ -27,6 +27,7 @@ from db.repositories import (
     PaymentRepository,
     PresetRepository,
     TelegramRepository,
+    UserRepository,
     WidgetInstanceRepository,
 )
 
@@ -106,17 +107,17 @@ class AsyncChatManager:
         ts = str(time.time())
         return f"msg_{int(time.time() * 1000)}_{hashlib.md5(ts.encode()).hexdigest()[:6]}"
 
-    async def list_sessions(self) -> List[dict]:
+    async def list_sessions(self, owner_id: Optional[int] = None) -> List[dict]:
         """List all sessions with summary info."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.list_sessions()
+            return await repo.list_sessions(owner_id=owner_id)
 
-    async def get_session(self, session_id: str) -> Optional[dict]:
+    async def get_session(self, session_id: str, owner_id: Optional[int] = None) -> Optional[dict]:
         """Get full session with messages."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.get_session(session_id)
+            return await repo.get_session(session_id, owner_id=owner_id)
 
     async def create_session(
         self,
@@ -124,11 +125,14 @@ class AsyncChatManager:
         system_prompt: Optional[str] = None,
         source: Optional[str] = None,
         source_id: Optional[str] = None,
+        owner_id: Optional[int] = None,
     ) -> dict:
         """Create new session."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.create_session(title, system_prompt, source, source_id)
+            return await repo.create_session(
+                title, system_prompt, source, source_id, owner_id=owner_id
+            )
 
     async def update_session(
         self,
@@ -141,23 +145,25 @@ class AsyncChatManager:
             repo = ChatRepository(session)
             return await repo.update_session(session_id, title, system_prompt)
 
-    async def delete_session(self, session_id: str) -> bool:
+    async def delete_session(self, session_id: str, owner_id: Optional[int] = None) -> bool:
         """Delete session."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.delete_session(session_id)
+            return await repo.delete_session(session_id, owner_id=owner_id)
 
-    async def delete_sessions_bulk(self, session_ids: List[str]) -> int:
+    async def delete_sessions_bulk(
+        self, session_ids: List[str], owner_id: Optional[int] = None
+    ) -> int:
         """Delete multiple sessions by ID list."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.delete_sessions_bulk(session_ids)
+            return await repo.delete_sessions_bulk(session_ids, owner_id=owner_id)
 
-    async def list_sessions_grouped(self) -> dict:
+    async def list_sessions_grouped(self, owner_id: Optional[int] = None) -> dict:
         """Get sessions grouped by source."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.list_sessions_grouped()
+            return await repo.list_sessions_grouped(owner_id=owner_id)
 
     async def add_message(
         self,
@@ -272,11 +278,11 @@ class AsyncFAQManager:
 class AsyncPresetManager:
     """Async TTS preset manager using database."""
 
-    async def get_all(self) -> Dict[str, dict]:
+    async def get_all(self, owner_id: Optional[int] = None) -> Dict[str, dict]:
         """Get all presets."""
         async with AsyncSessionLocal() as session:
             repo = PresetRepository(session)
-            return await repo.get_all_presets()
+            return await repo.get_all_presets(owner_id=owner_id)
 
     async def get_custom(self) -> Dict[str, dict]:
         """Get only custom presets."""
@@ -284,11 +290,11 @@ class AsyncPresetManager:
             repo = PresetRepository(session)
             return await repo.get_custom_presets()
 
-    async def create(self, name: str, params: dict) -> dict:
+    async def create(self, name: str, params: dict, owner_id: Optional[int] = None) -> dict:
         """Create new preset."""
         async with AsyncSessionLocal() as session:
             repo = PresetRepository(session)
-            return await repo.create_preset(name, params)
+            return await repo.create_preset(name, params, owner_id=owner_id)
 
     async def update(self, name: str, params: dict) -> Optional[dict]:
         """Update preset."""
@@ -423,17 +429,21 @@ class AsyncTelegramSessionManager:
 class AsyncBotInstanceManager:
     """Async manager for Telegram bot instances."""
 
-    async def list_instances(self, enabled_only: bool = False) -> List[dict]:
+    async def list_instances(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
         """List all bot instances."""
         async with AsyncSessionLocal() as session:
             repo = BotInstanceRepository(session)
-            return await repo.list_instances(enabled_only=enabled_only)
+            return await repo.list_instances(enabled_only=enabled_only, owner_id=owner_id)
 
-    async def get_instance(self, instance_id: str) -> Optional[dict]:
+    async def get_instance(
+        self, instance_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
         """Get bot instance by ID."""
         async with AsyncSessionLocal() as session:
             repo = BotInstanceRepository(session)
-            return await repo.get_instance(instance_id)
+            return await repo.get_instance(instance_id, owner_id=owner_id)
 
     async def get_instance_with_token(self, instance_id: str) -> Optional[dict]:
         """Get bot instance with token (for internal use)."""
@@ -453,11 +463,11 @@ class AsyncBotInstanceManager:
             repo = BotInstanceRepository(session)
             return await repo.update_instance(instance_id, **kwargs)
 
-    async def delete_instance(self, instance_id: str) -> bool:
+    async def delete_instance(self, instance_id: str, owner_id: Optional[int] = None) -> bool:
         """Delete bot instance."""
         async with AsyncSessionLocal() as session:
             repo = BotInstanceRepository(session)
-            return await repo.delete_instance(instance_id)
+            return await repo.delete_instance(instance_id, owner_id=owner_id)
 
     async def set_enabled(self, instance_id: str, enabled: bool) -> bool:
         """Enable or disable bot instance."""
@@ -508,17 +518,21 @@ class AsyncBotInstanceManager:
 class AsyncWidgetInstanceManager:
     """Async manager for website widget instances."""
 
-    async def list_instances(self, enabled_only: bool = False) -> List[dict]:
+    async def list_instances(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
         """List all widget instances."""
         async with AsyncSessionLocal() as session:
             repo = WidgetInstanceRepository(session)
-            return await repo.list_instances(enabled_only=enabled_only)
+            return await repo.list_instances(enabled_only=enabled_only, owner_id=owner_id)
 
-    async def get_instance(self, instance_id: str) -> Optional[dict]:
+    async def get_instance(
+        self, instance_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
         """Get widget instance by ID."""
         async with AsyncSessionLocal() as session:
             repo = WidgetInstanceRepository(session)
-            return await repo.get_instance(instance_id)
+            return await repo.get_instance(instance_id, owner_id=owner_id)
 
     async def create_instance(self, name: str, **kwargs: Any) -> dict:
         """Create new widget instance."""
@@ -532,11 +546,11 @@ class AsyncWidgetInstanceManager:
             repo = WidgetInstanceRepository(session)
             return await repo.update_instance(instance_id, **kwargs)
 
-    async def delete_instance(self, instance_id: str) -> bool:
+    async def delete_instance(self, instance_id: str, owner_id: Optional[int] = None) -> bool:
         """Delete widget instance."""
         async with AsyncSessionLocal() as session:
             repo = WidgetInstanceRepository(session)
-            return await repo.delete_instance(instance_id)
+            return await repo.delete_instance(instance_id, owner_id=owner_id)
 
     async def set_enabled(self, instance_id: str, enabled: bool) -> bool:
         """Enable or disable widget instance."""
@@ -575,17 +589,21 @@ class AsyncWidgetInstanceManager:
 class AsyncCloudProviderManager:
     """Async manager for cloud LLM providers."""
 
-    async def list_providers(self, enabled_only: bool = False) -> List[dict]:
+    async def list_providers(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
         """List all cloud providers."""
         async with AsyncSessionLocal() as session:
             repo = CloudProviderRepository(session)
-            return await repo.list_providers(enabled_only=enabled_only)
+            return await repo.list_providers(enabled_only=enabled_only, owner_id=owner_id)
 
-    async def get_provider(self, provider_id: str) -> Optional[dict]:
+    async def get_provider(
+        self, provider_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
         """Get provider by ID (without API key)."""
         async with AsyncSessionLocal() as session:
             repo = CloudProviderRepository(session)
-            return await repo.get_provider(provider_id)
+            return await repo.get_provider(provider_id, owner_id=owner_id)
 
     async def get_provider_with_key(self, provider_id: str) -> Optional[dict]:
         """Get provider with API key (for internal use)."""
@@ -617,11 +635,11 @@ class AsyncCloudProviderManager:
             repo = CloudProviderRepository(session)
             return await repo.update_provider(provider_id, **kwargs)
 
-    async def delete_provider(self, provider_id: str) -> bool:
+    async def delete_provider(self, provider_id: str, owner_id: Optional[int] = None) -> bool:
         """Delete cloud provider."""
         async with AsyncSessionLocal() as session:
             repo = CloudProviderRepository(session)
-            return await repo.delete_provider(provider_id)
+            return await repo.delete_provider(provider_id, owner_id=owner_id)
 
     async def set_default(self, provider_id: str) -> bool:
         """Set provider as default."""
@@ -840,6 +858,89 @@ class AsyncGSMManager:
             return await repo.count_sms()
 
 
+# ============== User Manager ==============
+
+
+class AsyncUserManager:
+    """Async manager for user authentication and CRUD."""
+
+    async def authenticate(self, username: str, password: str) -> Optional[dict]:
+        """Authenticate user. Returns user dict or None."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.authenticate(username, password)
+
+    async def get_by_username(self, username: str) -> Optional[dict]:
+        """Get user by username."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            user = await repo.get_by_username(username)
+            return user.to_dict() if user else None
+
+    async def get_by_id(self, user_id: int) -> Optional[dict]:
+        """Get user by ID."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            user = await repo.get_by_id(user_id)
+            return user.to_dict() if user else None
+
+    async def create_user(
+        self,
+        username: str,
+        password: str,
+        role: str = "user",
+        display_name: Optional[str] = None,
+    ) -> dict:
+        """Create a new user."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.create_user(username, password, role, display_name)
+
+    async def update_password(self, user_id: int, new_password: str) -> bool:
+        """Update user password."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.update_password(user_id, new_password)
+
+    async def update_profile(
+        self, user_id: int, display_name: Optional[str] = None
+    ) -> Optional[dict]:
+        """Update user profile."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.update_profile(user_id, display_name)
+
+    async def set_role(self, user_id: int, role: str) -> bool:
+        """Change user role."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.set_role(user_id, role)
+
+    async def set_active(self, user_id: int, active: bool) -> bool:
+        """Enable or disable user."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.set_active(user_id, active)
+
+    async def list_users(self, include_inactive: bool = False) -> List[dict]:
+        """List all users."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.list_users(include_inactive)
+
+    async def delete_user(self, user_id: int) -> bool:
+        """Delete user."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.delete_user(user_id)
+
+    async def get_user_count(self) -> int:
+        """Get active user count."""
+        async with AsyncSessionLocal() as session:
+            repo = UserRepository(session)
+            return await repo.get_user_count()
+
+
 # ============== Global Instances ==============
 
 # These can be used directly in orchestrator
@@ -855,6 +956,7 @@ async_cloud_provider_manager = AsyncCloudProviderManager()
 async_payment_manager = AsyncPaymentManager()
 async_amocrm_manager = AsyncAmoCRMManager()
 async_gsm_manager = AsyncGSMManager()
+async_user_manager = AsyncUserManager()
 
 
 # ============== Initialization Function ==============

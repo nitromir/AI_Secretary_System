@@ -54,20 +54,32 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         instance: Optional[BotInstance] = result.scalar_one_or_none()
         return instance
 
-    async def list_instances(self, enabled_only: bool = False) -> List[dict]:
-        """List all bot instances."""
+    async def list_instances(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
+        """List bot instances, filtered by owner."""
         query = select(BotInstance).order_by(BotInstance.updated.desc())
         if enabled_only:
             query = query.where(BotInstance.enabled == True)
+        if owner_id is not None:
+            query = query.where(
+                (BotInstance.owner_id == owner_id) | (BotInstance.owner_id.is_(None))
+            )
 
         result = await self.session.execute(query)
         instances = result.scalars().all()
         return [i.to_dict() for i in instances]
 
-    async def get_instance(self, instance_id: str) -> Optional[dict]:
-        """Get bot instance by ID."""
+    async def get_instance(
+        self, instance_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
+        """Get bot instance by ID, with optional owner check."""
         instance = await self.session.get(BotInstance, instance_id)
-        return instance.to_dict() if instance else None
+        if not instance:
+            return None
+        if owner_id is not None and instance.owner_id is not None and instance.owner_id != owner_id:
+            return None
+        return instance.to_dict()
 
     async def get_instance_with_token(self, instance_id: str) -> Optional[dict]:
         """Get bot instance with token (for internal use)."""
@@ -95,6 +107,7 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
             name=name,
             description=description,
             enabled=kwargs.get("enabled", True),
+            owner_id=kwargs.get("owner_id"),
             # Telegram
             bot_token=bot_token,
             welcome_message=kwargs.get("welcome_message", DEFAULT_BOT_CONFIG["welcome_message"]),
@@ -202,10 +215,12 @@ class BotInstanceRepository(BaseRepository[BotInstance]):
         data: dict[str, Any] = instance.to_dict()
         return data
 
-    async def delete_instance(self, instance_id: str) -> bool:
-        """Delete bot instance."""
+    async def delete_instance(self, instance_id: str, owner_id: Optional[int] = None) -> bool:
+        """Delete bot instance, with optional owner check."""
         instance = await self.session.get(BotInstance, instance_id)
         if not instance:
+            return False
+        if owner_id is not None and instance.owner_id is not None and instance.owner_id != owner_id:
             return False
 
         await self.session.delete(instance)

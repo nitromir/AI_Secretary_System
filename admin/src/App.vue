@@ -149,6 +149,16 @@ function toggleLocale() {
             >
               <User class="w-4 h-4" />
               <span class="truncate">{{ authStore.user.username }}</span>
+              <span
+                :class="[
+                  'px-1.5 py-0.5 text-[10px] rounded-full leading-tight',
+                  authStore.user.role === 'admin' ? 'bg-red-500/20 text-red-400' :
+                  authStore.user.role === 'user' ? 'bg-blue-500/20 text-blue-400' :
+                  'bg-gray-500/20 text-gray-400'
+                ]"
+              >
+                {{ t(`roles.${authStore.user.role}`) }}
+              </span>
             </div>
 
             <!-- Logout -->

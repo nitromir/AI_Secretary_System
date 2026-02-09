@@ -31,20 +31,26 @@ class PresetRepository(BaseRepository[TTSPreset]):
         """Invalidate all preset caches."""
         await cache_delete(self._cache_key())
 
-    async def get_all_presets(self, include_builtin: bool = True) -> Dict[str, dict]:
+    async def get_all_presets(
+        self, include_builtin: bool = True, owner_id: Optional[int] = None
+    ) -> Dict[str, dict]:
         """
-        Get all presets as name->params dict.
-        Uses Redis cache for performance.
+        Get all presets as name->params dict, filtered by owner.
+        Uses Redis cache when no owner filter.
         """
-        # Try cache first
-        cached: Optional[Dict[str, dict]] = await cache_get(self._cache_key())
-        if cached:
-            if not include_builtin:
-                return {k: v for k, v in cached.items() if not v.get("builtin", False)}
-            return cached
+        # Try cache first (only when no owner filter)
+        if owner_id is None:
+            cached: Optional[Dict[str, dict]] = await cache_get(self._cache_key())
+            if cached:
+                if not include_builtin:
+                    return {k: v for k, v in cached.items() if not v.get("builtin", False)}
+                return cached
 
         # Fetch from database
-        result = await self.session.execute(select(TTSPreset))
+        query = select(TTSPreset)
+        if owner_id is not None:
+            query = query.where((TTSPreset.owner_id == owner_id) | (TTSPreset.owner_id.is_(None)))
+        result = await self.session.execute(query)
         presets = result.scalars().all()
 
         preset_dict = {}
@@ -54,8 +60,9 @@ class PresetRepository(BaseRepository[TTSPreset]):
                 "builtin": p.builtin,
             }
 
-        # Cache for 10 minutes
-        await cache_set(self._cache_key(), preset_dict, self.CACHE_TTL)
+        # Cache for 10 minutes (only when no owner filter)
+        if owner_id is None:
+            await cache_set(self._cache_key(), preset_dict, self.CACHE_TTL)
 
         if not include_builtin:
             return {k: v for k, v in preset_dict.items() if not v.get("builtin", False)}
@@ -76,12 +83,14 @@ class PresetRepository(BaseRepository[TTSPreset]):
         name: str,
         params: dict,
         builtin: bool = False,
+        owner_id: Optional[int] = None,
     ) -> dict:
         """Create new preset."""
         preset = TTSPreset(
             name=name,
             params=json.dumps(params, ensure_ascii=False),
             builtin=builtin,
+            owner_id=owner_id,
             created=datetime.utcnow(),
             updated=datetime.utcnow(),
         )

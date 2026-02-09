@@ -36,20 +36,32 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
         base = slugify(f"{provider_type}-{name}")
         return base or f"provider-{int(datetime.utcnow().timestamp())}"
 
-    async def list_providers(self, enabled_only: bool = False) -> List[dict]:
-        """List all providers."""
+    async def list_providers(
+        self, enabled_only: bool = False, owner_id: Optional[int] = None
+    ) -> List[dict]:
+        """List providers, filtered by owner."""
         query = select(CloudLLMProvider).order_by(CloudLLMProvider.updated.desc())
         if enabled_only:
             query = query.where(CloudLLMProvider.enabled == True)
+        if owner_id is not None:
+            query = query.where(
+                (CloudLLMProvider.owner_id == owner_id) | (CloudLLMProvider.owner_id.is_(None))
+            )
 
         result = await self.session.execute(query)
         providers = result.scalars().all()
         return [p.to_dict() for p in providers]
 
-    async def get_provider(self, provider_id: str) -> Optional[dict]:
-        """Get provider by ID (without API key)."""
+    async def get_provider(
+        self, provider_id: str, owner_id: Optional[int] = None
+    ) -> Optional[dict]:
+        """Get provider by ID (without API key), with optional owner check."""
         provider = await self.session.get(CloudLLMProvider, provider_id)
-        return provider.to_dict() if provider else None
+        if not provider:
+            return None
+        if owner_id is not None and provider.owner_id is not None and provider.owner_id != owner_id:
+            return None
+        return provider.to_dict()
 
     async def get_provider_with_key(self, provider_id: str) -> Optional[dict]:
         """Get provider with API key (for internal use)."""
@@ -107,6 +119,7 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
             model_name=model_name,
             enabled=kwargs.get("enabled", True),
             is_default=kwargs.get("is_default", False),
+            owner_id=kwargs.get("owner_id"),
             description=kwargs.get("description"),
             created=datetime.utcnow(),
             updated=datetime.utcnow(),
@@ -162,10 +175,12 @@ class CloudProviderRepository(BaseRepository[CloudLLMProvider]):
         data: dict[str, Any] = provider.to_dict()
         return data
 
-    async def delete_provider(self, provider_id: str) -> bool:
-        """Delete provider."""
+    async def delete_provider(self, provider_id: str, owner_id: Optional[int] = None) -> bool:
+        """Delete provider, with optional owner check."""
         provider = await self.session.get(CloudLLMProvider, provider_id)
         if not provider:
+            return False
+        if owner_id is not None and provider.owner_id is not None and provider.owner_id != owner_id:
             return False
 
         await self.session.delete(provider)

@@ -1,9 +1,10 @@
 # app/routers/services.py
 """Service management router - start, stop, restart services."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.dependencies import get_container
+from auth_manager import User, get_current_user, require_admin
 from service_manager import get_service_manager
 
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/admin/services", tags=["services"])
 
 
 @router.get("/status")
-async def admin_services_status():
+async def admin_services_status(user: User = Depends(get_current_user)):
     """Получить статус всех сервисов"""
     manager = get_service_manager()
     status = manager.get_all_status()
@@ -28,28 +29,28 @@ async def admin_services_status():
 
 
 @router.post("/{service}/start")
-async def admin_start_service(service: str):
+async def admin_start_service(service: str, user: User = Depends(require_admin)):
     """Запустить сервис"""
     manager = get_service_manager()
     return await manager.start_service(service)
 
 
 @router.post("/{service}/stop")
-async def admin_stop_service(service: str):
+async def admin_stop_service(service: str, user: User = Depends(require_admin)):
     """Остановить сервис"""
     manager = get_service_manager()
     return await manager.stop_service(service)
 
 
 @router.post("/{service}/restart")
-async def admin_restart_service(service: str):
+async def admin_restart_service(service: str, user: User = Depends(require_admin)):
     """Перезапустить сервис"""
     manager = get_service_manager()
     return await manager.restart_service(service)
 
 
 @router.post("/start-all")
-async def admin_start_all_services():
+async def admin_start_all_services(user: User = Depends(require_admin)):
     """Запустить все внешние сервисы"""
     manager = get_service_manager()
     results = {}
@@ -59,7 +60,7 @@ async def admin_start_all_services():
 
 
 @router.post("/stop-all")
-async def admin_stop_all_services():
+async def admin_stop_all_services(user: User = Depends(require_admin)):
     """Остановить все внешние сервисы"""
     manager = get_service_manager()
     results = {}

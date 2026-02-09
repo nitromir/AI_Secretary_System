@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-export type UserRole = 'admin' | 'operator' | 'viewer'
+export type UserRole = 'admin' | 'user' | 'guest'
 
 export interface User {
+  id: number
   username: string
   role: UserRole
 }
@@ -11,21 +12,25 @@ export interface User {
 // Role permissions
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   admin: ['*'], // All permissions
-  operator: [
-    'services.view', 'services.start', 'services.stop', 'services.restart',
-    'llm.view', 'llm.edit',
-    'tts.view', 'tts.edit', 'tts.test',
-    'faq.view', 'faq.edit',
+  user: [
+    'chat.*',
+    'llm.view', 'llm.cloud.*',
+    'tts.view', 'tts.test',
+    'faq.*',
+    'telegram.*',
+    'widget.*',
     'monitoring.view',
-    'logs.view'
-  ],
-  viewer: [
     'services.view',
-    'llm.view',
-    'tts.view',
+    'audit.view',
+    'settings.profile',
+    'sales.*',
+    'crm.view',
+    'usage.view',
+  ],
+  guest: [
+    'chat.demo',
+    'dashboard.view',
     'faq.view',
-    'monitoring.view',
-    'logs.view'
   ]
 }
 
@@ -40,14 +45,27 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
-  const isOperator = computed(() => user.value?.role === 'operator' || isAdmin.value)
+  const isUser = computed(() => user.value?.role === 'user' || isAdmin.value)
+  const isGuest = computed(() => user.value?.role === 'guest')
+
+  // Legacy compat aliases
+  const isOperator = isUser
   const isViewer = computed(() => !!user.value)
 
   // Check if user has specific permission
   function hasPermission(permission: string): boolean {
     if (!user.value) return false
     const permissions = ROLE_PERMISSIONS[user.value.role]
-    return permissions.includes('*') || permissions.includes(permission)
+    if (permissions.includes('*')) return true
+    // Check exact match or wildcard match (e.g. 'chat.*' matches 'chat.view')
+    return permissions.some(p => {
+      if (p === permission) return true
+      if (p.endsWith('.*')) {
+        const prefix = p.slice(0, -2)
+        return permission.startsWith(prefix + '.')
+      }
+      return false
+    })
   }
 
   // Check if user can perform action on resource
@@ -59,7 +77,11 @@ export const useAuthStore = defineStore('auth', () => {
   if (token.value) {
     try {
       const payload = JSON.parse(atob(token.value.split('.')[1]))
-      user.value = { username: payload.sub, role: payload.role }
+      user.value = {
+        id: payload.user_id || 0,
+        username: payload.sub,
+        role: payload.role
+      }
     } catch {
       token.value = null
       localStorage.removeItem('admin_token')
@@ -71,6 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
     const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
     const payload = btoa(JSON.stringify({
       sub: username,
+      user_id: 0,
       role: 'admin',
       exp: Math.floor(Date.now() / 1000) + 86400, // 24 hours
       iat: Math.floor(Date.now() / 1000),
@@ -103,7 +126,11 @@ export const useAuthStore = defineStore('auth', () => {
 
       // Decode JWT payload
       const payload = JSON.parse(atob(data.access_token.split('.')[1]))
-      user.value = { username: payload.sub, role: payload.role }
+      user.value = {
+        id: payload.user_id || 0,
+        username: payload.sub,
+        role: payload.role
+      }
 
       return true
     } catch (e) {
@@ -113,7 +140,7 @@ export const useAuthStore = defineStore('auth', () => {
         const devToken = createDevToken(username)
         token.value = devToken
         localStorage.setItem('admin_token', devToken)
-        user.value = { username, role: 'admin' }
+        user.value = { id: 0, username, role: 'admin' }
         error.value = null
         return true
       }
@@ -156,6 +183,8 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isAdmin,
+    isUser,
+    isGuest,
     isOperator,
     isViewer,
     hasPermission,

@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore, type UserRole } from '../stores/auth'
 import { ChevronDown } from 'lucide-vue-next'
 import {
   LayoutDashboard,
@@ -29,18 +30,27 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const route = useRoute()
+const authStore = useAuthStore()
+
+const ROLE_LEVEL: Record<UserRole, number> = { guest: 0, user: 1, admin: 2 }
+
+function meetsMinRole(minRole?: UserRole): boolean {
+  if (!minRole) return true
+  const userRole = authStore.user?.role || 'guest'
+  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[minRole]
+}
 
 // Navigation groups with items
-const navGroups = computed(() => [
+const allNavGroups = computed(() => [
   {
     id: 'monitoring',
     nameKey: 'nav.group.monitoring',
     icon: Activity,
     items: [
       { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard },
-      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity },
-      { path: '/services', nameKey: 'nav.services', icon: Server },
-      { path: '/audit', nameKey: 'nav.audit', icon: FileText },
+      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole },
+      { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole },
+      { path: '/audit', nameKey: 'nav.audit', icon: FileText, minRole: 'user' as UserRole },
     ]
   },
   {
@@ -48,10 +58,10 @@ const navGroups = computed(() => [
     nameKey: 'nav.group.ai',
     icon: Brain,
     items: [
-      { path: '/llm', nameKey: 'nav.llm', icon: Brain },
-      { path: '/tts', nameKey: 'nav.tts', icon: Mic },
-      { path: '/models', nameKey: 'nav.models', icon: AudioLines },
-      { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
+      { path: '/llm', nameKey: 'nav.llm', icon: Brain, minRole: 'user' as UserRole },
+      { path: '/tts', nameKey: 'nav.tts', icon: Mic, minRole: 'user' as UserRole },
+      { path: '/models', nameKey: 'nav.models', icon: AudioLines, minRole: 'admin' as UserRole },
+      { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles, minRole: 'admin' as UserRole },
     ]
   },
   {
@@ -60,9 +70,9 @@ const navGroups = computed(() => [
     icon: MessageCircle,
     items: [
       { path: '/chat', nameKey: 'nav.chat', icon: MessageCircle },
-      { path: '/telegram', nameKey: 'nav.telegram', icon: Send },
-      { path: '/widget', nameKey: 'nav.widget', icon: Code2 },
-      { path: '/gsm', nameKey: 'nav.gsm', icon: Phone },
+      { path: '/telegram', nameKey: 'nav.telegram', icon: Send, minRole: 'user' as UserRole },
+      { path: '/widget', nameKey: 'nav.widget', icon: Code2, minRole: 'user' as UserRole },
+      { path: '/gsm', nameKey: 'nav.gsm', icon: Phone, minRole: 'admin' as UserRole },
     ]
   },
   {
@@ -71,8 +81,8 @@ const navGroups = computed(() => [
     icon: ShoppingCart,
     items: [
       { path: '/faq', nameKey: 'nav.faq', icon: MessageSquare },
-      { path: '/sales', nameKey: 'nav.sales', icon: ShoppingCart },
-      { path: '/crm', nameKey: 'nav.crm', icon: Users },
+      { path: '/sales', nameKey: 'nav.sales', icon: ShoppingCart, minRole: 'user' as UserRole },
+      { path: '/crm', nameKey: 'nav.crm', icon: Users, minRole: 'user' as UserRole },
     ]
   },
   {
@@ -80,11 +90,21 @@ const navGroups = computed(() => [
     nameKey: 'nav.group.system',
     icon: Settings,
     items: [
-      { path: '/settings', nameKey: 'common.settings', icon: Settings },
+      { path: '/settings', nameKey: 'common.settings', icon: Settings, minRole: 'user' as UserRole },
       { path: '/about', nameKey: 'nav.about', icon: Info },
     ]
   }
 ])
+
+// Filtered nav groups based on user role
+const navGroups = computed(() =>
+  allNavGroups.value
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item => meetsMinRole(item.minRole))
+    }))
+    .filter(group => group.items.length > 0)
+)
 
 // Expanded groups state (persisted in localStorage)
 const expandedGroups = ref<Set<string>>(new Set())

@@ -6,9 +6,10 @@ import io
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
+from auth_manager import User, get_current_user
 from db.database import AsyncSessionLocal
 from db.repositories import AuditRepository
 
@@ -25,6 +26,7 @@ async def admin_get_audit_logs(
     to_date: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    user: User = Depends(get_current_user),
 ):
     """Get audit logs with optional filters."""
     # Parse dates if provided
@@ -56,7 +58,7 @@ async def admin_get_audit_logs(
 
 
 @router.get("/stats")
-async def admin_get_audit_stats():
+async def admin_get_audit_stats(user: User = Depends(get_current_user)):
     """Get audit log statistics."""
     async with AsyncSessionLocal() as session:
         repo = AuditRepository(session)
@@ -69,6 +71,7 @@ async def admin_export_audit_logs(
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
     format: str = "json",  # json or csv
+    user: User = Depends(get_current_user),
 ):
     """Export audit logs as JSON or CSV."""
     # Parse dates
@@ -108,7 +111,7 @@ async def admin_export_audit_logs(
 
 
 @router.post("/cleanup")
-async def admin_cleanup_audit_logs(days: int = 90):
+async def admin_cleanup_audit_logs(days: int = 90, user: User = Depends(get_current_user)):
     """Delete audit logs older than specified days."""
     if days < 7:
         raise HTTPException(status_code=400, detail="Minimum retention period is 7 days")

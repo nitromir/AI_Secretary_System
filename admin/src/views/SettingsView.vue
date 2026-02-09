@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Download,
@@ -13,10 +13,14 @@ import {
   Database,
   ChevronRight,
   Check,
-  X
+  X,
+  User,
+  Lock,
+  Save
 } from 'lucide-vue-next'
 import { useExportImport } from '@/composables/useExportImport'
 import { useAuditStore } from '@/stores/audit'
+import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
@@ -25,11 +29,98 @@ import { setLocale, getLocale } from '@/plugins/i18n'
 const { t } = useI18n()
 const { isExporting, exportFaq, exportPresets, exportFullConfig, handleImport } = useExportImport()
 const auditStore = useAuditStore()
+const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const toast = useToastStore()
 const confirm = useConfirmStore()
 
-const activeTab = ref<'general' | 'export' | 'audit'>('general')
+const activeTab = ref<'profile' | 'general' | 'export' | 'audit'>('profile')
+
+// Profile state
+const profileLoading = ref(false)
+const profileData = ref<Record<string, string | null>>({})
+const displayName = ref('')
+const oldPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordLoading = ref(false)
+
+const roleColors: Record<string, string> = {
+  admin: 'bg-red-500/20 text-red-400',
+  user: 'bg-blue-500/20 text-blue-400',
+  guest: 'bg-gray-500/20 text-gray-400'
+}
+
+async function loadProfile() {
+  profileLoading.value = true
+  try {
+    const resp = await fetch('/admin/auth/profile', {
+      headers: authStore.getAuthHeaders()
+    })
+    if (resp.ok) {
+      profileData.value = await resp.json()
+      displayName.value = profileData.value.display_name || ''
+    }
+  } catch {
+    // ignore
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function saveProfile() {
+  try {
+    const resp = await fetch('/admin/auth/profile', {
+      method: 'PUT',
+      headers: { ...authStore.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: displayName.value || null })
+    })
+    if (resp.ok) {
+      toast.success(t('profile.profileUpdated'))
+      await loadProfile()
+    } else {
+      const data = await resp.json()
+      toast.error(data.detail || 'Error')
+    }
+  } catch {
+    toast.error('Connection error')
+  }
+}
+
+async function changePassword() {
+  if (newPassword.value !== confirmPassword.value) {
+    toast.error(t('profile.passwordMismatch'))
+    return
+  }
+  passwordLoading.value = true
+  try {
+    const resp = await fetch('/admin/auth/change-password', {
+      method: 'POST',
+      headers: { ...authStore.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        old_password: oldPassword.value,
+        new_password: newPassword.value
+      })
+    })
+    if (resp.ok) {
+      toast.success(t('profile.passwordChanged'))
+      oldPassword.value = ''
+      newPassword.value = ''
+      confirmPassword.value = ''
+    } else {
+      const data = await resp.json()
+      toast.error(data.detail || 'Error')
+    }
+  } catch {
+    toast.error('Connection error')
+  } finally {
+    passwordLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadProfile()
+})
 
 // Format date for display
 function formatDate(date: Date): string {
@@ -99,7 +190,7 @@ function toggleLocale() {
     <!-- Tabs -->
     <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit">
       <button
-        v-for="tab in ['general', 'export', 'audit'] as const"
+        v-for="tab in ['profile', 'general', 'export', 'audit'] as const"
         :key="tab"
         :class="[
           'px-4 py-2 text-sm rounded-md transition-colors capitalize',
@@ -109,8 +200,122 @@ function toggleLocale() {
         ]"
         @click="activeTab = tab"
       >
-        {{ tab }}
+        {{ tab === 'profile' ? t('profile.title') : tab }}
       </button>
+    </div>
+
+    <!-- Profile -->
+    <div v-if="activeTab === 'profile'" class="space-y-4">
+      <!-- User Info -->
+      <div class="bg-card rounded-xl border border-border p-6">
+        <h3 class="font-semibold flex items-center gap-2 mb-4">
+          <User class="w-5 h-5" />
+          {{ t('profile.title') }}
+        </h3>
+
+        <div class="space-y-4">
+          <!-- Username (read-only) -->
+          <div>
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.username') }}</label>
+            <div class="px-3 py-2 bg-secondary/50 rounded-lg text-sm">
+              {{ profileData.username || authStore.user?.username }}
+            </div>
+          </div>
+
+          <!-- Role (read-only) -->
+          <div>
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.role') }}</label>
+            <span
+              :class="[
+                'inline-block px-3 py-1 text-sm rounded-full',
+                roleColors[authStore.user?.role || 'guest']
+              ]"
+            >
+              {{ t(`roles.${authStore.user?.role || 'guest'}`) }}
+            </span>
+          </div>
+
+          <!-- Display Name -->
+          <div v-if="!authStore.isGuest">
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.displayName') }}</label>
+            <div class="flex gap-2">
+              <input
+                v-model="displayName"
+                type="text"
+                class="flex-1 px-3 py-2 bg-secondary/50 rounded-lg text-sm border border-border focus:border-primary focus:outline-none"
+                :placeholder="t('profile.displayName')"
+              />
+              <button
+                class="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition-colors flex items-center gap-1"
+                @click="saveProfile"
+              >
+                <Save class="w-4 h-4" />
+                {{ t('profile.save') }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Registration date -->
+          <div v-if="profileData.created" class="flex gap-8 text-sm text-muted-foreground">
+            <div>
+              <span class="font-medium">{{ t('profile.created') }}:</span>
+              {{ new Date(profileData.created).toLocaleDateString(getLocale()) }}
+            </div>
+            <div v-if="profileData.last_login">
+              <span class="font-medium">{{ t('profile.lastLogin') }}:</span>
+              {{ new Date(profileData.last_login).toLocaleString(getLocale()) }}
+            </div>
+          </div>
+
+          <!-- Guest notice -->
+          <div v-if="authStore.isGuest" class="text-sm text-muted-foreground italic">
+            {{ t('profile.guestReadOnly') }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Change Password -->
+      <div v-if="!authStore.isGuest" class="bg-card rounded-xl border border-border p-6">
+        <h3 class="font-semibold flex items-center gap-2 mb-4">
+          <Lock class="w-5 h-5" />
+          {{ t('profile.changePassword') }}
+        </h3>
+
+        <div class="space-y-3 max-w-md">
+          <div>
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.currentPassword') }}</label>
+            <input
+              v-model="oldPassword"
+              type="password"
+              class="w-full px-3 py-2 bg-secondary/50 rounded-lg text-sm border border-border focus:border-primary focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.newPassword') }}</label>
+            <input
+              v-model="newPassword"
+              type="password"
+              class="w-full px-3 py-2 bg-secondary/50 rounded-lg text-sm border border-border focus:border-primary focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-sm text-muted-foreground mb-1">{{ t('profile.confirmPassword') }}</label>
+            <input
+              v-model="confirmPassword"
+              type="password"
+              class="w-full px-3 py-2 bg-secondary/50 rounded-lg text-sm border border-border focus:border-primary focus:outline-none"
+            />
+          </div>
+          <button
+            :disabled="passwordLoading || !oldPassword || !newPassword || !confirmPassword"
+            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-2"
+            @click="changePassword"
+          >
+            <Lock class="w-4 h-4" />
+            {{ t('profile.changePassword') }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- General Settings -->
