@@ -48,8 +48,18 @@ python scripts/manage_users.py delete <user>                 # Delete user
 ### Database Migrations
 
 ```bash
+python scripts/migrate_json_to_db.py         # Initial JSON → SQLite migration
+python scripts/migrate_to_instances.py       # Multi-instance bot/widget architecture
 python scripts/migrate_users.py              # Create users table, seed admin + demo
 python scripts/migrate_user_ownership.py     # Add owner_id to resource tables
+python scripts/migrate_persona_rename.py     # Persona name migration (Гуля→Анна, Лидия→Марина)
+python scripts/migrate_gsm_tables.py         # GSM call/SMS log tables
+python scripts/migrate_amocrm.py             # amoCRM config tables
+python scripts/migrate_sales_bot.py          # Sales funnel tables
+python scripts/migrate_add_payment_fields.py # Payment fields for sales
+python scripts/migrate_legal_compliance.py   # Legal compliance tables
+python scripts/seed_tz_generator.py          # Seed TZ generator bot data
+python scripts/seed_tz_widget.py             # Seed TZ widget data
 ```
 
 ### Lint & Format
@@ -80,6 +90,8 @@ pytest -m "not integration" -v         # Exclude integration (needs external ser
 pytest -m "not gpu" -v                 # Exclude GPU-required tests
 cd admin && npm test                   # Frontend tests
 ```
+
+Pytest uses `asyncio_mode = "auto"` — async test functions run without needing `@pytest.mark.asyncio`. Custom markers: `slow`, `integration`, `gpu`.
 
 ### CI
 
@@ -113,7 +125,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 ### Key Architectural Decisions
 
-**Global state in orchestrator.py** (~3200 lines): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
+**Global state in orchestrator.py** (~3200 lines, ~105 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
 
 **ServiceContainer (`app/dependencies.py`)**: Singleton holding references to all initialized services (TTS, LLM, STT). Routers get services via FastAPI `Depends`. Populated during app startup in `orchestrator.py`.
 
@@ -121,7 +133,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts). Bots with `auto_start=true` restart on app startup.
 
-**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`).
+**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`. Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`).
 
 **Cloud LLM routing**: `cloud_llm_service.py` (project root) has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`.
 
@@ -134,6 +146,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 **Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
 
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
+
+**Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab.
 
 **Other routers**: `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
 
@@ -197,6 +211,8 @@ AMOCRM_PROXY=http://host:8888      # Optional, for Docker/VPN environments
 - **SQLAlchemy mapped_column style** — Models use `Mapped[T]` with `mapped_column()` (declarative 2.0)
 - **Repository pattern** — `BaseRepository(Generic[T])` provides get_by_id, get_all, create, update, delete. Domain repos extend with custom queries.
 - **Admin panel**: Vue 3 + Composition API + Pinia stores + vue-i18n. API clients in `admin/src/api/`, one per domain.
+- **mypy strict scope** — Only `db/`, `auth_manager.py`, `service_manager.py` require typed defs; other modules are relaxed. mypy is soft in CI (`|| true`).
+- **Pre-commit hooks** — ruff lint+format, mypy (core only), eslint, hadolint (Docker), plus standard checks (trailing whitespace, large files ≤1MB, private key detection, merge conflicts). See `.pre-commit-config.yaml`.
 
 ## Known Issues
 
