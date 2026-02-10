@@ -77,6 +77,7 @@ from cloud_llm_service import PROVIDER_TYPES, CloudLLMService
 # Database integration
 from db.integration import (
     async_audit_logger,
+    async_chat_manager,
     async_cloud_provider_manager,
     async_config_manager,
     async_faq_manager,
@@ -90,15 +91,46 @@ from finetune_manager import get_finetune_manager
 from llm_service import LLMService
 from model_manager import get_model_manager
 
+
 # Multi-bot manager
-from piper_tts_service import PiperTTSService
+try:
+    from piper_tts_service import PiperTTSService
+
+    PIPER_AVAILABLE = True
+except ImportError:
+    PIPER_AVAILABLE = False
+    PiperTTSService = None
+
 from service_manager import get_service_manager
-from stt_service import STTService
+
+
+try:
+    from stt_service import STTService
+
+    STT_AVAILABLE = True
+except ImportError:
+    STT_AVAILABLE = False
+    STTService = None
+
 from system_monitor import get_system_monitor
-from tts_finetune_manager import get_tts_finetune_manager
+
+
+try:
+    from tts_finetune_manager import get_tts_finetune_manager
+
+    TTS_FINETUNE_AVAILABLE = True
+except ImportError:
+    TTS_FINETUNE_AVAILABLE = False
+    get_tts_finetune_manager = None
 
 # Импорты наших сервисов
-from voice_clone_service import VoiceCloneService
+try:
+    from voice_clone_service import VoiceCloneService
+
+    XTTS_AVAILABLE = True
+except ImportError:
+    XTTS_AVAILABLE = False
+    VoiceCloneService = None
 
 
 # vLLM импорт (опциональный - локальная Llama через vLLM)
@@ -385,9 +417,11 @@ app.include_router(audit.router)
 app.include_router(services.router)
 app.include_router(monitor.router)
 app.include_router(faq.router)
-app.include_router(stt.router)
+if stt is not None:
+    app.include_router(stt.router)
 app.include_router(llm.router)
-app.include_router(tts.router)
+if tts is not None:
+    app.include_router(tts.router)
 app.include_router(chat.router)
 app.include_router(telegram.router)
 app.include_router(usage.router)
@@ -402,11 +436,11 @@ app.include_router(amocrm.router)
 app.include_router(amocrm.webhook_router)
 
 # Глобальные сервисы
-voice_service: Optional[VoiceCloneService] = None  # XTTS (Марина) - GPU CC >= 7.0
-anna_voice_service: Optional[VoiceCloneService] = None  # XTTS (Анна) - GPU CC >= 7.0
-piper_service: Optional[PiperTTSService] = None  # Piper (Dmitri, Irina) - CPU
+voice_service: Optional["VoiceCloneService"] = None  # XTTS (Марина) - GPU CC >= 7.0
+anna_voice_service: Optional["VoiceCloneService"] = None  # XTTS (Анна) - GPU CC >= 7.0
+piper_service: Optional["PiperTTSService"] = None  # Piper (Dmitri, Irina) - CPU
 openvoice_service: Optional["OpenVoiceService"] = None  # OpenVoice v2 (Марина) - GPU CC 6.1+
-stt_service: Optional[STTService] = None
+stt_service: Optional["STTService"] = None
 llm_service: Optional[LLMService] = None
 
 # Конфигурация текущего голоса
@@ -440,6 +474,32 @@ async def _reload_voice_presets():
     for svc in [voice_service, anna_voice_service]:
         if svc and hasattr(svc, "reload_presets"):
             svc.reload_presets(presets_dict)
+
+
+async def _auto_start_bridge_if_needed():
+    """Auto-start CLI-OpenAI Bridge if any enabled claude_bridge provider exists."""
+    from bridge_manager import bridge_manager
+    from db.integration import async_cloud_provider_manager
+
+    try:
+        bridge_providers = await async_cloud_provider_manager.get_by_type(
+            "claude_bridge", enabled_only=True
+        )
+        if not bridge_providers:
+            return
+
+        if bridge_manager.is_running:
+            logger.info("🌉 Bridge already running, skipping auto-start")
+            return
+
+        logger.info("🌉 Auto-starting CLI-OpenAI Bridge (enabled claude_bridge provider found)...")
+        result = await bridge_manager.start()
+        if result.get("status") == "ok":
+            logger.info(f"🌉 Bridge auto-started on port {result.get('port', 8787)}")
+        else:
+            logger.warning(f"🌉 Bridge auto-start failed: {result.get('error', 'unknown')}")
+    except Exception as e:
+        logger.error(f"🌉 Error during bridge auto-start: {e}")
 
 
 async def _auto_start_telegram_bots():
@@ -526,11 +586,15 @@ async def startup_event():
 
     try:
         # Инициализация Piper TTS (Dmitri, Irina) - CPU, загружаем первым
-        logger.info("📦 Загрузка Piper TTS Service (CPU)...")
-        try:
-            piper_service = PiperTTSService()
-        except Exception as e:
-            logger.warning(f"⚠️ Piper TTS недоступен: {e}")
+        if PIPER_AVAILABLE:
+            logger.info("📦 Загрузка Piper TTS Service (CPU)...")
+            try:
+                piper_service = PiperTTSService()
+            except Exception as e:
+                logger.warning(f"⚠️ Piper TTS недоступен: {e}")
+                piper_service = None
+        else:
+            logger.info("⏭️ Piper TTS не установлен (пропускаем)")
             piper_service = None
 
         # Инициализация OpenVoice v2 (Марина) - GPU CC 6.1+ (P104-100)
@@ -547,23 +611,32 @@ async def startup_event():
             openvoice_service = None
 
         # Инициализация XTTS (Анна) - GPU CC >= 7.0, по умолчанию
-        logger.info("📦 Загрузка Voice Clone Service (XTTS - Анна)...")
-        try:
-            anna_voice_service = VoiceCloneService(voice_samples_dir="./Анна")
-            logger.info(
-                f"✅ XTTS (Анна) загружен: {len(anna_voice_service.voice_samples)} образцов"
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ XTTS (Анна) недоступен: {e}")
+        if XTTS_AVAILABLE:
+            logger.info("📦 Загрузка Voice Clone Service (XTTS - Анна)...")
+            try:
+                anna_voice_service = VoiceCloneService(voice_samples_dir="./Анна")
+                logger.info(
+                    f"✅ XTTS (Анна) загружен: {len(anna_voice_service.voice_samples)} образцов"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ XTTS (Анна) недоступен: {e}")
+                anna_voice_service = None
+        else:
+            logger.info("⏭️ XTTS не установлен (пропускаем)")
             anna_voice_service = None
 
         # Инициализация XTTS (Марина) - GPU CC >= 7.0, опционально
-        logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")
-        try:
-            voice_service = VoiceCloneService(voice_samples_dir="./Марина")
-            logger.info(f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов")
-        except Exception as e:
-            logger.warning(f"⚠️ XTTS (Марина) недоступен (требуется GPU CC >= 7.0): {e}")
+        if XTTS_AVAILABLE:
+            logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")
+            try:
+                voice_service = VoiceCloneService(voice_samples_dir="./Марина")
+                logger.info(
+                    f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ XTTS (Марина) недоступен (требуется GPU CC >= 7.0): {e}")
+                voice_service = None
+        else:
             voice_service = None
 
         # Устанавливаем голос по умолчанию
@@ -591,6 +664,13 @@ async def startup_event():
             except Exception as e:
                 logger.warning(f"⚠️ vLLM недоступен ({e}), используем Gemini")
                 llm_service = LLMService()
+        elif LLM_BACKEND.startswith("cloud:"):
+            logger.info(f"☁️ LLM backend: {LLM_BACKEND} (cloud provider)")
+            try:
+                llm_service = LLMService()
+            except Exception as e:
+                logger.warning(f"⚠️ Gemini fallback недоступен ({e}), только облачные провайдеры")
+                llm_service = None
         else:
             logger.info("📦 Загрузка Gemini LLM Service...")
             llm_service = LLMService()
@@ -664,6 +744,9 @@ async def startup_event():
 
         # Auto-start Telegram bots that were running before restart
         await _auto_start_telegram_bots()
+
+        # Auto-start bridge if enabled claude_bridge provider exists
+        await _auto_start_bridge_if_needed()
 
         logger.info("✅ Основные сервисы загружены успешно")
 
@@ -3075,7 +3158,7 @@ async def admin_get_model_details(repo_id: str):
 
 def _escape_js_string(s: str) -> str:
     """Escape a string for safe use in JavaScript."""
-    return s.replace("'", "\\'")
+    return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r")
 
 
 @app.get("/widget.js")
@@ -3181,6 +3264,94 @@ async def get_widget_status(instance: Optional[str] = None):
     if not instance_data:
         return {"enabled": False}
     return {"enabled": bool(instance_data.get("enabled", False))}
+
+
+# ============== Public Widget Chat Endpoints (no auth) ==============
+
+
+@app.post("/widget/chat/session")
+async def widget_create_session(request: Request):
+    """Public: create a chat session for a widget instance."""
+    body = await request.json()
+    instance_id = body.get("source_id", "default")
+
+    # Verify widget instance exists and is enabled
+    instance_data = await async_widget_instance_manager.get_instance(instance_id)
+    if not instance_data or not instance_data.get("enabled"):
+        raise HTTPException(status_code=404, detail="Widget not found or disabled")
+
+    system_prompt = instance_data.get("system_prompt")
+    session = await async_chat_manager.create_session(None, system_prompt, "widget", instance_id)
+    return {"session": session}
+
+
+@app.post("/widget/chat/session/{session_id}/stream")
+async def widget_stream_message(request: Request, session_id: str):
+    """Public: send a message and get streaming response for widget."""
+    body = await request.json()
+    content = body.get("content", "")
+    instance_id = body.get("widget_instance_id", "default")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Message content required")
+
+    session = await async_chat_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Determine LLM from widget config
+    from app.dependencies import get_container
+
+    container = get_container()
+    active_llm = container.llm_service
+    custom_prompt = None
+
+    widget = await async_widget_instance_manager.get_instance(instance_id)
+    if widget:
+        backend = widget.get("llm_backend")
+        if backend and backend.startswith("cloud:"):
+            provider_id = backend.split(":", 1)[1]
+            try:
+                provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                    provider_id
+                )
+                if provider_config:
+                    active_llm = CloudLLMService(provider_config)
+            except Exception as e:
+                logger.warning(f"Widget LLM override failed: {e}")
+        custom_prompt = widget.get("system_prompt")
+
+    if not active_llm:
+        raise HTTPException(status_code=503, detail="LLM service not available")
+
+    user_msg = await async_chat_manager.add_message(session_id, "user", content)
+    default_prompt = custom_prompt
+    if not default_prompt and hasattr(active_llm, "get_system_prompt"):
+        default_prompt = active_llm.get_system_prompt()
+    messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
+
+    async def generate_stream():
+        full_response = []
+        try:
+            yield f"data: {json.dumps({'type': 'user_message', 'message': user_msg}, ensure_ascii=False)}\n\n"
+            for chunk in active_llm.generate_response_from_messages(messages, stream=True):
+                full_response.append(chunk)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+            response_text = "".join(full_response)
+            assistant_msg = await async_chat_manager.add_message(
+                session_id, "assistant", response_text
+            )
+            yield f"data: {json.dumps({'type': 'assistant_message', 'message': assistant_msg}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"❌ Widget chat stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
 
 
 # ============== Static Files for Vue Admin ==============

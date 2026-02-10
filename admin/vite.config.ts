@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
-    base: isDemo ? '/' : '/admin/',
+    base: env.VITE_BASE_PATH || (isDemo ? '/' : '/admin/'),
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url))

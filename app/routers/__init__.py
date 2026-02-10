@@ -15,13 +15,24 @@ from app.routers import (
     llm,
     monitor,
     services,
-    stt,
     telegram,
-    tts,
     usage,
     widget,
     yoomoney_webhook,
 )
+
+
+# STT router is optional (requires torch/vosk/whisper)
+try:
+    from app.routers import stt
+except ImportError:
+    stt = None  # type: ignore[assignment]
+
+# TTS router is optional (requires torch for XTTS)
+try:
+    from app.routers import tts
+except ImportError:
+    tts = None  # type: ignore[assignment]
 
 
 __all__ = [
