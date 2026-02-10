@@ -60,7 +60,7 @@ const allNavGroups = computed(() => [
     icon: Brain,
     items: [
       { path: '/llm', nameKey: 'nav.llm', icon: Brain, minRole: 'user' as UserRole },
-      { path: '/tts', nameKey: 'nav.tts', icon: Mic, minRole: 'user' as UserRole },
+      { path: '/tts', nameKey: 'nav.tts', icon: Mic, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[] },
       { path: '/models', nameKey: 'nav.models', icon: AudioLines, minRole: 'admin' as UserRole },
       { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles, minRole: 'admin' as UserRole },
     ]
