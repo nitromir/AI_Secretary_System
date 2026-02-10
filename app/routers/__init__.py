@@ -21,6 +21,7 @@ from app.routers import (
     yoomoney_webhook,
 )
 
+
 # STT router is optional (requires torch/vosk/whisper)
 try:
     from app.routers import stt
