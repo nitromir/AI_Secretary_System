@@ -154,6 +154,7 @@ function toggleLocale() {
                   'px-1.5 py-0.5 text-[10px] rounded-full leading-tight',
                   authStore.user.role === 'admin' ? 'bg-red-500/20 text-red-400' :
                   authStore.user.role === 'user' ? 'bg-blue-500/20 text-blue-400' :
+                  authStore.user.role === 'web' ? 'bg-green-500/20 text-green-400' :
                   'bg-gray-500/20 text-gray-400'
                 ]"
               >

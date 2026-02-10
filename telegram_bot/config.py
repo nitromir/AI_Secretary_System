@@ -160,8 +160,14 @@ async def load_config_from_api(instance_id: str) -> BotConfig:
 
     logger.info(f"Loading bot config from API: {url}")
 
+    # Use internal JWT token if available (passed by multi_bot_manager)
+    headers = {}
+    internal_token = os.environ.get("BOT_INTERNAL_TOKEN")
+    if internal_token:
+        headers["Authorization"] = f"Bearer {internal_token}"
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(url, params={"include_token": "true"})
+        resp = await client.get(url, params={"include_token": "true"}, headers=headers)
         resp.raise_for_status()
         data = resp.json()
 

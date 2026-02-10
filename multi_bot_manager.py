@@ -112,6 +112,15 @@ class MultiBotManager:
             env["BOT_INSTANCE_ID"] = instance_id
             env["PYTHONUNBUFFERED"] = "1"
 
+            # Generate internal JWT for subprocess to authenticate with orchestrator API
+            try:
+                from auth_manager import create_access_token
+
+                token, _ = create_access_token(username="__internal_bot__", role="admin", user_id=0)
+                env["BOT_INTERNAL_TOKEN"] = token
+            except Exception as e:
+                logger.warning(f"Could not generate internal token: {e}")
+
             # Set up log file
             log_file = self._get_log_path(instance_id)
 

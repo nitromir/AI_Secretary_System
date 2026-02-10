@@ -7,13 +7,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from ...bot import get_action_buttons
 from ...sales.database import get_sales_db
 from ...sales.keyboards import main_reply_kb, welcome_kb, what_is_kb
 from ...sales.states import SalesFunnel
 from ...sales.texts import WELCOME_TEXT, WHAT_IS_TEXT
 from ...services.session_store import get_session_store
 from ...services.social_proof import get_social_proof_data
+from ...state import get_action_buttons
 
 
 logger = logging.getLogger(__name__)

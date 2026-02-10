@@ -32,12 +32,13 @@ const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 
-const ROLE_LEVEL: Record<UserRole, number> = { guest: 0, user: 1, admin: 2 }
+const ROLE_LEVEL: Record<UserRole, number> = { guest: 0, web: 1, user: 1, admin: 2 }
 
-function meetsMinRole(minRole?: UserRole): boolean {
-  if (!minRole) return true
+function isVisibleForRole(item: { minRole?: UserRole; excludeRoles?: UserRole[] }): boolean {
   const userRole = authStore.user?.role || 'guest'
-  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[minRole]
+  if (item.excludeRoles?.includes(userRole)) return false
+  if (!item.minRole) return true
+  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[item.minRole]
 }
 
 // Navigation groups with items
@@ -47,9 +48,9 @@ const allNavGroups = computed(() => [
     nameKey: 'nav.group.monitoring',
     icon: Activity,
     items: [
-      { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard },
+      { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard, excludeRoles: ['web'] as UserRole[] },
       { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole },
-      { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole },
+      { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[] },
       { path: '/audit', nameKey: 'nav.audit', icon: FileText, minRole: 'user' as UserRole },
     ]
   },
@@ -101,7 +102,7 @@ const navGroups = computed(() =>
   allNavGroups.value
     .map(group => ({
       ...group,
-      items: group.items.filter(item => meetsMinRole(item.minRole))
+      items: group.items.filter(item => isVisibleForRole(item))
     }))
     .filter(group => group.items.length > 0)
 )

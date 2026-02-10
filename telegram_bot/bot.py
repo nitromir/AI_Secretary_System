@@ -5,13 +5,11 @@ Run with:  python -m telegram_bot
 
 import asyncio
 import logging
-from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from .config import (
-    BotConfig,
     get_bot_instance_id,
     get_telegram_settings,
     load_config_from_api,
@@ -22,28 +20,13 @@ from .sales.database import get_sales_db
 from .sales.keyboards import DEFAULT_ACTION_BUTTONS
 from .services.github_news import news_broadcast_scheduler
 from .services.llm_router import get_llm_router
+from .state import get_action_buttons, get_bot_config, set_action_buttons, set_bot_config
 
 
 logger = logging.getLogger(__name__)
 
-# Global bot config (available to handlers)
-_bot_config: BotConfig | None = None
-_action_buttons: list[dict[str, Any]] = DEFAULT_ACTION_BUTTONS
-
-
-def get_bot_config() -> BotConfig | None:
-    """Get current bot config (None in standalone mode)."""
-    return _bot_config
-
-
-def get_action_buttons() -> list[dict[str, Any]]:
-    """Get current action buttons config."""
-    return _action_buttons
-
 
 async def main() -> None:
-    global _bot_config, _action_buttons
-
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -56,12 +39,13 @@ async def main() -> None:
         # Multi-instance mode: load config from orchestrator API
         logger.info(f"Multi-instance mode: loading config for {instance_id}")
         try:
-            _bot_config = await load_config_from_api(instance_id)
-            bot_token = _bot_config.bot_token
-            _action_buttons = _bot_config.action_buttons or DEFAULT_ACTION_BUTTONS
-            logger.info(f"Loaded config for bot: {_bot_config.name}")
-            logger.info(f"LLM backend: {_bot_config.llm_backend}")
-            logger.info(f"Action buttons: {len(_action_buttons)} configured")
+            bot_config = await load_config_from_api(instance_id)
+            set_bot_config(bot_config)
+            bot_token = bot_config.bot_token
+            set_action_buttons(bot_config.action_buttons or DEFAULT_ACTION_BUTTONS)
+            logger.info(f"Loaded config for bot: {bot_config.name}")
+            logger.info(f"LLM backend: {bot_config.llm_backend}")
+            logger.info(f"Action buttons: {len(get_action_buttons())} configured")
         except Exception as e:
             logger.error(f"Failed to load config from API: {e}")
             logger.info("Falling back to .env configuration")
@@ -90,6 +74,7 @@ async def main() -> None:
 
     logger.info("Starting Telegram bot (polling)…")
 
+    _bot_config = get_bot_config()
     if _bot_config:
         logger.info(f"Bot name: {_bot_config.name}")
         logger.info(f"Instance ID: {_bot_config.instance_id}")

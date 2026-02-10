@@ -33,7 +33,7 @@ const router = createRouter({
       path: '/',
       name: 'dashboard',
       component: DashboardView,
-      meta: { title: 'Dashboard', icon: 'LayoutDashboard' }
+      meta: { title: 'Dashboard', icon: 'LayoutDashboard', excludeRoles: ['web'] }
     },
     {
       path: '/chat',
@@ -45,7 +45,7 @@ const router = createRouter({
       path: '/services',
       name: 'services',
       component: ServicesView,
-      meta: { title: 'Services', icon: 'Server', minRole: 'user' }
+      meta: { title: 'Services', icon: 'Server', minRole: 'user', excludeRoles: ['web'] }
     },
     {
       path: '/llm',
@@ -141,7 +141,7 @@ const router = createRouter({
 })
 
 // Role level mapping for route guards
-const ROLE_LEVEL: Record<string, number> = { guest: 0, user: 1, admin: 2 }
+const ROLE_LEVEL: Record<string, number> = { guest: 0, web: 1, user: 1, admin: 2 }
 
 // Navigation guard for authentication and authorization
 router.beforeEach((to, from, next) => {
@@ -161,18 +161,28 @@ router.beforeEach((to, from, next) => {
       return
     }
   } else if (to.name === 'login' && authStore.isAuthenticated) {
-    // Already logged in, redirect to dashboard
-    next({ name: 'dashboard' })
+    // Already logged in, redirect to landing page
+    const landing = authStore.isWeb ? 'chat' : 'dashboard'
+    next({ name: landing })
+    return
+  }
+
+  const userRole = authStore.user?.role || 'guest'
+
+  // Check excludeRoles (e.g. 'web' excluded from dashboard, services)
+  const excludeRoles = to.meta.excludeRoles as string[] | undefined
+  if (excludeRoles?.includes(userRole)) {
+    next({ name: 'chat' })
     return
   }
 
   // Check role-based access
   const minRole = to.meta.minRole as string | undefined
   if (minRole) {
-    const userRole = authStore.user?.role || 'guest'
     if (ROLE_LEVEL[userRole] < ROLE_LEVEL[minRole]) {
-      // Insufficient role, redirect to dashboard
-      next({ name: 'dashboard' })
+      // Insufficient role, redirect to landing page
+      const landing = userRole === 'web' ? 'chat' : 'dashboard'
+      next({ name: landing })
       return
     }
   }

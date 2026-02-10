@@ -53,6 +53,10 @@ services:
       - ./bridge_manager.py:/app/bridge_manager.py:ro
       - ./finetune_manager.py:/app/finetune_manager.py:ro
       - ./services/bridge:/app/services/bridge:ro
+      # Claude CLI for bridge auto-start in Docker
+      # If claude is installed elsewhere, adjust the path
+      - ${HOME}/.local/bin/claude:/usr/local/bin/claude:ro
+      - ${HOME}/.claude:/root/.claude
       - ./finetune:/app/finetune:rw
       - ./wiki-pages:/app/wiki-pages:ro
       - ./docs:/app/docs:ro

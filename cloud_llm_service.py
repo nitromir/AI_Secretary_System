@@ -191,8 +191,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         super().__init__(config)
         self.client = httpx.Client(timeout=60.0)
 
-        # Validate required fields
-        if not self.api_key:
+        # Validate required fields (bridge uses CLI auth, no API key needed)
+        if not self.api_key and self.provider_type != "claude_bridge":
             raise ValueError(f"API key required for provider {self.provider_id}")
 
         # Set default base URL if not provided

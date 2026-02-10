@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-export type UserRole = 'admin' | 'user' | 'guest'
+export type UserRole = 'admin' | 'user' | 'web' | 'guest'
 
 export interface User {
   id: number
@@ -27,6 +27,20 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'crm.view',
     'usage.view',
   ],
+  web: [
+    'chat.*',
+    'llm.view', 'llm.cloud.*',
+    'tts.view', 'tts.test',
+    'faq.*',
+    'telegram.*',
+    'widget.*',
+    'monitoring.view',
+    'audit.view',
+    'settings.profile',
+    'sales.*',
+    'crm.view',
+    'usage.view',
+  ],
   guest: [
     'chat.demo',
     'dashboard.view',
@@ -46,7 +60,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
-  const isUser = computed(() => user.value?.role === 'user' || isAdmin.value)
+  const isUser = computed(() => user.value?.role === 'user' || user.value?.role === 'web' || isAdmin.value)
+  const isWeb = computed(() => user.value?.role === 'web')
   const isGuest = computed(() => user.value?.role === 'guest')
 
   // Legacy compat aliases
@@ -185,6 +200,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     isUser,
+    isWeb,
     isGuest,
     isOperator,
     isViewer,
