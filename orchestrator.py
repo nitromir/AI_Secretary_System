@@ -95,6 +95,7 @@ from model_manager import get_model_manager
 # Multi-bot manager
 try:
     from piper_tts_service import PiperTTSService
+
     PIPER_AVAILABLE = True
 except ImportError:
     PIPER_AVAILABLE = False
@@ -105,6 +106,7 @@ from service_manager import get_service_manager
 
 try:
     from stt_service import STTService
+
     STT_AVAILABLE = True
 except ImportError:
     STT_AVAILABLE = False
@@ -115,6 +117,7 @@ from system_monitor import get_system_monitor
 
 try:
     from tts_finetune_manager import get_tts_finetune_manager
+
     TTS_FINETUNE_AVAILABLE = True
 except ImportError:
     TTS_FINETUNE_AVAILABLE = False
@@ -123,6 +126,7 @@ except ImportError:
 # Импорты наших сервисов
 try:
     from voice_clone_service import VoiceCloneService
+
     XTTS_AVAILABLE = True
 except ImportError:
     XTTS_AVAILABLE = False
@@ -626,7 +630,9 @@ async def startup_event():
             logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")
             try:
                 voice_service = VoiceCloneService(voice_samples_dir="./Марина")
-                logger.info(f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов")
+                logger.info(
+                    f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов"
+                )
             except Exception as e:
                 logger.warning(f"⚠️ XTTS (Марина) недоступен (требуется GPU CC >= 7.0): {e}")
                 voice_service = None
@@ -3275,9 +3281,7 @@ async def widget_create_session(request: Request):
         raise HTTPException(status_code=404, detail="Widget not found or disabled")
 
     system_prompt = instance_data.get("system_prompt")
-    session = await async_chat_manager.create_session(
-        None, system_prompt, "widget", instance_id
-    )
+    session = await async_chat_manager.create_session(None, system_prompt, "widget", instance_id)
     return {"session": session}
 
 
@@ -3297,6 +3301,7 @@ async def widget_stream_message(request: Request, session_id: str):
 
     # Determine LLM from widget config
     from app.dependencies import get_container
+
     container = get_container()
     active_llm = container.llm_service
     custom_prompt = None
@@ -3307,7 +3312,9 @@ async def widget_stream_message(request: Request, session_id: str):
         if backend and backend.startswith("cloud:"):
             provider_id = backend.split(":", 1)[1]
             try:
-                provider_config = await async_cloud_provider_manager.get_provider_with_key(provider_id)
+                provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                    provider_id
+                )
                 if provider_config:
                     active_llm = CloudLLMService(provider_config)
             except Exception as e:
@@ -3331,7 +3338,9 @@ async def widget_stream_message(request: Request, session_id: str):
                 full_response.append(chunk)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
             response_text = "".join(full_response)
-            assistant_msg = await async_chat_manager.add_message(session_id, "assistant", response_text)
+            assistant_msg = await async_chat_manager.add_message(
+                session_id, "assistant", response_text
+            )
             yield f"data: {json.dumps({'type': 'assistant_message', 'message': assistant_msg}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:

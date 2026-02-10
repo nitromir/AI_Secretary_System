@@ -29,6 +29,7 @@ def patch_file(path: str, patches: list[tuple[str, str]]) -> None:
 
 # ─── orchestrator.py ───
 
+
 def patch_orchestrator():
     path = f"{REPO}/orchestrator.py"
     with open(path) as f:
@@ -119,15 +120,15 @@ def patch_orchestrator():
 
     # 10. Fix type annotations to use string literals (avoid NameError at module level)
     content = content.replace(
-        'Optional[VoiceCloneService] = None',
+        "Optional[VoiceCloneService] = None",
         'Optional["VoiceCloneService"] = None',
     )
     content = content.replace(
-        'Optional[PiperTTSService] = None',
+        "Optional[PiperTTSService] = None",
         'Optional["PiperTTSService"] = None',
     )
     content = content.replace(
-        'Optional[STTService] = None',
+        "Optional[STTService] = None",
         'Optional["STTService"] = None',
     )
 
@@ -140,6 +141,7 @@ def patch_orchestrator():
 
 
 # ─── app/routers/__init__.py ───
+
 
 def patch_routers_init():
     path = f"{REPO}/app/routers/__init__.py"
@@ -155,7 +157,7 @@ def patch_routers_init():
     if "STT router is optional" not in content:
         content = content.replace(
             ")\n\n\n__all__",
-            ')\n\n# STT router is optional (requires torch/vosk/whisper)\ntry:\n    from app.routers import stt\nexcept ImportError:\n    stt = None  # type: ignore[assignment]\n\n# TTS router is optional (requires torch for XTTS)\ntry:\n    from app.routers import tts\nexcept ImportError:\n    tts = None  # type: ignore[assignment]\n\n\n__all__',
+            ")\n\n# STT router is optional (requires torch/vosk/whisper)\ntry:\n    from app.routers import stt\nexcept ImportError:\n    stt = None  # type: ignore[assignment]\n\n# TTS router is optional (requires torch for XTTS)\ntry:\n    from app.routers import tts\nexcept ImportError:\n    tts = None  # type: ignore[assignment]\n\n\n__all__",
         )
 
     if content != original:
@@ -167,6 +169,7 @@ def patch_routers_init():
 
 
 # ─── db/models.py ───
+
 
 def patch_models():
     path = f"{REPO}/db/models.py"
@@ -191,6 +194,7 @@ def patch_models():
 
 # ─── admin/vite.config.ts ───
 
+
 def patch_vite_config():
     path = f"{REPO}/admin/vite.config.ts"
     with open(path) as f:
@@ -213,6 +217,7 @@ def patch_vite_config():
 
 
 # ─── admin/.env.production.local ───
+
 
 def ensure_env_production_local():
     path = f"{REPO}/admin/.env.production.local"

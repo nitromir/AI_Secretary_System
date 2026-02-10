@@ -1649,7 +1649,9 @@ class UsageLimits(Base):
     __tablename__ = "usage_limits"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    service_type: Mapped[str] = mapped_column(String(20), )  # "tts", "stt", "llm"# "tts", "stt", "llm"
+    service_type: Mapped[str] = mapped_column(
+        String(20),
+    )  # "tts", "stt", "llm"# "tts", "stt", "llm"
     limit_type: Mapped[str] = mapped_column(String(20))  # "daily", "monthly", "per_request"
     limit_value: Mapped[int] = mapped_column(Integer)  # units per period
     warning_threshold: Mapped[int] = mapped_column(Integer, default=80)  # % to warn at
