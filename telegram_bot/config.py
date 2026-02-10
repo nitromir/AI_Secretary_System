@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 class TelegramSettings(BaseSettings):
     """Telegram bot settings loaded from environment variables."""
 
-    # Bot token from @BotFather
-    bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
+    # Bot token from @BotFather (empty in multi-instance mode — token comes from API)
+    bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
 
     # Comma-separated list of allowed Telegram user IDs
     allowed_users: str = Field(default="", alias="TELEGRAM_ALLOWED_USERS")

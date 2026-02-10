@@ -370,10 +370,17 @@ _db: SalesDatabase | None = None
 async def get_sales_db() -> SalesDatabase:
     global _db
     if _db is None:
-        from ..config import get_telegram_settings
+        # Multi-instance mode: get db_path from BotConfig
+        from ..state import get_bot_config
 
-        settings = get_telegram_settings()
-        db_path = getattr(settings, "sales_db_path", "sales.db")
+        bot_config = get_bot_config()
+        if bot_config is not None:
+            db_path = bot_config.sales_db_path
+        else:
+            from ..config import get_telegram_settings
+
+            settings = get_telegram_settings()
+            db_path = getattr(settings, "sales_db_path", "sales.db")
         _db = SalesDatabase(db_path)
         await _db.init()
     return _db
