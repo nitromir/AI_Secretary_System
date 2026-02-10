@@ -82,13 +82,17 @@ async def render_stream(
 
     try:
         async for chunk in stream:
-            # Extract delta content from OpenAI-compatible chunk
-            choices = chunk.get("choices", [])
-            if not choices:
-                continue
-            delta = choices[0].get("delta", {})
-            content = delta.get("content")
-            if content is None:
+            # Support both plain string chunks (from LLMRouter) and
+            # OpenAI-compatible dicts (choices[].delta.content)
+            if isinstance(chunk, str):
+                content = chunk
+            else:
+                choices = chunk.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                content = delta.get("content")
+            if not content:
                 continue
 
             full_text += content
