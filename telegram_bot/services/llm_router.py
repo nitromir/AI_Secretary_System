@@ -70,9 +70,7 @@ class LLMRouter:
             )
         return self._http_client
 
-    async def _ensure_session(
-        self, client: httpx.AsyncClient, session_id: Optional[str]
-    ) -> str:
+    async def _ensure_session(self, client: httpx.AsyncClient, session_id: Optional[str]) -> str:
         """Ensure a chat session exists in the orchestrator DB.
 
         If *session_id* is given, check whether it already exists.
@@ -85,9 +83,7 @@ class LLMRouter:
 
         # Check if the session exists on the orchestrator
         if session_id:
-            resp = await client.get(
-                f"{self.orchestrator_url}/admin/chat/sessions/{session_id}"
-            )
+            resp = await client.get(f"{self.orchestrator_url}/admin/chat/sessions/{session_id}")
             if resp.status_code == 200:
                 return session_id
 
