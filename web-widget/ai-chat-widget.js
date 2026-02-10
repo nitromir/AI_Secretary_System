@@ -73,21 +73,24 @@
     }
 
     .ai-chat-button {
-      position: fixed;
-      bottom: 20px;
-      ${settings.position}: 20px;
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      background: var(--ai-primary);
-      border: none;
-      cursor: pointer;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      position: fixed !important;
+      bottom: 20px !important;
+      ${settings.position}: 20px !important;
+      width: 60px !important;
+      height: 60px !important;
+      border-radius: 50% !important;
+      background: var(--ai-primary) !important;
+      border: none !important;
+      cursor: pointer !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25) !important;
       transition: transform 0.2s, background 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999999;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      z-index: 999999 !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
     }
 
     .ai-chat-button:hover {
@@ -265,6 +268,7 @@
       border-radius: 24px;
       outline: none;
       font-size: 14px;
+      color: #1f2937;
       resize: none;
       max-height: 100px;
       font-family: inherit;
@@ -467,7 +471,11 @@
           body.source = 'widget';
           body.source_id = settings.instanceId;
         }
-        const sessionRes = await fetch(`${settings.apiUrl}/admin/chat/sessions`, {
+        // Use public widget endpoint if no JWT, else use admin endpoint
+        const createUrl = jwt
+          ? `${settings.apiUrl}/admin/chat/sessions`
+          : `${settings.apiUrl}/widget/chat/session`;
+        const sessionRes = await fetch(createUrl, {
           method: 'POST',
           headers: hdrs,
           body: JSON.stringify(body)
@@ -482,7 +490,11 @@
       if (settings.instanceId) {
         streamBody.widget_instance_id = settings.instanceId;
       }
-      const response = await fetch(`${settings.apiUrl}/admin/chat/sessions/${sessionId}/stream`, {
+      // Use public widget endpoint if no JWT
+      const streamUrl = jwt
+        ? `${settings.apiUrl}/admin/chat/sessions/${sessionId}/stream`
+        : `${settings.apiUrl}/widget/chat/session/${sessionId}/stream`;
+      const response = await fetch(streamUrl, {
         method: 'POST',
         headers: hdrs,
         body: JSON.stringify(streamBody)
@@ -547,8 +559,8 @@
       // Remove error after 5s
       setTimeout(() => errorEl.remove(), 5000);
 
-      // Clear invalid session
-      if (error.message.includes('404') || error.message.includes('Session')) {
+      // Clear invalid session on auth/not-found errors
+      if (error.message.includes('404') || error.message.includes('401') || error.message.includes('Session')) {
         sessionId = null;
         localStorage.removeItem(settings.sessionKey);
       }
