@@ -72,8 +72,10 @@ ruff format .               # Format
 ruff format --check .       # Check formatting (CI uses this)
 
 # Frontend
-cd admin && npm run lint       # Lint + auto-fix
-cd admin && npm run lint:check # Lint without auto-fix (CI-style)
+cd admin && npm run lint         # Lint + auto-fix
+cd admin && npm run lint:check   # Lint without auto-fix (CI-style)
+cd admin && npm run format       # Prettier format
+cd admin && npm run format:check # Check formatting only
 
 # All pre-commit hooks
 pre-commit run --all-files
@@ -88,7 +90,6 @@ pytest -k "test_chat" -v               # By name pattern
 pytest -m "not slow" -v                # Exclude slow tests
 pytest -m "not integration" -v         # Exclude integration (needs external services)
 pytest -m "not gpu" -v                 # Exclude GPU-required tests
-cd admin && npm test                   # Frontend tests
 ```
 
 Pytest uses `asyncio_mode = "auto"` — async test functions run without needing `@pytest.mark.asyncio`. Custom markers: `slow`, `integration`, `gpu`.
@@ -96,7 +97,7 @@ Pytest uses `asyncio_mode = "auto"` — async test functions run without needing
 ### CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and on PRs:
-- `lint-backend` — ruff check + format check + mypy (mypy is soft — `|| true`, won't fail build)
+- `lint-backend` — ruff check + format check + mypy on `orchestrator.py` only (mypy is soft — `|| true`, won't fail build)
 - `lint-frontend` — npm ci + eslint + build (includes type check)
 - `security` — Trivy vulnerability scanner
 
@@ -131,7 +132,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Database layer** (`db/`): Async SQLAlchemy with aiosqlite. `db/database.py` creates the engine and `AsyncSessionLocal` factory. `db/integration.py` provides backward-compatible manager classes (e.g., `AsyncChatManager`, `AsyncFAQManager`) that wrap repository calls — these are used as module-level singletons imported by `orchestrator.py` and routers. Repositories in `db/repositories/` inherit from `BaseRepository` with generic CRUD.
 
-**Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts). Bots with `auto_start=true` restart on app startup.
+**Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts). Bots with `auto_start=true` restart on app startup. Two Telegram frameworks: `python-telegram-bot` (legacy) and `aiogram` (new bots).
 
 **Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`. Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`).
 
@@ -147,7 +148,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
 
-**Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site.
+**Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site. When embedded in the admin panel, the widget auto-attaches JWT from `localStorage('admin_token')` for authenticated chat.
 
 **Other routers**: `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
 
@@ -170,9 +171,17 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **RBAC auth guards** (3 levels in `auth_manager.py`):
 - `Depends(get_current_user)` — any authenticated user (read endpoints)
-- `Depends(require_not_guest)` — user + admin only (write endpoints)
+- `Depends(require_not_guest)` — user/web + admin only (write endpoints)
 - `Depends(require_admin)` — admin only (vLLM, GSM, backups, models)
 - Data isolation: `owner_id = None if user.role == "admin" else user.id` in routers
+
+**4 roles** (`VALID_ROLES` in `db/repositories/user.py`):
+- `admin` — full access, sees all resources
+- `user` — read + write own resources, full admin panel
+- `web` — same backend access as `user`, but frontend hides: Dashboard, Services, vLLM, XTTS v2, Models, Finetune. Landing page: `/chat`
+- `guest` — read-only (demo access)
+- Frontend role exclusion: routes/nav items support `excludeRoles: ['web']` meta for per-role hiding
+- CLI: `python scripts/manage_users.py create <user> <pass> --role web`
 
 **Adding i18n translations:**
 1. Edit `admin/src/plugins/i18n.ts` — add keys to both `ru` and `en` message objects

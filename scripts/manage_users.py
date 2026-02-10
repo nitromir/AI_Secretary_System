@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 DB_PATH = Path(__file__).parent.parent / "data" / "secretary.db"
-VALID_ROLES = ("guest", "user", "admin")
+VALID_ROLES = ("guest", "web", "user", "admin")
 
 
 def hash_password(password: str, salt: str) -> str:

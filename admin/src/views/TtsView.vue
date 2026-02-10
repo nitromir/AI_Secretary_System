@@ -12,7 +12,9 @@ import {
   CheckCircle2
 } from 'lucide-vue-next'
 import { ref, computed, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 
+const authStore = useAuthStore()
 const queryClient = useQueryClient()
 
 // State
@@ -183,8 +185,8 @@ function createPreset() {
       </div>
 
       <div class="p-4 space-y-6">
-        <!-- XTTS Voices -->
-        <div v-if="xttsVoices.length" :class="['transition-opacity duration-200', !isXttsActive && 'opacity-60']">
+        <!-- XTTS Voices (hidden for web role) -->
+        <div v-if="xttsVoices.length && !authStore.isWeb" :class="['transition-opacity duration-200', !isXttsActive && 'opacity-60']">
           <div class="flex items-center gap-2 mb-3">
             <h3 class="text-sm font-medium text-muted-foreground">XTTS v2 (GPU CC >= 7.0)</h3>
             <span v-if="isXttsActive" class="px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
@@ -304,8 +306,8 @@ function createPreset() {
       </div>
     </div>
 
-    <!-- XTTS Parameters -->
-    <div v-if="currentEngine === 'xtts'" class="bg-card rounded-lg border border-border">
+    <!-- XTTS Parameters (hidden for web role) -->
+    <div v-if="currentEngine === 'xtts' && !authStore.isWeb" class="bg-card rounded-lg border border-border">
       <div class="p-4 border-b border-border flex items-center justify-between">
         <h2 class="text-lg font-semibold flex items-center gap-2">
           <Settings2 class="w-5 h-5" />

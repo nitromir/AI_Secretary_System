@@ -7,7 +7,6 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from ...bot import get_action_buttons
 from ...sales.database import get_sales_db
 from ...sales.keyboards import (
     GITHUB_URL,
@@ -22,6 +21,7 @@ from ...sales.states import SalesFunnel
 from ...sales.texts import CONTACT_TEXT, MENU_TEXT, SKIP_TO_CHAT_TEXT, WELCOME_TEXT
 from ...services.session_store import get_session_store
 from ...services.social_proof import get_social_proof_data
+from ...state import get_action_buttons
 
 
 logger = logging.getLogger(__name__)

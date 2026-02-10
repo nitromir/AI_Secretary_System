@@ -693,6 +693,7 @@ const messages = {
     roles: {
       admin: 'Администратор',
       user: 'Пользователь',
+      web: 'Веб',
       guest: 'Гость'
     },
     profile: {
@@ -1405,6 +1406,7 @@ const messages = {
     roles: {
       admin: 'Admin',
       user: 'User',
+      web: 'Web',
       guest: 'Guest'
     },
     profile: {

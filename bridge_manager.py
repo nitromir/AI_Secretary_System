@@ -5,8 +5,9 @@ Bridge Process Manager for CLI-OpenAI Bridge.
 Manages the bridge as a subprocess — start, stop, health check.
 The bridge wraps claude CLI into an OpenAI-compatible API on a local port.
 
-In Docker mode (DOCKER_CONTAINER=1), the bridge runs on the host machine
-and the orchestrator connects to it via host.docker.internal.
+In Docker mode (DOCKER_CONTAINER=1), tries subprocess first (if claude CLI
+is mounted into the container), then falls back to checking if the bridge
+is already running on the host via host.docker.internal.
 
 Usage:
     from bridge_manager import bridge_manager
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Base directory of the project
 BASE_DIR = Path(__file__).parent
 
-# Docker mode: can't spawn bridge subprocess, bridge runs on host
+# Docker mode detection
 IS_DOCKER = os.environ.get("DOCKER_CONTAINER") == "1"
 
 
@@ -48,20 +49,20 @@ class BridgeProcessManager:
         self._log_file: Path = BASE_DIR / "logs" / "bridge.log"
         self._bridge_dir: Path = BASE_DIR / "services" / "bridge"
         self._permission_level: str = "chat"
-        self._remote_running: bool = False
+        self._docker_remote: bool = False  # True = connected to host bridge
 
     @property
     def _bridge_host(self) -> str:
-        """Bridge host: host.docker.internal in Docker, 127.0.0.1 locally."""
-        if IS_DOCKER:
+        """Bridge host: host.docker.internal only when using remote host bridge."""
+        if self._docker_remote:
             return "host.docker.internal"
         return "127.0.0.1"
 
     @property
     def is_running(self) -> bool:
         """Check if bridge process is alive."""
-        if IS_DOCKER:
-            return self._remote_running
+        if self._docker_remote:
+            return True  # Assumed running (verified on connect)
         if self._process is not None:
             return self._process.poll() is None
         return False
@@ -69,7 +70,7 @@ class BridgeProcessManager:
     @property
     def pid(self) -> Optional[int]:
         """Return PID of bridge process."""
-        if not IS_DOCKER and self.is_running:
+        if not self._docker_remote and self.is_running:
             return self._process.pid  # type: ignore[union-attr]
         return None
 
@@ -81,7 +82,8 @@ class BridgeProcessManager:
         """
         Start the bridge subprocess.
 
-        In Docker mode, checks if bridge is already running on the host.
+        Tries subprocess mode first (works locally and in Docker if claude CLI
+        is mounted). In Docker, falls back to checking host.docker.internal.
 
         Args:
             port: Port to run the bridge on.
@@ -93,17 +95,36 @@ class BridgeProcessManager:
         self._port = port
         self._permission_level = permission_level
 
-        # Docker mode: bridge runs on host, just check if reachable
-        if IS_DOCKER:
-            return await self._start_docker_mode(port)
+        # Try subprocess first (works locally and in Docker with mounted CLI)
+        result = await self._start_local_mode(port, permission_level)
+        if result.get("status") == "ok":
+            self._docker_remote = False
+            return result
 
-        return await self._start_local_mode(port, permission_level)
+        # In Docker: fall back to checking if bridge runs on host
+        if IS_DOCKER:
+            host_result = await self._start_docker_mode(port)
+            if host_result.get("status") == "ok":
+                return host_result
+            # Return combined error with both failure reasons
+            return {
+                "status": "error",
+                "error": (
+                    f"Bridge auto-start failed: {result.get('error')}.\n"
+                    f"Host bridge also not found: {host_result.get('error')}.\n"
+                    "Mount claude CLI into container (see docker-compose.yml) "
+                    "or start bridge on host manually."
+                ),
+            }
+
+        return result
 
     async def _start_docker_mode(self, port: int) -> dict:
         """In Docker, check if bridge is reachable on host."""
+        # Temporarily set remote mode so _bridge_host returns host.docker.internal
+        self._docker_remote = True
         healthy = await self._wait_for_health(timeout=5)
         if healthy:
-            self._remote_running = True
             self._started_at = time.time()
             logger.info(f"🌉 Bridge detected on host at {self.get_base_url()}")
             return {
@@ -112,12 +133,12 @@ class BridgeProcessManager:
                 "url": self.get_base_url(),
             }
 
-        self._remote_running = False
+        self._docker_remote = False
         return {
             "status": "error",
             "error": (
-                f"Bridge not reachable at {self.get_base_url()}. "
-                "In Docker mode, start the bridge on the host machine first:\n"
+                f"Bridge not reachable at http://host.docker.internal:{port}/v1. "
+                "Start the bridge on the host machine:\n"
                 f"  cd services/bridge && python -m uvicorn src.server.main:app "
                 f"--host 0.0.0.0 --port {port}"
             ),
@@ -222,8 +243,8 @@ class BridgeProcessManager:
 
     async def stop(self) -> dict:
         """Stop the bridge process gracefully."""
-        if IS_DOCKER:
-            self._remote_running = False
+        if self._docker_remote:
+            self._docker_remote = False
             self._started_at = None
             return {
                 "status": "ok",
@@ -297,7 +318,10 @@ class BridgeProcessManager:
             f"GEMINI_CLI_PATH=\n"
             f"GPT_CLI_PATH=\n"
         )
-        env_path.write_text(env_content)
+        try:
+            env_path.write_text(env_content)
+        except OSError:
+            pass  # Read-only filesystem in Docker; config passed via env vars
 
     async def _wait_for_health(self, timeout: int = 20) -> bool:
         """Wait for bridge /health endpoint to respond."""
@@ -316,7 +340,7 @@ class BridgeProcessManager:
                 pass
 
             # Check if local process died
-            if not IS_DOCKER and self._process and self._process.poll() is not None:
+            if not self._docker_remote and self._process and self._process.poll() is not None:
                 return False
 
             await asyncio.sleep(0.5)

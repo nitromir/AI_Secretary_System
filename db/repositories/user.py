@@ -14,7 +14,7 @@ from db.models import User
 from db.repositories.base import BaseRepository
 
 
-VALID_ROLES = ("guest", "user", "admin")
+VALID_ROLES = ("guest", "web", "user", "admin")
 
 
 def generate_salt() -> str:

@@ -12,7 +12,6 @@ from aiogram.types import (
     Message,
 )
 
-from ..bot import get_action_buttons
 from ..config import get_telegram_settings
 from ..sales.database import get_sales_db
 from ..sales.keyboards import submenu_reply_kb
@@ -81,6 +80,8 @@ async def cmd_news(message: Message, state: FSMContext) -> None:
 
     db = await get_sales_db()
     await db.log_event(message.from_user.id, "news_command")
+
+    from ..state import get_action_buttons
 
     # Switch to submenu keyboard
     await message.answer("📰", reply_markup=submenu_reply_kb(get_action_buttons()))
