@@ -206,10 +206,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         logger.info(f"[{self.provider_id}] Initialized OpenAI-compatible provider: {self.base_url}")
 
     def _get_headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers: dict = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     def is_available(self) -> bool:
         try:
