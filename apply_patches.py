@@ -6,6 +6,8 @@ Uses sed-like replacements — idempotent (safe to run multiple times).
 """
 
 import re
+from pathlib import Path
+
 
 REPO = "/opt/ai-secretary"
 
@@ -213,9 +215,8 @@ def patch_vite_config():
 # ─── admin/.env.production.local ───
 
 def ensure_env_production_local():
-    import os
     path = f"{REPO}/admin/.env.production.local"
-    if not os.path.exists(path):
+    if not Path(path).exists():
         with open(path, "w") as f:
             f.write("VITE_BASE_PATH=/\n")
         print(f"  CREATED: {path}")
