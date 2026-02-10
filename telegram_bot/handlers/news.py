@@ -1,4 +1,4 @@
-"""News handlers — /news command shows SMM-generated news posts."""
+"""News handlers — /news command shows news posts from ## NEWS sections in PRs."""
 
 import logging
 
@@ -16,8 +16,11 @@ from ..config import get_telegram_settings
 from ..sales.database import get_sales_db
 from ..sales.keyboards import submenu_reply_kb
 from ..services.github_news import (
+    check_and_broadcast_commit_news,
     check_and_broadcast_news,
     fetch_merged_prs,
+    fetch_recent_commits,
+    generate_commit_news_post,
     generate_news_post,
 )
 
@@ -71,9 +74,9 @@ def news_upsell_kb() -> InlineKeyboardMarkup:
 
 @router.message(Command("news"))
 async def cmd_news(message: Message, state: FSMContext) -> None:
-    """Handle /news — show SMM news posts for all recent PRs.
+    """Handle /news — show news from ## NEWS sections in merged PRs.
 
-    Posts are cached in database — generated only once per PR.
+    Posts are cached in database. Only PRs with ## NEWS section are shown.
     """
     if not message.from_user:
         return
@@ -90,8 +93,17 @@ async def cmd_news(message: Message, state: FSMContext) -> None:
     loading_msg = await message.answer("📰 Загружаю новости...")
 
     try:
-        # Fetch PRs (last 60 days, up to 10)
-        prs = await fetch_merged_prs(days=60, limit=10)
+        # Fetch PRs from all configured repos (last 60 days, up to 10 per repo)
+        settings = get_telegram_settings()
+        repos = settings.get_news_repos()
+
+        prs = []
+        for repo in repos:
+            try:
+                repo_prs = await fetch_merged_prs(days=60, limit=10, repo=repo)
+                prs.extend(repo_prs)
+            except Exception as e:
+                logger.error(f"Failed to fetch PRs from {repo}: {e}")
 
         if not prs:
             await loading_msg.edit_text(
@@ -108,24 +120,54 @@ async def cmd_news(message: Message, state: FSMContext) -> None:
 
         if uncached_prs:
             await loading_msg.edit_text(
-                f"📰 Генерирую {len(uncached_prs)} новых постов...\n\n"
-                "⏳ Это может занять некоторое время"
+                f"📰 Загружаю {len(uncached_prs)} новостей...\n\n⏳ Это займёт пару секунд"
             )
 
-            # Generate posts for uncached PRs
+            # Parse NEWS section from uncached PRs
             for pr in uncached_prs:
                 try:
                     post_text = await generate_news_post(pr)
-                    await db.save_news_cache(pr["number"], pr["title"], post_text)
-                    cached_posts[pr["number"]] = post_text
+                    if post_text:  # Only cache if NEWS section exists
+                        await db.save_news_cache(pr["number"], pr["title"], post_text)
+                        cached_posts[pr["number"]] = post_text
+                    else:
+                        logger.debug(f"PR #{pr['number']} has no NEWS section")
                 except Exception as e:
-                    logger.error(f"Failed to generate post for PR #{pr['number']}: {e}")
+                    logger.error(f"Failed to parse news for PR #{pr['number']}: {e}")
+
+        # ── Commit-based news ──────────────────────────────────
+        commit_posts: dict[str, str] = {}  # sha -> post_text
+        all_commits: list[dict] = []
+        for repo in repos:
+            try:
+                commits = await fetch_recent_commits(repo, days=60, limit=10)
+                all_commits.extend(commits)
+            except Exception as e:
+                logger.error(f"Failed to fetch commits from {repo}: {e}")
+
+        if all_commits:
+            commit_shas = [c["sha"] for c in all_commits]
+            cached_commit_posts = await db.get_all_cached_commit_news(commit_shas)
+            commit_posts.update(cached_commit_posts)
+
+            uncached_commits = [c for c in all_commits if c["sha"] not in cached_commit_posts]
+            for commit in uncached_commits:
+                try:
+                    post_text = await generate_commit_news_post(commit)
+                    if post_text:
+                        await db.save_commit_news_cache(
+                            commit["sha"], commit["repo"], commit["message"], post_text
+                        )
+                        commit_posts[commit["sha"]] = post_text
+                except Exception as e:
+                    logger.error(f"Failed to parse commit news for {commit['sha'][:8]}: {e}")
 
         # Delete loading message
         await loading_msg.delete()
 
         # Send posts for each PR (in order)
         sent_count = 0
+        has_commit_posts = bool(commit_posts)
         for i, pr in enumerate(prs):
             pr_number = pr["number"]
 
@@ -133,8 +175,23 @@ async def cmd_news(message: Message, state: FSMContext) -> None:
                 continue  # Skip if generation failed
 
             post_text = cached_posts[pr_number]
-            is_last = i == len(prs) - 1
+            is_last_pr = i == len(prs) - 1
+            # Only attach upsell kb on very last message if no commit posts follow
+            show_upsell = is_last_pr and not has_commit_posts
 
+            try:
+                await message.answer(
+                    post_text,
+                    reply_markup=news_upsell_kb() if show_upsell else None,
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send news post: {e}")
+
+        # Send commit-based news posts
+        commit_items = list(commit_posts.items())
+        for i, (sha, post_text) in enumerate(commit_items):
+            is_last = i == len(commit_items) - 1
             try:
                 await message.answer(
                     post_text,
@@ -142,13 +199,17 @@ async def cmd_news(message: Message, state: FSMContext) -> None:
                 )
                 sent_count += 1
             except Exception as e:
-                logger.error(f"Failed to send news post: {e}")
+                logger.error(f"Failed to send commit news post: {e}")
 
         # Log completion
         await db.log_event(
             message.from_user.id,
             "news_viewed",
-            {"count": sent_count, "generated": len(uncached_prs)},
+            {
+                "count": sent_count,
+                "generated": len(uncached_prs),
+                "commit_posts": len(commit_posts),
+            },
         )
 
     except Exception as e:
@@ -340,8 +401,9 @@ async def cmd_broadcast(message: Message, state: FSMContext) -> None:
     )
 
     try:
-        # skip_initial=False means it will broadcast even on first run
-        await check_and_broadcast_news(message.bot, skip_initial=not force_mode)
+        skip_initial = not force_mode
+        await check_and_broadcast_news(message.bot, skip_initial=skip_initial)
+        await check_and_broadcast_commit_news(message.bot, skip_initial=skip_initial)
 
         # Get stats
         subscribers_count = await db.get_subscribers_count()
