@@ -40,6 +40,7 @@ class LLMRouter:
         self,
         orchestrator_url: str = "http://localhost:8002",
         claude_provider_id: str = "claude-bridge",
+        default_backend: str = "vllm",
     ):
         """
         Initialize router.
@@ -47,22 +48,70 @@ class LLMRouter:
         Args:
             orchestrator_url: URL of AI Secretary orchestrator API
             claude_provider_id: ID of Claude provider in cloud_llm_providers table
+            default_backend: Default LLM backend for general chat (from bot config)
         """
         self.orchestrator_url = orchestrator_url.rstrip("/")
         self.claude_provider_id = claude_provider_id
+        self.default_backend = default_backend
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._session_map: dict[str, str] = {}  # bot session_id → orchestrator session_id
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
+        """Get or create HTTP client with auth from BOT_INTERNAL_TOKEN."""
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
+            import os
+
+            headers = {}
+            internal_token = os.environ.get("BOT_INTERNAL_TOKEN")
+            if internal_token:
+                headers["Authorization"] = f"Bearer {internal_token}"
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=10.0), headers=headers
+            )
         return self._http_client
+
+    async def _ensure_session(
+        self, client: httpx.AsyncClient, session_id: Optional[str]
+    ) -> str:
+        """Ensure a chat session exists in the orchestrator DB.
+
+        If *session_id* is given, check whether it already exists.
+        Create a new orchestrator session when needed and cache the mapping
+        so subsequent calls reuse the same DB session.
+        """
+        # Already resolved earlier in this process?
+        if session_id and session_id in self._session_map:
+            return self._session_map[session_id]
+
+        # Check if the session exists on the orchestrator
+        if session_id:
+            resp = await client.get(
+                f"{self.orchestrator_url}/admin/chat/sessions/{session_id}"
+            )
+            if resp.status_code == 200:
+                return session_id
+
+        # Create a new session on the orchestrator
+        try:
+            create_resp = await client.post(
+                f"{self.orchestrator_url}/admin/chat/sessions",
+                json={"title": "Telegram Bot", "source": "telegram_bot"},
+            )
+            create_resp.raise_for_status()
+            new_id = create_resp.json()["session"]["id"]
+            if session_id:
+                self._session_map[session_id] = new_id
+            logger.info(f"Created orchestrator session {new_id} (bot session: {session_id})")
+            return new_id
+        except Exception as e:
+            logger.error(f"Failed to create orchestrator session: {e}")
+            raise
 
     def _get_backend_string(self, backend: LLMBackend) -> str:
         """Convert backend enum to API string."""
         if backend == LLMBackend.CLAUDE:
             return f"cloud:{self.claude_provider_id}"
-        return "vllm"
+        return self.default_backend
 
     async def generate_stream(
         self,
@@ -104,24 +153,9 @@ class LLMRouter:
             },
         }
 
-        # Use temporary session endpoint or existing session
-        if session_id:
-            endpoint = f"{self.orchestrator_url}/admin/chat/sessions/{session_id}/stream"
-        else:
-            # Create a temporary session
-            try:
-                create_resp = await client.post(
-                    f"{self.orchestrator_url}/admin/chat/sessions",
-                    json={"title": "Telegram Bot", "source": "telegram_bot"},
-                )
-                create_resp.raise_for_status()
-                session_data = create_resp.json()
-                session_id = session_data["session"]["id"]
-                endpoint = f"{self.orchestrator_url}/admin/chat/sessions/{session_id}/stream"
-            except Exception as e:
-                logger.error(f"Failed to create session: {e}")
-                yield "Error: Could not create session"
-                return
+        # Ensure session exists in orchestrator DB
+        session_id = await self._ensure_session(client, session_id)
+        endpoint = f"{self.orchestrator_url}/admin/chat/sessions/{session_id}/stream"
 
         try:
             async with client.stream("POST", endpoint, json=payload) as resp:
@@ -292,7 +326,21 @@ def get_llm_router(
     if _router is None:
         import os
 
+        from ..state import get_bot_config
+
         url = orchestrator_url or os.environ.get("ORCHESTRATOR_URL", "http://localhost:8002")
         provider_id = claude_provider_id or os.environ.get("CLAUDE_PROVIDER_ID", "claude-bridge")
-        _router = LLMRouter(orchestrator_url=url, claude_provider_id=provider_id)
+
+        # Use bot instance's llm_backend if available (multi-instance mode)
+        default_backend = "vllm"
+        bot_config = get_bot_config()
+        if bot_config and bot_config.llm_backend:
+            default_backend = bot_config.llm_backend
+            logger.info(f"LLM Router: using bot config backend: {default_backend}")
+
+        _router = LLMRouter(
+            orchestrator_url=url,
+            claude_provider_id=provider_id,
+            default_backend=default_backend,
+        )
     return _router
