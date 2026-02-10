@@ -30,7 +30,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   web: [
     'chat.*',
     'llm.view', 'llm.cloud.*',
-    'tts.view', 'tts.test',
     'faq.*',
     'telegram.*',
     'widget.*',

@@ -57,7 +57,7 @@ const router = createRouter({
       path: '/tts',
       name: 'tts',
       component: TtsView,
-      meta: { title: 'TTS', icon: 'Mic', minRole: 'user' }
+      meta: { title: 'TTS', icon: 'Mic', minRole: 'user', excludeRoles: ['web'] }
     },
     {
       path: '/faq',
