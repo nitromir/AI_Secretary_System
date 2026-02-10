@@ -85,8 +85,8 @@ async def main() -> None:
         if allowed:
             logger.info(f"Allowed users: {allowed}")
 
-    # Start news broadcast scheduler (checks every hour)
-    scheduler_task = asyncio.create_task(news_broadcast_scheduler(bot, interval_hours=1))
+    # Start news broadcast scheduler (checks every 60 minutes)
+    scheduler_task = asyncio.create_task(news_broadcast_scheduler(bot, interval_minutes=60))
     logger.info("News broadcast scheduler started")
 
     try:
