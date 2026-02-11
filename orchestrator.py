@@ -3285,7 +3285,12 @@ async def get_widget_script(request: Request, instance: Optional[str] = None):
         origin_domain = (
             origin.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
         )
-        if not any(d in origin_domain for d in allowed_domains):
+        # Normalize allowed_domains: strip protocol prefix for comparison
+        normalized = [
+            d.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+            for d in allowed_domains
+        ]
+        if not any(d in origin_domain for d in normalized):
             return Response(
                 content=f"// Widget not allowed for domain: {origin_domain}",
                 media_type="application/javascript",
