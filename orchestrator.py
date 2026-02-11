@@ -22,7 +22,6 @@ import numpy as np
 import soundfile as sf
 import uvicorn
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
     RedirectResponse,
@@ -33,6 +32,7 @@ from pydantic import BaseModel
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.cors_middleware import DynamicCORSMiddleware
 from app.rate_limiter import limiter
 
 # Modular routers
@@ -391,20 +391,15 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS для доступа из браузера
-# Read allowed origins from env (comma-separated), default to "*" for development
+# Static origins from env (comma-separated), default to "*" for development.
+# Widget allowed_domains are added dynamically from the database.
 CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
 CORS_ORIGINS = (
     ["*"]
     if CORS_ORIGINS_RAW == "*"
     else [origin.strip() for origin in CORS_ORIGINS_RAW.split(",") if origin.strip()]
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(DynamicCORSMiddleware, static_origins=CORS_ORIGINS)
 
 # Security headers
 app.add_middleware(SecurityHeadersMiddleware, enabled=SECURITY_HEADERS_ENABLED)
