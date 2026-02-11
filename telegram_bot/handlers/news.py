@@ -39,23 +39,9 @@ def news_upsell_kb() -> InlineKeyboardMarkup:
     buttons.append(
         [
             InlineKeyboardButton(
-                text="📦 Обновить самостоятельно",
+                text="📦 Установить самостоятельно",
                 url=GITHUB_URL,
             )
-        ]
-    )
-
-    # Paid options
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="⚡ Обновить за 2,000₽",
-                callback_data="news:upsell_update",
-            ),
-            InlineKeyboardButton(
-                text="🚀 Установить за 5,000₽",
-                callback_data="news:upsell_install",
-            ),
         ]
     )
 
