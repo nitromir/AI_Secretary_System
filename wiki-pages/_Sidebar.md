@@ -2,6 +2,7 @@
 
 ### 🏠 Главная
 * [[Home]]
+* [[Installation]]
 
 ### 📱 Админ-панель
 * [[Dashboard]]
