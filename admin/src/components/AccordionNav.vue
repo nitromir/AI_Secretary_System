@@ -176,8 +176,9 @@ function hasActiveItem(group: typeof navGroups.value[0]) {
 <template>
   <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
     <template v-for="group in navGroups" :key="group.id">
-      <!-- Group Header -->
+      <!-- Group Header (hidden when sidebar is collapsed) -->
       <button
+        v-if="!collapsed"
         :class="[
           'flex items-center w-full px-3 py-2 rounded-lg transition-all duration-200',
           'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
@@ -186,11 +187,10 @@ function hasActiveItem(group: typeof navGroups.value[0]) {
         @click="toggleGroup(group.id)"
       >
         <component :is="group.icon" class="w-5 h-5 shrink-0" />
-        <span v-if="!collapsed" class="flex-1 ml-3 text-left font-medium truncate">
+        <span class="flex-1 ml-3 text-left font-medium truncate">
           {{ t(group.nameKey) }}
         </span>
         <ChevronDown
-          v-if="!collapsed"
           :class="[
             'w-4 h-4 transition-transform duration-200',
             isGroupExpanded(group.id) ? 'rotate-180' : ''
