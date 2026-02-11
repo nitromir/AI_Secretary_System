@@ -102,7 +102,7 @@ function toggleLocale() {
         >
           <!-- Logo -->
           <div class="flex items-center justify-between h-16 px-4 border-b border-border">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 cursor-pointer" @click="isMobile ? (mobileMenuOpen = false) : (sidebarOpen = !sidebarOpen)">
               <div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
                 <Settings class="w-5 h-5 text-primary" />
               </div>
