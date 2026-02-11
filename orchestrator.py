@@ -604,7 +604,8 @@ async def startup_event():
         openvoice_service, \
         stt_service, \
         llm_service, \
-        streaming_tts_manager
+        streaming_tts_manager, \
+        LLM_BACKEND
 
     logger.info("🚀 Запуск AI Secretary Orchestrator")
 
@@ -3377,6 +3378,15 @@ async def widget_create_session(request: Request):
     return {"session": session}
 
 
+@app.get("/widget/chat/session/{session_id}")
+async def widget_get_session(session_id: str):
+    """Public: retrieve widget session with message history."""
+    session = await async_chat_manager.get_session(session_id)
+    if not session or session.get("source") != "widget":
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session}
+
+
 @app.post("/widget/chat/session/{session_id}/stream")
 async def widget_stream_message(request: Request, session_id: str):
     """Public: send a message and get streaming response for widget."""
@@ -3388,7 +3398,7 @@ async def widget_stream_message(request: Request, session_id: str):
         raise HTTPException(status_code=400, detail="Message content required")
 
     session = await async_chat_manager.get_session(session_id)
-    if not session:
+    if not session or session.get("source") != "widget":
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Determine LLM from widget config

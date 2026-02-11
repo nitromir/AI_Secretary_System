@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **News System**: Regex-based `## NEWS` parsing from GitHub PRs/commits for Telegram broadcasts (migrated from LLM generation)
 - **Web Role**: New `web` role — same backend access as `user` but frontend hides infrastructure views (Dashboard, Services, vLLM, XTTS, Models, Finetune)
 - **Widget Runtime Check**: Embeddable widget auto-hides when instance is disabled via `GET /widget/status`
+- **Widget Session Persistence**: Replain-style chat history across page navigations — cookie + localStorage dual storage (30-day TTL), automatic history preloading via `GET /widget/chat/session/{id}`, open/closed state preserved in sessionStorage, `source="widget"` security check on public endpoints
 - **Logo Sidebar Toggle**: Click logo to collapse/expand admin sidebar
 
 ### Fixed

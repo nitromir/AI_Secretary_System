@@ -163,6 +163,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site. When embedded in the admin panel, the widget auto-attaches JWT from `localStorage('admin_token')` for authenticated chat.
 
+**Widget session persistence** (Replain-style): The widget preserves chat history across page navigations. Session ID is stored in both a cookie (`SameSite=None; Secure`, 30-day TTL) and `localStorage` (cookie-first, localStorage fallback). On page load, `preloadHistory()` fetches the session via `GET /widget/chat/session/{id}` (public, no auth, `source="widget"` only). The open/closed state is tracked in `sessionStorage` — if the chat was open before navigation, it auto-opens and renders history on the next page. `clearSession()` wipes cookie + localStorage + sessionStorage.
+
 **Other routers**: `audit.py` (audit log viewer/export/cleanup), `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
 
 ## Code Patterns
