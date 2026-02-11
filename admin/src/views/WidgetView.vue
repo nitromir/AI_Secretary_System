@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useResponsive } from '@/composables/useResponsive'
 import {
   Code2,
   Globe,
@@ -36,6 +37,10 @@ import { useToastStore } from '@/stores/toast'
 const { t } = useI18n()
 const queryClient = useQueryClient()
 const toast = useToastStore()
+const { isMobile } = useResponsive()
+
+// Mobile master-detail: show list or detail
+const showMobileList = ref(true)
 
 // State
 const selectedInstanceId = ref<string | null>(null)
@@ -347,7 +352,13 @@ function handleTestKeydown(e: KeyboardEvent) {
 <template>
   <div class="flex h-full gap-6 animate-fade-in">
     <!-- Sidebar: Instance List -->
-    <div class="w-80 flex-shrink-0 flex flex-col bg-card rounded-xl border border-border overflow-hidden">
+    <div
+      v-show="!isMobile || showMobileList"
+      :class="[
+        'flex-shrink-0 flex flex-col bg-card rounded-xl border border-border overflow-hidden',
+        isMobile ? 'w-full' : 'w-80'
+      ]"
+    >
       <!-- Header -->
       <div class="p-4 border-b border-border">
         <div class="flex items-center justify-between mb-2">
@@ -387,7 +398,7 @@ function handleTestKeydown(e: KeyboardEvent) {
                 ? 'bg-primary/10 border border-primary/30'
                 : 'hover:bg-secondary'
             ]"
-            @click="selectedInstanceId = instance.id"
+            @click="selectedInstanceId = instance.id; showMobileList = false"
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -409,7 +420,7 @@ function handleTestKeydown(e: KeyboardEvent) {
     </div>
 
     <!-- Main Content -->
-    <div class="flex-1 flex flex-col min-w-0">
+    <div v-show="!isMobile || !showMobileList" class="flex-1 flex flex-col min-w-0">
       <!-- No selection -->
       <div v-if="!selectedInstance" class="flex-1 flex items-center justify-center">
         <div class="text-center">
@@ -420,6 +431,16 @@ function handleTestKeydown(e: KeyboardEvent) {
 
       <!-- Instance Detail -->
       <template v-else>
+        <!-- Mobile back button -->
+        <button
+          v-if="isMobile"
+          class="flex items-center gap-2 text-sm text-primary mb-4 hover:underline"
+          @click="showMobileList = true"
+        >
+          <ChevronRight class="w-4 h-4 rotate-180" />
+          {{ t('widget.widgets') }}
+        </button>
+
         <!-- Instance Header -->
         <div class="flex items-center justify-between mb-6">
           <div>
@@ -467,7 +488,7 @@ function handleTestKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Status Cards -->
-        <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div class="bg-card rounded-xl border border-border p-4">
             <div class="flex items-center gap-2 text-muted-foreground mb-1">
               <Globe class="w-4 h-4" />
@@ -509,7 +530,7 @@ function handleTestKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Tabs -->
-        <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6">
+        <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6 tab-bar-scroll max-w-full whitespace-nowrap">
           <button
             v-for="tab in ['settings', 'appearance', 'domains', 'ai', 'code', 'test'] as const"
             :key="tab"
@@ -599,7 +620,7 @@ function handleTestKeydown(e: KeyboardEvent) {
 
           <!-- AI Tab -->
           <template v-if="activeTab === 'ai'">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="bg-card rounded-xl border border-border p-4">
                 <h3 class="font-medium mb-2">{{ t('widget.llmBackend') }}</h3>
                 <p class="text-lg font-semibold">{{ selectedInstance.llm_backend }}</p>
@@ -810,7 +831,7 @@ function handleTestKeydown(e: KeyboardEvent) {
 
           <div class="p-4 overflow-y-auto max-h-[calc(90vh-120px)] space-y-4">
             <!-- Basic Info -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('widget.widgetName') }} *</label>
                 <input
@@ -986,7 +1007,7 @@ function handleTestKeydown(e: KeyboardEvent) {
             </div>
 
             <!-- AI Config -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('widget.llmBackend') }}</label>
                 <select
@@ -1010,7 +1031,7 @@ function handleTestKeydown(e: KeyboardEvent) {
             </div>
 
             <!-- TTS Config -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('widget.ttsEngine') }}</label>
                 <select

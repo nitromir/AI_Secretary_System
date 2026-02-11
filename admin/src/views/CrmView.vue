@@ -287,7 +287,7 @@ onMounted(async () => {
       </div>
 
       <!-- Stats (when connected) -->
-      <div v-if="isConnected" class="grid grid-cols-3 gap-4 mb-6">
+      <div v-if="isConnected" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div class="p-4 rounded-lg bg-secondary/50">
           <div class="text-2xl font-bold">{{ stats.contacts }}</div>
           <div class="text-sm text-muted-foreground">{{ t('crm.contacts') }}</div>

@@ -188,7 +188,7 @@ function toggleLocale() {
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit">
+    <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit tab-bar-scroll max-w-full whitespace-nowrap">
       <button
         v-for="tab in ['profile', 'general', 'export', 'audit'] as const"
         :key="tab"
