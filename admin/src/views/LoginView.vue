@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const toastStore = useToastStore()
 
@@ -92,7 +93,8 @@ async function handleSubmit() {
 
     if (success) {
       toastStore.success('Добро пожаловать!', `Вы вошли как ${username.value}`)
-      router.push('/')
+      const redirect = (route.query.redirect as string) || '/'
+      router.push(redirect)
     } else {
       toastStore.error('Ошибка входа', authStore.error || 'Неверные учётные данные')
     }

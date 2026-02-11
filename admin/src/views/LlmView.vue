@@ -162,6 +162,11 @@ const currentCloudProviderId = computed(() => {
 // Check if current provider form is for Gemini
 const isGeminiProvider = computed(() => providerForm.value.provider_type === 'gemini')
 
+// Enabled cloud providers (for status display)
+const enabledProviders = computed(() =>
+  (providersData.value?.providers || []).filter((p: CloudProvider) => p.enabled),
+)
+
 // Get the default (or first enabled) cloud provider ID for the toggle button
 const defaultCloudProviderId = computed(() => {
   const providers = providersData.value?.providers || []
@@ -666,18 +671,31 @@ function switchToCloudProvider(providerId: string) {
           </div>
 
           <!-- Status -->
-          <div class="flex items-center gap-2 text-sm">
-            <Loader2 v-if="setBackendMutation.isPending.value" class="w-4 h-4 animate-spin text-primary" />
-            <CheckCircle2 v-else class="w-4 h-4 text-green-500" />
-            <span v-if="setBackendMutation.isPending.value" class="text-muted-foreground">
-              Переключение... (vLLM может запускаться до 2 минут)
-            </span>
-            <span v-else>
-              Current: <strong>{{ backendData?.backend }}</strong>
-              <span v-if="backendData?.model" class="text-muted-foreground">
-                ({{ backendData.model }})
+          <div class="text-sm">
+            <div v-if="setBackendMutation.isPending.value" class="flex items-center gap-2">
+              <Loader2 class="w-4 h-4 animate-spin text-primary" />
+              <span class="text-muted-foreground">
+                Переключение... (vLLM может запускаться до 2 минут)
               </span>
-            </span>
+            </div>
+            <div v-else-if="enabledProviders.length" class="flex flex-wrap items-center gap-2">
+              <span
+                v-for="p in enabledProviders"
+                :key="p.id"
+                :class="[
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border cursor-pointer transition-colors',
+                  currentCloudProviderId === p.id
+                    ? 'border-green-500/50 bg-green-500/10 text-green-600 font-medium'
+                    : 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/50'
+                ]"
+                @click="switchToCloudProvider(p.id)"
+              >
+                <CheckCircle2 v-if="currentCloudProviderId === p.id" class="w-3 h-3" />
+                <Cloud v-else class="w-3 h-3" />
+                {{ p.name }}
+                <span class="opacity-70">{{ p.model_name }}</span>
+              </span>
+            </div>
           </div>
 
           <!-- Stop vLLM checkbox (show when using vLLM) -->
