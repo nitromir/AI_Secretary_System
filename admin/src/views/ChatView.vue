@@ -708,9 +708,10 @@ watch(sessions, (newSessions) => {
     <!-- Sidebar: Chat List -->
     <div
       :class="[
-        'w-72 border-r border-border bg-card flex flex-col transition-all',
+        'border-r border-border bg-card flex flex-col transition-all',
         showSidebar ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-        'fixed md:relative inset-y-0 left-0 z-40 md:z-0'
+        'fixed md:relative inset-y-0 left-0 z-40 md:z-0',
+        'w-full md:w-72'
       ]"
     >
       <!-- Header -->
@@ -940,6 +941,13 @@ watch(sessions, (newSessions) => {
         </div>
       </div>
     </div>
+
+    <!-- Mobile sidebar backdrop -->
+    <div
+      v-if="showSidebar"
+      class="md:hidden fixed inset-0 bg-black/50 z-30"
+      @click="showSidebar = false"
+    />
 
     <!-- Mobile sidebar toggle -->
     <button

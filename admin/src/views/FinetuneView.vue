@@ -400,7 +400,7 @@ onUnmounted(() => {
 <template>
   <div class="space-y-6">
     <!-- Tab Selector -->
-    <div class="flex gap-2 border-b border-border pb-4">
+    <div class="flex gap-2 border-b border-border pb-4 tab-bar-scroll max-w-full whitespace-nowrap">
       <button
         :class="[
           'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
@@ -874,7 +874,7 @@ v-if="!adapter.active" :disabled="deleteAdapterMutation.isPending.value" class="
           </div>
 
           <!-- Samples Stats -->
-          <div class="grid grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="p-4 bg-secondary rounded-lg">
               <p class="text-sm text-muted-foreground">Total Samples</p>
               <p class="text-2xl font-bold">{{ ttsSamples.length }}</p>

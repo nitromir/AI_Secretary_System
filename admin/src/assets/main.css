@@ -179,8 +179,9 @@
 
 /* Mobile improvements */
 @media (max-width: 640px) {
-  /* Larger touch targets */
-  button, a {
+  /* Larger touch targets for standalone buttons (not inline icon buttons) */
+  button:not([class*="p-1"]):not([class*="p-0"]),
+  a:not([class*="text-xs"]):not([class*="text-sm"]) {
     min-height: 44px;
   }
 
@@ -194,6 +195,23 @@
     user-select: none;
     -webkit-user-select: none;
   }
+
+  /* Modals must not overflow viewport */
+  .fixed.inset-0 > div[class*="max-w-"] {
+    margin-left: 1rem;
+    margin-right: 1rem;
+    max-width: calc(100vw - 2rem);
+  }
+}
+
+/* Scrollable tab bar (hide scrollbar) */
+.tab-bar-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tab-bar-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 /* Print styles */
