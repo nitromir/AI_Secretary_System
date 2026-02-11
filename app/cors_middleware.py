@@ -65,8 +65,14 @@ class DynamicCORSMiddleware:
             instances = await async_widget_instance_manager.list_instances()
             for inst in instances:
                 for domain in inst.get("allowed_domains", []):
-                    d = domain.strip().lower()
-                    if d:
+                    d = domain.strip().lower().rstrip("/")
+                    if not d:
+                        continue
+                    if d.startswith("https://") or d.startswith("http://"):
+                        # Already a full origin (e.g. "https://shaerware.digital")
+                        origins.add(d)
+                    else:
+                        # Bare domain (e.g. "shaerware.digital")
                         origins.add(f"https://{d}")
                         origins.add(f"http://{d}")
         except Exception as e:
