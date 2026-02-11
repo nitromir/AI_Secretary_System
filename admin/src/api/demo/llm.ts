@@ -111,7 +111,7 @@ export const llmRoutes: DemoRoute[] = [
       return {
         status: 'ok',
         backend,
-        model: backend === 'vllm' ? 'Qwen2.5-7B-Instruct-AWQ' : 'gemini-2.0-flash',
+        model: backend === 'vllm' ? 'Qwen2.5-7B-Instruct-AWQ' : 'unknown',
         message: `Backend switched to ${backend}`,
       }
     },

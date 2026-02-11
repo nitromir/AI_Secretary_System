@@ -167,13 +167,6 @@ const availableLlmOptions = computed<LlmOption[]>(() => {
     }
   }
 
-  // Add gemini as fallback option
-  options.push({
-    value: 'gemini',
-    label: t('llm.cloudAI'),
-    type: 'cloud'
-  })
-
   return options
 })
 

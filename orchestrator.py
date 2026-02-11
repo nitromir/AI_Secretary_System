@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Главный оркестратор - координирует все сервисы
-STT (Whisper) -> LLM (Gemini) -> TTS (XTTS v2)
+STT (Whisper) -> LLM (vLLM / Cloud) -> TTS (XTTS v2)
 """
 
 import asyncio
@@ -88,7 +88,6 @@ from db.integration import (
     shutdown_database,
 )
 from finetune_manager import get_finetune_manager
-from llm_service import LLMService
 from model_manager import get_model_manager
 
 
@@ -152,7 +151,7 @@ except ImportError:
     OpenVoiceService = None
 
 # Определяем какой LLM backend использовать
-LLM_BACKEND = os.getenv("LLM_BACKEND", "gemini").lower()  # "gemini" или "vllm"
+LLM_BACKEND = os.getenv("LLM_BACKEND", "vllm").lower()  # "vllm" or "cloud:{provider_id}"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -436,7 +435,7 @@ anna_voice_service: Optional["VoiceCloneService"] = None  # XTTS (Анна) - GP
 piper_service: Optional["PiperTTSService"] = None  # Piper (Dmitri, Irina) - CPU
 openvoice_service: Optional["OpenVoiceService"] = None  # OpenVoice v2 (Марина) - GPU CC 6.1+
 stt_service: Optional["STTService"] = None
-llm_service: Optional[LLMService] = None
+llm_service = None  # VLLMLLMService or CloudLLMService instance
 
 # Конфигурация текущего голоса
 # engine: "xtts" (Марина/Анна на GPU CC>=7.0), "piper" (Dmitri/Irina на CPU), "openvoice" (Марина на GPU CC 6.1+)
@@ -453,6 +452,39 @@ TEMP_DIR.mkdir(exist_ok=True)
 # Папка для логов звонков
 CALLS_LOG_DIR = Path("./calls_log")
 CALLS_LOG_DIR.mkdir(exist_ok=True)
+
+
+async def _get_or_create_default_gemini_provider() -> Optional[dict]:
+    """Find existing default Gemini provider or auto-create from GEMINI_API_KEY env.
+
+    Returns provider config dict or None if no API key available.
+    """
+    # Try to find existing Gemini provider
+    providers = await async_cloud_provider_manager.list_providers(enabled_only=False)
+    for p in providers:
+        if p.get("provider_type") == "gemini":
+            return await async_cloud_provider_manager.get_provider_with_key(p["id"])
+
+    # No Gemini provider exists — create one from env
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not set, cannot auto-create Gemini cloud provider")
+        return None
+
+    logger.info("Auto-creating default Gemini cloud provider from GEMINI_API_KEY...")
+    provider = await async_cloud_provider_manager.create_provider(
+        name="Gemini (Auto-created)",
+        provider_type="gemini",
+        api_key=api_key,
+        model_name=model_name,
+        enabled=True,
+        is_default=True,
+        description="Auto-created from GEMINI_API_KEY environment variable",
+    )
+    logger.info(f"Created Gemini provider: {provider['id']}")
+    return await async_cloud_provider_manager.get_provider_with_key(provider["id"])
 
 
 # Helper functions for loading data from database at startup
@@ -646,29 +678,79 @@ async def startup_event():
             current_voice_config = {"engine": "piper", "voice": "dmitri"}
             logger.info("🎤 Голос по умолчанию: Дмитрий (Piper)")
 
-        # Инициализация LLM Service (vLLM или Gemini)
+        # Инициализация LLM Service (vLLM или Cloud)
+        # Auto-migrate legacy "gemini" backend to cloud provider system
+        if LLM_BACKEND == "gemini":
+            logger.info("🔄 Auto-migrating LLM_BACKEND=gemini to cloud provider...")
+            gemini_provider = await _get_or_create_default_gemini_provider()
+            if gemini_provider:
+                LLM_BACKEND = f"cloud:{gemini_provider['id']}"
+                os.environ["LLM_BACKEND"] = LLM_BACKEND
+                logger.info(f"✅ Migrated to {LLM_BACKEND}")
+            else:
+                logger.warning("⚠️ Cannot auto-migrate gemini backend: no GEMINI_API_KEY")
+                LLM_BACKEND = "vllm"
+
         if LLM_BACKEND == "vllm" and VLLM_AVAILABLE:
-            logger.info("📦 Загрузка vLLM LLM Service (Llama-3.1-8B)...")
+            logger.info("📦 Загрузка vLLM LLM Service...")
             try:
                 llm_service = VLLMLLMService()
                 if llm_service.is_available():
                     logger.info("✅ vLLM подключен")
                 else:
-                    logger.warning("⚠️ vLLM не отвечает, пробуем Gemini...")
-                    llm_service = LLMService()
+                    logger.warning("⚠️ vLLM не отвечает, пробуем облачного провайдера...")
+                    gemini_provider = await _get_or_create_default_gemini_provider()
+                    if gemini_provider:
+                        llm_service = CloudLLMService(gemini_provider)
+                        LLM_BACKEND = f"cloud:{gemini_provider['id']}"
+                        os.environ["LLM_BACKEND"] = LLM_BACKEND
+                        logger.info(f"✅ Fallback на cloud: {gemini_provider['id']}")
+                    else:
+                        logger.warning("⚠️ Нет облачного провайдера для fallback")
             except Exception as e:
-                logger.warning(f"⚠️ vLLM недоступен ({e}), используем Gemini")
-                llm_service = LLMService()
+                logger.warning(f"⚠️ vLLM недоступен ({e}), пробуем облачного провайдера...")
+                gemini_provider = await _get_or_create_default_gemini_provider()
+                if gemini_provider:
+                    llm_service = CloudLLMService(gemini_provider)
+                    LLM_BACKEND = f"cloud:{gemini_provider['id']}"
+                    os.environ["LLM_BACKEND"] = LLM_BACKEND
+                    logger.info(f"✅ Fallback на cloud: {gemini_provider['id']}")
+                else:
+                    logger.warning("⚠️ Нет облачного провайдера для fallback")
+                    llm_service = None
         elif LLM_BACKEND.startswith("cloud:"):
+            provider_id = LLM_BACKEND.split(":", 1)[1]
             logger.info(f"☁️ LLM backend: {LLM_BACKEND} (cloud provider)")
             try:
-                llm_service = LLMService()
+                provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                    provider_id
+                )
+                if provider_config:
+                    llm_service = CloudLLMService(provider_config)
+                    logger.info(
+                        f"✅ Cloud LLM: {provider_config.get('name')} "
+                        f"({provider_config.get('provider_type')})"
+                    )
+                else:
+                    logger.warning(f"⚠️ Cloud provider {provider_id} not found in DB")
+                    llm_service = None
             except Exception as e:
-                logger.warning(f"⚠️ Gemini fallback недоступен ({e}), только облачные провайдеры")
+                logger.warning(f"⚠️ Cloud LLM недоступен ({e})")
                 llm_service = None
         else:
-            logger.info("📦 Загрузка Gemini LLM Service...")
-            llm_service = LLMService()
+            logger.warning(f"⚠️ Unknown LLM_BACKEND={LLM_BACKEND}, trying vLLM...")
+            if VLLM_AVAILABLE:
+                try:
+                    llm_service = VLLMLLMService()
+                    if llm_service.is_available():
+                        LLM_BACKEND = "vllm"
+                        logger.info("✅ vLLM подключен (fallback)")
+                    else:
+                        llm_service = None
+                except Exception:
+                    llm_service = None
+            else:
+                llm_service = None
 
         # Инициализация Streaming TTS Manager
         logger.info("📦 Инициализация Streaming TTS Manager...")
@@ -735,6 +817,15 @@ async def startup_event():
         except Exception as gsm_err:
             logger.warning(f"⚠️ GSM service not available: {gsm_err}")
 
+        # Initialize Wiki RAG service
+        try:
+            from app.services.wiki_rag_service import WikiRAGService
+
+            wiki_rag = WikiRAGService(Path("wiki-pages"))
+            container.wiki_rag_service = wiki_rag
+        except Exception as wiki_err:
+            logger.warning(f"⚠️ Wiki RAG service not available: {wiki_err}")
+
         logger.info("✅ Service container populated for modular routers")
 
         # Auto-start Telegram bots that were running before restart
@@ -786,10 +877,13 @@ async def health_check():
     # Определяем тип LLM сервиса
     llm_backend_type = "unknown"
     if current_llm_service:
-        if hasattr(current_llm_service, "api_url"):  # vLLM
+        if isinstance(current_llm_service, CloudLLMService):
+            ptype = getattr(current_llm_service, "provider_type", "cloud")
+            llm_backend_type = f"cloud ({ptype}: {current_llm_service.model_name})"
+        elif hasattr(current_llm_service, "api_url"):  # vLLM
             llm_backend_type = f"vllm ({current_llm_service.model_name})"
-        elif hasattr(current_llm_service, "model_name"):  # Gemini
-            llm_backend_type = f"gemini ({current_llm_service.model_name})"
+        elif hasattr(current_llm_service, "model_name"):
+            llm_backend_type = f"cloud ({current_llm_service.model_name})"
 
     services_status = {
         "voice_clone_xtts_anna": anna_voice_service is not None,
@@ -935,7 +1029,7 @@ async def speech_to_text(audio: UploadFile = File(...)):
 @app.post("/chat")
 async def chat(request: ConversationRequest):
     """
-    Получить ответ от LLM (Gemini)
+    Получить ответ от LLM
     """
     if not llm_service:
         raise HTTPException(status_code=503, detail="LLM service not initialized")
@@ -1044,9 +1138,13 @@ async def list_models():
         else:
             backend_suffix = "vllm"
             backend_desc = model_name
+    elif llm_service and isinstance(llm_service, CloudLLMService):
+        backend_suffix = "cloud"
+        ptype = getattr(llm_service, "provider_type", "cloud")
+        backend_desc = f"{ptype}: {getattr(llm_service, 'model_name', 'unknown')}"
     else:
-        backend_suffix = "gemini"
-        backend_desc = "Gemini"
+        backend_suffix = "cloud"
+        backend_desc = "Cloud AI"
 
     return {
         "object": "list",
@@ -1367,7 +1465,13 @@ async def admin_status():
             status["llm_config"] = {
                 "model_name": getattr(llm_service, "model_name", "unknown"),
                 "api_url": getattr(llm_service, "api_url", None),
-                "backend": "vllm" if hasattr(llm_service, "api_url") else "gemini",
+                "backend": (
+                    "vllm"
+                    if hasattr(llm_service, "api_url")
+                    else f"cloud:{getattr(llm_service, 'provider_id', 'unknown')}"
+                    if isinstance(llm_service, CloudLLMService)
+                    else "unknown"
+                ),
             }
 
     # TTS конфигурация
@@ -1662,7 +1766,7 @@ def get_current_tts_service():
 
 # Pydantic models for new endpoints
 class AdminBackendRequest(BaseModel):
-    backend: str  # "vllm", "gemini", or "cloud:{provider_id}"
+    backend: str  # "vllm" or "cloud:{provider_id}"
     stop_unused: bool = False  # Остановить неиспользуемый сервис (vLLM) для освобождения GPU
 
 
@@ -1812,7 +1916,7 @@ class UpdateSessionRequest(BaseModel):
 
 
 class LLMOverrideConfig(BaseModel):
-    llm_backend: Optional[str] = None  # "vllm", "gemini", or "cloud:provider-id"
+    llm_backend: Optional[str] = None  # "vllm" or "cloud:provider-id"
     system_prompt: Optional[str] = None
     llm_params: Optional[dict] = None
 
@@ -1934,7 +2038,7 @@ async def admin_get_llm_backend():
         elif hasattr(llm_service, "api_url"):
             backend = "vllm"
         else:
-            backend = "gemini"
+            backend = "unknown"
 
         return {
             "backend": backend,
@@ -1961,20 +2065,19 @@ async def admin_get_llm_models():
     }
 
     if llm_service:
-        is_vllm = hasattr(llm_service, "api_url")
-        result["backend"] = "vllm" if is_vllm else "gemini"
-
-        if is_vllm and hasattr(llm_service, "get_current_model_info"):
-            result["current_model"] = llm_service.get_current_model_info()
-            result["loaded_models"] = llm_service.get_loaded_models()
-        elif not is_vllm:
-            # Gemini backend
+        if isinstance(llm_service, CloudLLMService):
+            result["backend"] = f"cloud:{llm_service.provider_id}"
             result["current_model"] = {
-                "id": "gemini",
-                "name": getattr(llm_service, "model_name", "gemini-2.0-flash"),
-                "description": "Google Gemini API",
+                "id": llm_service.provider_id,
+                "name": getattr(llm_service, "model_name", "unknown"),
+                "description": f"Cloud: {getattr(llm_service, 'provider_type', 'unknown')}",
                 "available": True,
             }
+        elif hasattr(llm_service, "api_url"):
+            result["backend"] = "vllm"
+            if hasattr(llm_service, "get_current_model_info"):
+                result["current_model"] = llm_service.get_current_model_info()
+                result["loaded_models"] = llm_service.get_loaded_models()
 
     return result
 
@@ -1986,19 +2089,38 @@ async def admin_set_llm_backend(
     """Переключить LLM backend с горячей перезагрузкой сервиса"""
     global LLM_BACKEND, llm_service
 
+    # Auto-convert "gemini" to default cloud Gemini provider
+    if request.backend == "gemini":
+        gemini_provider = await _get_or_create_default_gemini_provider()
+        if gemini_provider:
+            return await _switch_to_cloud_provider(gemini_provider["id"], request.stop_unused, user)
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot switch to Gemini: no GEMINI_API_KEY configured. "
+            "Create a Gemini cloud provider first.",
+        )
+
     # Check if it's a cloud provider
     if request.backend.startswith("cloud:"):
         provider_id = request.backend.split(":", 1)[1]
         return await _switch_to_cloud_provider(provider_id, request.stop_unused, user)
 
-    if request.backend not in ["vllm", "gemini"]:
+    if request.backend != "vllm":
         raise HTTPException(
             status_code=400,
-            detail="Invalid backend. Use 'vllm', 'gemini', or 'cloud:{provider_id}'",
+            detail="Invalid backend. Use 'vllm' or 'cloud:{provider_id}'",
         )
 
     # Проверяем текущий бэкенд
-    current_backend = "vllm" if (llm_service and hasattr(llm_service, "api_url")) else "gemini"
+    current_backend = (
+        "vllm"
+        if (
+            llm_service
+            and hasattr(llm_service, "api_url")
+            and not isinstance(llm_service, CloudLLMService)
+        )
+        else "cloud"
+    )
     if request.backend == current_backend:
         return {
             "status": "ok",
@@ -2007,7 +2129,6 @@ async def admin_set_llm_backend(
         }
 
     manager = get_service_manager()
-    stop_vllm = request.stop_unused if hasattr(request, "stop_unused") else False
 
     try:
         if request.backend == "vllm":
@@ -2079,43 +2200,6 @@ async def admin_set_llm_backend(
                 "backend": "vllm",
                 "model": getattr(llm_service, "model_name", "unknown"),
                 "message": "Переключено на vLLM",
-            }
-
-        else:
-            # Переключение на Gemini
-            logger.info("🔄 Переключение на Gemini...")
-
-            new_service = LLMService()
-            llm_service = new_service
-            LLM_BACKEND = "gemini"
-            os.environ["LLM_BACKEND"] = "gemini"
-
-            # Опционально останавливаем vLLM для освобождения GPU
-            if stop_vllm:
-                vllm_status = manager.get_service_status("vllm")
-                if vllm_status.get("is_running"):
-                    logger.info("🛑 Останавливаем vLLM для освобождения GPU...")
-                    await manager.stop_service("vllm")
-
-            logger.info("✅ Переключено на Gemini")
-
-            # Audit log
-            await async_audit_logger.log(
-                action="update",
-                resource="config",
-                resource_id="llm_backend",
-                user_id=user.username,
-                details={
-                    "backend": "gemini",
-                    "model": getattr(llm_service, "model_name", "unknown"),
-                },
-            )
-
-            return {
-                "status": "ok",
-                "backend": "gemini",
-                "model": getattr(llm_service, "model_name", "unknown"),
-                "message": "Переключено на Gemini" + (" (vLLM остановлен)" if stop_vllm else ""),
             }
 
     except HTTPException:
@@ -2965,10 +3049,15 @@ async def admin_get_health():
     # LLM
     if llm_service:
         try:
-            if hasattr(llm_service, "is_available") and llm_service.is_available():
+            if isinstance(llm_service, CloudLLMService):
+                health["components"]["llm"] = {
+                    "status": "healthy",
+                    "backend": f"cloud:{getattr(llm_service, 'provider_id', 'unknown')}",
+                }
+            elif hasattr(llm_service, "is_available") and llm_service.is_available():
                 health["components"]["llm"] = {"status": "healthy", "backend": "vllm"}
             else:
-                health["components"]["llm"] = {"status": "healthy", "backend": "gemini"}
+                health["components"]["llm"] = {"status": "healthy", "backend": "unknown"}
         except Exception as e:
             health["components"]["llm"] = {"status": "unhealthy", "error": str(e)}
             health["overall"] = "degraded"

@@ -162,6 +162,15 @@ const currentCloudProviderId = computed(() => {
 // Check if current provider form is for Gemini
 const isGeminiProvider = computed(() => providerForm.value.provider_type === 'gemini')
 
+// Get the default (or first enabled) cloud provider ID for the toggle button
+const defaultCloudProviderId = computed(() => {
+  const providers = providersData.value?.providers || []
+  const defaultProvider = providers.find((p: CloudProvider) => p.is_default && p.enabled)
+  if (defaultProvider) return defaultProvider.id
+  const firstEnabled = providers.find((p: CloudProvider) => p.enabled)
+  return firstEnabled ? firstEnabled.id : null
+})
+
 // Check if current provider form is for Bridge
 const isBridgeProvider = computed(() => providerForm.value.provider_type === 'claude_bridge')
 
@@ -177,7 +186,7 @@ const builtinPresetIds = ['anna', 'marina']
 
 // Mutations
 const setBackendMutation = useMutation({
-  mutationFn: (backend: string) => llmApi.setBackend(backend, backend === 'gemini' && stopUnusedVllm.value),
+  mutationFn: (backend: string) => llmApi.setBackend(backend, backend !== 'vllm' && stopUnusedVllm.value),
   onSuccess: (data) => {
     queryClient.invalidateQueries({ queryKey: ['llm-backend'] })
     toast.success(data.message || `Переключено на ${data.backend}`)
@@ -641,13 +650,14 @@ function switchToCloudProvider(providerId: string) {
                 vLLM (Local)
               </button>
               <button
-                :disabled="setBackendMutation.isPending.value"
+                :disabled="setBackendMutation.isPending.value || !defaultCloudProviderId"
                 :class="[
                   'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
                   !isVllm ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80',
                   setBackendMutation.isPending.value && 'opacity-50 cursor-not-allowed'
                 ]"
-                @click="setBackendMutation.mutate('gemini')"
+                :title="defaultCloudProviderId ? '' : 'No cloud provider configured'"
+                @click="defaultCloudProviderId && setBackendMutation.mutate(`cloud:${defaultCloudProviderId}`)"
               >
                 <Loader2 v-if="setBackendMutation.isPending.value && isVllm" class="w-4 h-4 animate-spin" />
                 {{ t('llm.cloudAI') }}

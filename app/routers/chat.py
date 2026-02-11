@@ -18,7 +18,6 @@ from db.integration import (
     async_cloud_provider_manager,
     async_widget_instance_manager,
 )
-from llm_service import LLMService
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ class UpdateSessionRequest(BaseModel):
 
 
 class LLMOverrideConfig(BaseModel):
-    llm_backend: Optional[str] = None  # "vllm", "gemini", or "cloud:provider-id"
+    llm_backend: Optional[str] = None  # "vllm" or "cloud:provider-id"
     system_prompt: Optional[str] = None
     llm_params: Optional[dict] = None
 
@@ -224,12 +223,19 @@ async def admin_stream_chat_message(
             except Exception as e:
                 logger.warning(f"Failed to load cloud provider {provider_id}: {e}")
         elif backend == "gemini":
-            # Use Gemini (LLMService from llm_service.py)
-            try:
-                active_llm = LLMService()
-                logger.info("Using Gemini LLM for override")
-            except Exception as e:
-                logger.warning(f"Failed to create Gemini LLM: {e}")
+            # Legacy: auto-resolve to default Gemini cloud provider
+            providers = await async_cloud_provider_manager.list_providers(enabled_only=True)
+            gemini_p = next((p for p in providers if p.get("provider_type") == "gemini"), None)
+            if gemini_p:
+                try:
+                    provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                        gemini_p["id"]
+                    )
+                    if provider_config:
+                        active_llm = CloudLLMService(provider_config)
+                        logger.info(f"Resolved gemini -> cloud:{gemini_p['id']}")
+                except Exception as e:
+                    logger.warning(f"Failed to load Gemini cloud provider: {e}")
         # else use default vllm/llm_service
 
         custom_prompt = override.system_prompt
@@ -252,11 +258,22 @@ async def admin_stream_chat_message(
                 except Exception as e:
                     logger.warning(f"Widget LLM override failed: {e}")
             elif backend == "gemini":
-                try:
-                    active_llm = LLMService()
-                    logger.info(f"Widget {msg_request.widget_instance_id}: using Gemini")
-                except Exception as e:
-                    logger.warning(f"Widget Gemini override failed: {e}")
+                # Legacy: auto-resolve to default Gemini cloud provider
+                providers = await async_cloud_provider_manager.list_providers(enabled_only=True)
+                gemini_p = next((p for p in providers if p.get("provider_type") == "gemini"), None)
+                if gemini_p:
+                    try:
+                        provider_config = await async_cloud_provider_manager.get_provider_with_key(
+                            gemini_p["id"]
+                        )
+                        if provider_config:
+                            active_llm = CloudLLMService(provider_config)
+                            logger.info(
+                                f"Widget {msg_request.widget_instance_id}: "
+                                f"resolved gemini -> cloud:{gemini_p['id']}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"Widget Gemini cloud override failed: {e}")
             # else use default vllm/llm_service
             custom_prompt = widget.get("system_prompt")
 
@@ -270,6 +287,14 @@ async def admin_stream_chat_message(
     default_prompt = custom_prompt
     if not default_prompt and hasattr(active_llm, "get_system_prompt"):
         default_prompt = active_llm.get_system_prompt()
+
+    # RAG: inject relevant wiki context into system prompt
+    wiki_rag = container.wiki_rag_service
+    if wiki_rag and default_prompt and msg_request.content:
+        wiki_context = wiki_rag.retrieve(msg_request.content, top_k=3)
+        if wiki_context:
+            default_prompt = f"{default_prompt}\n\n{wiki_context}"
+
     messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     async def generate_stream():

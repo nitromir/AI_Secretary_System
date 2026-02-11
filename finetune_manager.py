@@ -1226,10 +1226,10 @@ class FinetuneManager:
                         "Как переключить LLM-бэкенд?",
                         "В админке → вкладка LLM → выберите бэкенд:\n\n"
                         "• vllm — локальная модель (нужен GPU)\n"
-                        "• gemini — Google Gemini API\n"
-                        "• cloud:{id} — любой облачный провайдер из списка\n\n"
+                        "• cloud:{id} — любой облачный провайдер из списка "
+                        "(Gemini, OpenAI, Claude, DeepSeek и др.)\n\n"
                         "Или через переменную окружения:\n"
-                        "```\nLLM_BACKEND=vllm  # или gemini, cloud:openrouter-1\n```\n\n"
+                        "```\nLLM_BACKEND=vllm  # или cloud:gemini-default, cloud:openrouter-1\n```\n\n"
                         "Переключение без перезагрузки — моментально.",
                     ),
                 ]

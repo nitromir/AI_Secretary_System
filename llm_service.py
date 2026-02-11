@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Сервис интеграции с Gemini API для генерации ответов секретаря
+DEPRECATED: Standalone Gemini LLM service.
+
+This module is superseded by CloudLLMService + GeminiProvider in cloud_llm_service.py.
+Use cloud provider system instead: LLM_BACKEND=cloud:{provider_id}
+
+Kept for backward compatibility with legacy OpenAI-compatible endpoints (/v1/chat/completions).
 """
 
 import logging
