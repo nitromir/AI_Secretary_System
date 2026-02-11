@@ -542,7 +542,10 @@ class WidgetInstance(Base):
     title: Mapped[str] = mapped_column(String(100), default="AI Ассистент")
     greeting: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     placeholder: Mapped[str] = mapped_column(String(200), default="Введите сообщение...")
+    placeholder_color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    placeholder_font: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     primary_color: Mapped[str] = mapped_column(String(20), default="#c2410c")
+    button_icon: Mapped[str] = mapped_column(String(20), default="chat")
     position: Mapped[str] = mapped_column(String(20), default="right")  # left or right
 
     # Access control
@@ -600,7 +603,10 @@ class WidgetInstance(Base):
             "title": self.title,
             "greeting": self.greeting,
             "placeholder": self.placeholder,
+            "placeholder_color": self.placeholder_color,
+            "placeholder_font": self.placeholder_font,
             "primary_color": self.primary_color,
+            "button_icon": self.button_icon,
             "position": self.position,
             # Access
             "allowed_domains": self.get_allowed_domains(),

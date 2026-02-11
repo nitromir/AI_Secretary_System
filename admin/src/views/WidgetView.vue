@@ -57,7 +57,10 @@ const formData = ref<Partial<WidgetInstance>>({
   title: 'AI Ассистент',
   greeting: 'Здравствуйте! Чем могу помочь?',
   placeholder: 'Введите сообщение...',
+  placeholder_color: '',
+  placeholder_font: '',
   primary_color: '#c2410c',
+  button_icon: 'chat',
   position: 'right',
   allowed_domains: [],
   tunnel_url: '',
@@ -70,6 +73,16 @@ const formData = ref<Partial<WidgetInstance>>({
 })
 
 const newDomain = ref('')
+
+const iconOptions = ['chat', 'headset', 'robot', 'comment', 'support', 'wave'] as const
+const iconSvgs: Record<string, string> = {
+  chat: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>',
+  headset: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M12 1a9 9 0 0 0-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7a9 9 0 0 0-9-9z"/></svg>',
+  robot: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zM7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13zm9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>',
+  comment: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M12 3C6.5 3 2 6.6 2 11c0 2.5 1.4 4.7 3.5 6.2-.3 1.6-1.2 3-2.4 4 2.2-.1 4.4-1 6-2.5.9.2 1.9.3 2.9.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/></svg>',
+  support: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M11.5 2C6.8 2 3 5.8 3 10.5c0 1.6.4 3.1 1.2 4.4L2 21l6.1-2.2c1.3.8 2.8 1.2 4.4 1.2h.5c4.2-.3 7.5-3.8 7.5-8 0-4.7-3.8-8.5-8.5-8.5h-.5zm5 11h-9c-.3 0-.5-.2-.5-.5s.2-.5.5-.5h9c.3 0 .5.2.5.5s-.2.5-.5.5zm0-3h-9c-.3 0-.5-.2-.5-.5s.2-.5.5-.5h9c.3 0 .5.2.5.5s-.2.5-.5.5z"/></svg>',
+  wave: '<svg viewBox="0 0 24 24" class="w-6 h-6"><path fill="currentColor" d="M7.03 4.95c-.29-.29-.77-.29-1.06 0L4.89 6.03c-2.34 2.34-2.34 6.14 0 8.49l4.59 4.59c2.34 2.34 6.14 2.34 8.49 0l1.08-1.08c.29-.29.29-.77 0-1.06L7.03 4.95zm14.46 6.02c.39-.39.39-1.02 0-1.41L18.95 7.01c-.39-.39-1.02-.39-1.41 0-.39.39-.39 1.02 0 1.41l1.06 1.06-4.23 4.23 1.06 1.06 4.23-4.23 1.06 1.06c.39.39 1.02.39 1.41 0l.36-.37zM8.44 17.8c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l4.23-4.23-1.06-1.06-4.58 3.88z"/></svg>',
+}
 
 // Queries
 const { data: instancesData, isLoading: instancesLoading, refetch: refetchInstances } = useQuery({
@@ -135,7 +148,10 @@ function openCreateDialog() {
     title: 'AI Ассистент',
     greeting: 'Здравствуйте! Чем могу помочь?',
     placeholder: 'Введите сообщение...',
+    placeholder_color: '',
+    placeholder_font: '',
     primary_color: '#c2410c',
+    button_icon: 'chat',
     position: 'right',
     allowed_domains: [],
     tunnel_url: '',
@@ -602,6 +618,31 @@ function handleTestKeydown(e: KeyboardEvent) {
               <h3 class="font-medium mb-2">{{ t('widget.placeholder') }}</h3>
               <p class="text-sm bg-secondary rounded-lg p-3">{{ selectedInstance.placeholder }}</p>
             </div>
+            <div v-if="selectedInstance.placeholder_color" class="bg-card rounded-xl border border-border p-4">
+              <h3 class="font-medium mb-2">{{ t('widget.placeholderColor') }}</h3>
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-10 h-10 rounded-full border border-border"
+                  :style="{ backgroundColor: selectedInstance.placeholder_color }"
+                />
+                <span class="font-mono">{{ selectedInstance.placeholder_color }}</span>
+              </div>
+            </div>
+            <div v-if="selectedInstance.placeholder_font" class="bg-card rounded-xl border border-border p-4">
+              <h3 class="font-medium mb-2">{{ t('widget.placeholderFont') }}</h3>
+              <p class="text-sm">{{ selectedInstance.placeholder_font }}</p>
+            </div>
+            <div class="bg-card rounded-xl border border-border p-4">
+              <h3 class="font-medium mb-2">{{ t('widget.buttonIcon') }}</h3>
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-10 h-10 rounded-full flex items-center justify-center"
+                  :style="{ backgroundColor: selectedInstance.primary_color, color: 'white' }"
+                  v-html="iconSvgs[selectedInstance.button_icon || 'chat']"
+                />
+                <span class="capitalize">{{ t(`widget.buttonIcons.${selectedInstance.button_icon || 'chat'}`) }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- Domains Tab -->
@@ -925,6 +966,35 @@ function handleTestKeydown(e: KeyboardEvent) {
                 />
               </div>
 
+              <!-- Placeholder Color -->
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('widget.placeholderColor') }}</label>
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model="formData.placeholder_color"
+                    type="color"
+                    class="w-10 h-10 rounded cursor-pointer"
+                  />
+                  <input
+                    v-model="formData.placeholder_color"
+                    type="text"
+                    class="w-32 px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
+                    placeholder="#9ca3af"
+                  />
+                </div>
+              </div>
+
+              <!-- Placeholder Font -->
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('widget.placeholderFont') }}</label>
+                <input
+                  v-model="formData.placeholder_font"
+                  type="text"
+                  class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Arial, Roboto, ..."
+                />
+              </div>
+
               <!-- Color -->
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('widget.primaryColor') }}</label>
@@ -953,6 +1023,26 @@ function handleTestKeydown(e: KeyboardEvent) {
                     v-model="formData.primary_color"
                     type="text"
                     class="w-28 px-3 py-2 bg-secondary rounded-lg text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              <!-- Button Icon -->
+              <div>
+                <label class="block text-sm font-medium mb-1">{{ t('widget.buttonIcon') }}</label>
+                <div class="flex gap-2 flex-wrap">
+                  <button
+                    v-for="icon in iconOptions"
+                    :key="icon"
+                    :class="[
+                      'w-12 h-12 rounded-lg border-2 transition-all flex items-center justify-center',
+                      formData.button_icon === icon
+                        ? 'border-primary bg-primary/10 scale-110'
+                        : 'border-border bg-secondary hover:bg-secondary/80 hover:scale-105'
+                    ]"
+                    :title="t(`widget.buttonIcons.${icon}`)"
+                    @click="formData.button_icon = icon"
+                    v-html="iconSvgs[icon]"
                   />
                 </div>
               </div>

@@ -24,8 +24,20 @@
     greeting: 'Здравствуйте! Компания Шаервэй Ди-Иджитал, чем могу помочь?',
     placeholder: 'Введите сообщение...',
     primaryColor: '#c2410c',
+    placeholderColor: '',
+    placeholderFont: '',
+    buttonIcon: 'chat', // chat, headset, robot, comment, support, wave
     position: 'right', // 'left' or 'right'
     sessionKey: 'ai_chat_session'
+  };
+
+  const BUTTON_ICONS = {
+    chat: '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>',
+    headset: '<svg viewBox="0 0 24 24"><path d="M12 1a9 9 0 0 0-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7a9 9 0 0 0-9-9z"/></svg>',
+    robot: '<svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zM7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13zm9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>',
+    comment: '<svg viewBox="0 0 24 24"><path d="M12 3C6.5 3 2 6.6 2 11c0 2.5 1.4 4.7 3.5 6.2-.3 1.6-1.2 3-2.4 4 2.2-.1 4.4-1 6-2.5.9.2 1.9.3 2.9.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/></svg>',
+    support: '<svg viewBox="0 0 24 24"><path d="M11.5 2C6.8 2 3 5.8 3 10.5c0 1.6.4 3.1 1.2 4.4L2 21l6.1-2.2c1.3.8 2.8 1.2 4.4 1.2h.5c4.2-.3 7.5-3.8 7.5-8 0-4.7-3.8-8.5-8.5-8.5h-.5zm5 11h-9c-.3 0-.5-.2-.5-.5s.2-.5.5-.5h9c.3 0 .5.2.5.5s-.2.5-.5.5zm0-3h-9c-.3 0-.5-.2-.5-.5s.2-.5.5-.5h9c.3 0 .5.2.5.5s-.2.5-.5.5z"/></svg>',
+    wave: '<svg viewBox="0 0 24 24"><path d="M7.03 4.95c-.29-.29-.77-.29-1.06 0L4.89 6.03c-2.34 2.34-2.34 6.14 0 8.49l4.59 4.59c2.34 2.34 6.14 2.34 8.49 0l1.08-1.08c.29-.29.29-.77 0-1.06L7.03 4.95zm14.46 6.02c.39-.39.39-1.02 0-1.41L18.95 7.01c-.39-.39-1.02-.39-1.41 0-.39.39-.39 1.02 0 1.41l1.06 1.06-4.23 4.23 1.06 1.06 4.23-4.23 1.06 1.06c.39.39 1.02.39 1.41 0l.36-.37zM8.44 17.8c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l4.23-4.23-1.06-1.06-4.58 3.88z"/></svg>'
   };
 
   const settings = { ...defaultSettings, ...(window.aiChatSettings || {}) };
@@ -274,6 +286,11 @@
       font-family: inherit;
     }
 
+    .ai-chat-input::placeholder {
+      color: ${settings.placeholderColor || '#9ca3af'};
+      ${settings.placeholderFont ? `font-family: '${settings.placeholderFont}', sans-serif;` : ''}
+    }
+
     .ai-chat-input:focus {
       border-color: var(--ai-primary);
     }
@@ -356,7 +373,7 @@
   widget.className = 'ai-chat-widget';
   widget.innerHTML = `
     <button class="ai-chat-button" aria-label="Open chat">
-      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>
+      ${BUTTON_ICONS[settings.buttonIcon] || BUTTON_ICONS.chat}
     </button>
     <div class="ai-chat-window">
       <div class="ai-chat-header">
