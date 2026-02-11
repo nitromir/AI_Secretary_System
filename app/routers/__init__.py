@@ -18,6 +18,7 @@ from app.routers import (
     telegram,
     usage,
     widget,
+    wiki_rag,
     yoomoney_webhook,
 )
 
@@ -53,6 +54,7 @@ __all__ = [
     "gsm",
     "bot_sales",
     "legal",
+    "wiki_rag",
     "github_webhook",
     "yoomoney_webhook",
 ]
