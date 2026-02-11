@@ -99,6 +99,14 @@ def patch_orchestrator():
         '        # Инициализация XTTS (Марина) - GPU CC >= 7.0, опционально\n        if XTTS_AVAILABLE:\n            logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")\n            try:\n                voice_service = VoiceCloneService(voice_samples_dir="./Марина")\n                logger.info(f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов")\n            except Exception as e:\n                logger.warning(f"⚠️ XTTS (Марина) недоступен (требуется GPU CC >= 7.0): {e}")\n                voice_service = None\n        else:\n            voice_service = None',
     )
 
+    # 7b. Ensure LLM_BACKEND is in startup_event global statement
+    # (needed because gemini auto-migration assigns to it inside the function)
+    if "streaming_tts_manager, \\\n        LLM_BACKEND" not in content:
+        content = content.replace(
+            "        streaming_tts_manager\n\n    logger.info",
+            "        streaming_tts_manager, \\\n        LLM_BACKEND\n\n    logger.info",
+        )
+
     # 8. Make LLM init optional for cloud backend
     if 'elif LLM_BACKEND.startswith("cloud:")' not in content:
         content = content.replace(
