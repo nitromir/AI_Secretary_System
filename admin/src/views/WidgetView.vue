@@ -30,7 +30,7 @@ import {
   MessageCircle,
   RotateCcw
 } from 'lucide-vue-next'
-import { widgetInstancesApi, type WidgetInstance } from '@/api'
+import { widgetInstancesApi, llmApi, type WidgetInstance, type CloudProvider } from '@/api'
 import { chatApi, type ChatMessage } from '@/api/chat'
 import { useToastStore } from '@/stores/toast'
 
@@ -79,6 +79,13 @@ const { data: instancesData, isLoading: instancesLoading, refetch: refetchInstan
 })
 
 const instances = computed(() => instancesData.value?.instances || [])
+
+// Cloud providers for LLM backend dropdown
+const { data: cloudProvidersData } = useQuery({
+  queryKey: ['llm-providers'],
+  queryFn: () => llmApi.getProviders(),
+})
+const cloudProviders = computed(() => (cloudProvidersData.value?.providers || []).filter((p: CloudProvider) => p.enabled))
 
 const selectedInstance = computed(() =>
   instances.value.find(i => i.id === selectedInstanceId.value)
@@ -1015,7 +1022,11 @@ function handleTestKeydown(e: KeyboardEvent) {
                   class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="vllm">vLLM</option>
-                  <option value="gemini">{{ t('llm.cloudAI') }}</option>
+                  <option
+                    v-for="cp in cloudProviders"
+                    :key="cp.id"
+                    :value="`cloud:${cp.id}`"
+                  >{{ cp.name }} ({{ cp.model_name }})</option>
                 </select>
               </div>
               <div>

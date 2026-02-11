@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from llm_service import LLMService
+    from typing import Any
+
     from piper_tts_service import PiperTTSService
     from stt_service import STTService
     from voice_clone_service import VoiceCloneService
@@ -33,8 +34,8 @@ class ServiceContainer:
         self.piper_service: PiperTTSService | None = None  # Piper CPU
         self.openvoice_service = None  # OpenVoice v2
 
-        # LLM service
-        self.llm_service: LLMService | None = None
+        # LLM service (VLLMLLMService or CloudLLMService)
+        self.llm_service: Any = None
 
         # STT service
         self.stt_service: STTService | None = None
@@ -44,6 +45,9 @@ class ServiceContainer:
 
         # Streaming TTS manager
         self.streaming_tts_manager = None
+
+        # Wiki RAG service
+        self.wiki_rag_service = None
 
         # Current voice configuration
         self.current_voice_config = {

@@ -15,7 +15,6 @@ from app.dependencies import get_container
 from auth_manager import User, get_current_user, require_admin, require_not_guest
 from cloud_llm_service import PROVIDER_TYPES, CloudLLMService, GeminiProvider
 from db.integration import async_audit_logger, async_cloud_provider_manager
-from llm_service import LLMService
 from service_manager import get_service_manager
 
 
@@ -40,7 +39,7 @@ class AdminLLMModelRequest(BaseModel):
 
 
 class AdminBackendRequest(BaseModel):
-    backend: str  # "vllm", "gemini", or "cloud:{provider_id}"
+    backend: str  # "vllm" or "cloud:{provider_id}"
     stop_unused: bool = False  # Остановить неиспользуемый сервис для освобождения GPU
 
 
@@ -339,7 +338,7 @@ async def admin_get_llm_backend(user: User = Depends(get_current_user)):
         elif hasattr(llm_service, "api_url"):
             backend = "vllm"
         else:
-            backend = "gemini"
+            backend = "unknown"
 
         return {
             "backend": backend,
@@ -368,20 +367,19 @@ async def admin_get_llm_models(user: User = Depends(get_current_user)):
     }
 
     if llm_service:
-        is_vllm = hasattr(llm_service, "api_url")
-        result["backend"] = "vllm" if is_vllm else "gemini"
-
-        if is_vllm and hasattr(llm_service, "get_current_model_info"):
-            result["current_model"] = llm_service.get_current_model_info()
-            result["loaded_models"] = llm_service.get_loaded_models()
-        elif not is_vllm:
-            # Gemini backend
+        if isinstance(llm_service, CloudLLMService):
+            result["backend"] = f"cloud:{llm_service.provider_id}"
             result["current_model"] = {
-                "id": "gemini",
-                "name": getattr(llm_service, "model_name", "gemini-2.0-flash"),
-                "description": "Google Gemini API",
+                "id": llm_service.provider_id,
+                "name": getattr(llm_service, "model_name", "unknown"),
+                "description": f"Cloud: {getattr(llm_service, 'provider_type', 'unknown')}",
                 "available": True,
             }
+        elif hasattr(llm_service, "api_url"):
+            result["backend"] = "vllm"
+            if hasattr(llm_service, "get_current_model_info"):
+                result["current_model"] = llm_service.get_current_model_info()
+                result["loaded_models"] = llm_service.get_loaded_models()
 
     return result
 
@@ -402,28 +400,39 @@ async def admin_set_llm_backend(
             logger.info("🛑 Stopping bridge (switching backend)...")
             await bridge_manager.stop()
 
+    # Auto-convert "gemini" to default cloud Gemini provider
+    if request.backend == "gemini":
+        # Find default Gemini cloud provider
+        providers = await async_cloud_provider_manager.list_providers(enabled_only=False)
+        gemini_provider = next((p for p in providers if p.get("provider_type") == "gemini"), None)
+        if gemini_provider:
+            return await _switch_to_cloud_provider(gemini_provider["id"], request.stop_unused, user)
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot switch to Gemini: no Gemini cloud provider configured. "
+            "Create one in Cloud Providers first.",
+        )
+
     # Check if it's a cloud provider
     if request.backend.startswith("cloud:"):
         provider_id = request.backend.split(":", 1)[1]
         return await _switch_to_cloud_provider(provider_id, request.stop_unused, user)
 
-    if request.backend not in ["vllm", "gemini"]:
+    if request.backend != "vllm":
         raise HTTPException(
             status_code=400,
-            detail="Invalid backend. Use 'vllm', 'gemini', or 'cloud:{provider_id}'",
+            detail="Invalid backend. Use 'vllm' or 'cloud:{provider_id}'",
         )
 
     llm_service = container.llm_service
 
-    # Определяем текущий бэкенд правильно (cloud, vllm, gemini)
-    if llm_service and getattr(llm_service, "backend_type", None) == "cloud":
-        current_backend = f"cloud:{getattr(llm_service, 'provider_id', 'unknown')}"
-    elif (
-        llm_service and hasattr(llm_service, "api_url") and not hasattr(llm_service, "backend_type")
-    ):
+    # Определяем текущий бэкенд
+    if llm_service and isinstance(llm_service, CloudLLMService):
+        current_backend = f"cloud:{llm_service.provider_id}"
+    elif llm_service and hasattr(llm_service, "api_url"):
         current_backend = "vllm"
     else:
-        current_backend = "gemini"
+        current_backend = "unknown"
 
     if request.backend == current_backend:
         return {
@@ -522,43 +531,6 @@ async def admin_set_llm_backend(
                 "backend": "vllm",
                 "model": getattr(new_service, "model_name", "unknown"),
                 "message": "Переключено на vLLM",
-            }
-
-        else:
-            # Переключение на Gemini
-            logger.info("🔄 Переключение на Gemini...")
-
-            new_service = LLMService()
-            container.llm_service = new_service
-            os.environ["LLM_BACKEND"] = "gemini"
-
-            # Опционально останавливаем vLLM для освобождения GPU
-            if request.stop_unused:
-                vllm_status = manager.get_service_status("vllm")
-                if vllm_status.get("is_running"):
-                    logger.info("🛑 Останавливаем vLLM для освобождения GPU...")
-                    await manager.stop_service("vllm")
-
-            logger.info("✅ Переключено на Gemini")
-
-            # Audit log
-            await async_audit_logger.log(
-                action="update",
-                resource="config",
-                resource_id="llm_backend",
-                user_id=user.username,
-                details={
-                    "backend": "gemini",
-                    "model": getattr(new_service, "model_name", "unknown"),
-                },
-            )
-
-            return {
-                "status": "ok",
-                "backend": "gemini",
-                "model": getattr(new_service, "model_name", "unknown"),
-                "message": "Переключено на Gemini"
-                + (" (vLLM остановлен)" if request.stop_unused else ""),
             }
 
     except HTTPException:

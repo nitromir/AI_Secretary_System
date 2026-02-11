@@ -58,6 +58,7 @@ python scripts/migrate_amocrm.py             # amoCRM config tables
 python scripts/migrate_sales_bot.py          # Sales funnel tables
 python scripts/migrate_add_payment_fields.py # Payment fields for sales
 python scripts/migrate_legal_compliance.py   # Legal compliance tables
+python scripts/migrate_gemini_to_cloud.py    # Migrate standalone gemini backend to cloud provider
 python scripts/seed_tz_generator.py          # Seed TZ generator bot data
 python scripts/seed_tz_widget.py             # Seed TZ widget data
 ```
@@ -209,7 +210,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ## Key Environment Variables
 
 ```bash
-LLM_BACKEND=vllm                    # "vllm", "gemini", or "cloud:{provider_id}"
+LLM_BACKEND=vllm                    # "vllm" or "cloud:{provider_id}" (legacy "gemini" auto-migrates)
 VLLM_API_URL=http://localhost:11434 # Auto-normalized: trailing /v1 is stripped
 SECRETARY_PERSONA=anna             # "anna" or "marina"
 ORCHESTRATOR_PORT=8002

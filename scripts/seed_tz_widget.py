@@ -154,7 +154,7 @@ def main() -> None:
             "right",
             "[]",
             "",
-            "gemini",
+            "cloud:gemini-default",
             "anna",
             TZ_SYSTEM_PROMPT,
             json.dumps({"temperature": 0.7, "max_tokens": 4096}),

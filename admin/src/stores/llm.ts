@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { llmApi, type LlmParams } from '@/api'
 
 export const useLlmStore = defineStore('llm', () => {
-  const backend = ref<'vllm' | 'gemini'>('vllm')
+  const backend = ref<string>('vllm')
   const model = ref<string>('')
   const persona = ref<string>('anna')
   const params = ref<LlmParams>({
@@ -17,7 +17,7 @@ export const useLlmStore = defineStore('llm', () => {
   async function fetchBackend() {
     try {
       const response = await llmApi.getBackend()
-      backend.value = response.backend as 'vllm' | 'gemini'
+      backend.value = response.backend
       model.value = response.model
     } catch (e) {
       console.error('Failed to fetch backend:', e)
@@ -42,7 +42,7 @@ export const useLlmStore = defineStore('llm', () => {
     }
   }
 
-  async function switchBackend(newBackend: 'vllm' | 'gemini') {
+  async function switchBackend(newBackend: string) {
     isLoading.value = true
     try {
       await llmApi.setBackend(newBackend)
