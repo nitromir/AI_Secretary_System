@@ -66,7 +66,7 @@ class TelegramSettings(BaseSettings):
 
     # Repos to watch for news (comma-separated owner/repo)
     news_github_repos: str = Field(
-        default="ShaerWare/AI_Secretary_System,ShaerWare/claude-telegram-bridge",
+        default="ShaerWare/AI_Secretary_System",
         alias="NEWS_GITHUB_REPOS",
     )
 

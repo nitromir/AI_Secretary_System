@@ -146,6 +146,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
 
+**Telegram Sales Bot** (`telegram_bot/`): Aiogram 3.x bot with sales funnel, FAQ, and AI chat. Key modules:
+- `telegram_bot/sales/keyboards.py` — all inline keyboards (welcome, quiz, DIY, basic, custom, TZ quiz, FAQ, contact)
+- `telegram_bot/sales/texts.py` — all message templates (Russian), FAQ answers dict, section intro texts
+- `telegram_bot/handlers/sales/common.py` — reply keyboard handlers (Wiki, payment, GitHub, support, ask question) + FAQ callback handler with section navigation
+- `telegram_bot/handlers/sales/welcome.py` — `/start`, welcome flow, quiz handlers
+- `telegram_bot/config.py` — `TelegramSettings(BaseSettings)` with news repos, GitHub token, etc.
+- `telegram_bot/services/llm_router.py` — routes LLM requests through orchestrator chat API
+- FAQ is split into 3 sections: Product (`what_is`, `offline`, `security`, `vs_cloud`, `cloud_models`), Installation (`hardware`, `install`, `integrations`), Pricing & Support (`price`, `support`, `free_trial`). Callback data uses `faq:cat_*` for categories, `faq:back_*` for navigation, `faq:{key}` for answers. `FAQ_KEY_TO_SECTION` dict in `texts.py` maps answer keys to sections for back-navigation.
+- Reply keyboard buttons are loaded from DB (`action_buttons` config) or fallback to `DEFAULT_ACTION_BUTTONS` in `keyboards.py`. Button text matching in handlers must match the `"{icon} {label}"` format from the DB config.
+
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
 
 **Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site. When embedded in the admin panel, the widget auto-attaches JWT from `localStorage('admin_token')` for authenticated chat.

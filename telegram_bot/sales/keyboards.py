@@ -765,26 +765,46 @@ def tz_unqualified_kb() -> InlineKeyboardMarkup:
 # ── FAQ ─────────────────────────────────────────────────────
 
 
-def faq_kb() -> InlineKeyboardMarkup:
-    """FAQ questions as inline buttons."""
+def faq_menu_kb() -> InlineKeyboardMarkup:
+    """FAQ category menu — 3 sections + Wiki link."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🤖 Продукт",
+                    callback_data="faq:cat_product",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛠️ Установка",
+                    callback_data="faq:cat_install",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💰 Цены и поддержка",
+                    callback_data="faq:cat_pricing",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📚 Открыть Wiki",
+                    url=WIKI_URL,
+                )
+            ],
+        ]
+    )
+
+
+def faq_product_kb() -> InlineKeyboardMarkup:
+    """FAQ questions for the Product section."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="❓ Что такое AI Secretary?",
                     callback_data="faq:what_is",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="💻 Какое железо нужно?",
-                    callback_data="faq:hardware",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="💰 Сколько стоит?",
-                    callback_data="faq:price",
                 )
             ],
             [
@@ -801,20 +821,66 @@ def faq_kb() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🛠️ Как установить самому?",
-                    callback_data="faq:install",
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     text="☁️ Чем отличается от ChatGPT?",
                     callback_data="faq:vs_cloud",
                 )
             ],
             [
                 InlineKeyboardButton(
+                    text="🌐 Работает с облачными AI?",
+                    callback_data="faq:cloud_models",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="← Назад к разделам",
+                    callback_data="faq:back_menu",
+                )
+            ],
+        ]
+    )
+
+
+def faq_install_kb() -> InlineKeyboardMarkup:
+    """FAQ questions for the Installation section."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💻 Какое железо нужно?",
+                    callback_data="faq:hardware",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛠️ Как установить самому?",
+                    callback_data="faq:install",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="🔗 Какие интеграции есть?",
                     callback_data="faq:integrations",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="← Назад к разделам",
+                    callback_data="faq:back_menu",
+                )
+            ],
+        ]
+    )
+
+
+def faq_pricing_kb() -> InlineKeyboardMarkup:
+    """FAQ questions for the Pricing & Support section."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💰 Сколько стоит?",
+                    callback_data="faq:price",
                 )
             ],
             [
@@ -831,28 +897,34 @@ def faq_kb() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🌐 Работает с облачными AI?",
-                    callback_data="faq:cloud_models",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📚 Открыть Wiki",
-                    url=WIKI_URL,
+                    text="← Назад к разделам",
+                    callback_data="faq:back_menu",
                 )
             ],
         ]
     )
 
 
-def faq_back_kb() -> InlineKeyboardMarkup:
-    """Back button after FAQ answer."""
+def faq_back_kb(section: str | None = None) -> InlineKeyboardMarkup:
+    """Back buttons after FAQ answer.
+
+    Args:
+        section: Which section to return to ('product', 'install', 'pricing').
+                 If None, "back to questions" goes to the main FAQ menu.
+    """
+    back_data = f"faq:back_{section}" if section else "faq:back_menu"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="← К списку вопросов",
-                    callback_data="faq:back",
+                    callback_data=back_data,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="← К разделам",
+                    callback_data="faq:back_menu",
                 )
             ],
             [

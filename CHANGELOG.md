@@ -8,11 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **FAQ Sections**: Split 11-question FAQ into 3 themed sections (Product, Installation, Pricing & Support) with category menu and back-navigation
 - **Usage Tracking & Limits**: Track TTS/STT/LLM usage with configurable limits
   - New models: `UsageLog`, `UsageLimits` in database
   - API endpoints: `/admin/usage/logs`, `/admin/usage/stats`, `/admin/usage/limits`, `/admin/usage/summary`
   - Admin UI: UsageView.vue with dashboard, usage bars, limit configuration
   - Daily/monthly limits with hard/soft enforcement and warning thresholds
+- **Responsive Admin Panel**: Mobile-first layout for all screen sizes — collapsible sidebar, responsive headers, adaptive tables
+- **News System**: Regex-based `## NEWS` parsing from GitHub PRs/commits for Telegram broadcasts (migrated from LLM generation)
+- **Web Role**: New `web` role — same backend access as `user` but frontend hides infrastructure views (Dashboard, Services, vLLM, XTTS, Models, Finetune)
+- **Widget Runtime Check**: Embeddable widget auto-hides when instance is disabled via `GET /widget/status`
+- **Logo Sidebar Toggle**: Click logo to collapse/expand admin sidebar
+
+### Fixed
+- **Wiki Button**: Handler now matches both `"📚 Wiki"` and `"📚 Wiki проекта"` button text
+- **Multi-Instance Bots**: Fixed crashes and empty responses in multi-instance Telegram bot mode
+- **Bridge Auth Header**: Skip empty Authorization header for bridge provider
+- **Cloud Mode**: Bridge auto-start, public widget endpoints for cloud-only deployments
+
+### Changed
+- **News Config**: Default `NEWS_GITHUB_REPOS` now only watches `ShaerWare/AI_Secretary_System` (removed bridge repo)
 
 ### Planned
 - GSM Telephony real service (SIM7600E-H serial connection)
