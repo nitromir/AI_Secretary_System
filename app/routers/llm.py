@@ -1060,7 +1060,7 @@ async def admin_reset_persona_prompt(persona: str, user: User = Depends(get_curr
 
 
 @router.get("/bridge/status")
-async def admin_get_bridge_status(user: User = Depends(require_admin)):
+async def admin_get_bridge_status(user: User = Depends(require_not_guest)):
     """Get CLI-OpenAI Bridge process status."""
     from bridge_manager import bridge_manager
 
@@ -1068,7 +1068,7 @@ async def admin_get_bridge_status(user: User = Depends(require_admin)):
 
 
 @router.post("/bridge/start")
-async def admin_start_bridge(user: User = Depends(require_admin)):
+async def admin_start_bridge(user: User = Depends(require_not_guest)):
     """Manually start the CLI-OpenAI Bridge."""
     from bridge_manager import bridge_manager
 
@@ -1097,7 +1097,7 @@ async def admin_start_bridge(user: User = Depends(require_admin)):
 
 
 @router.post("/bridge/stop")
-async def admin_stop_bridge(user: User = Depends(require_admin)):
+async def admin_stop_bridge(user: User = Depends(require_not_guest)):
     """Manually stop the CLI-OpenAI Bridge."""
     from bridge_manager import bridge_manager
 
@@ -1121,7 +1121,7 @@ async def admin_stop_bridge(user: User = Depends(require_admin)):
 
 
 @router.get("/proxy/status")
-async def admin_get_proxy_status(user: User = Depends(require_admin)):
+async def admin_get_proxy_status(user: User = Depends(require_not_guest)):
     """
     Get VLESS proxy status for current Gemini provider.
 

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class TelegramSettings(BaseSettings):
     """Telegram bot settings loaded from environment variables."""
 
-    # Bot token from @BotFather (empty in multi-instance mode — token comes from API)
+    # Bot token from @BotFather (optional in multi-instance mode where token comes from DB)
     bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
 
     # Comma-separated list of allowed Telegram user IDs
@@ -64,6 +64,12 @@ class TelegramSettings(BaseSettings):
         default="ShaerWare/AI_Secretary_System", alias="SALES_GITHUB_REPO"
     )
 
+    # Repos to watch for news (comma-separated owner/repo)
+    news_github_repos: str = Field(
+        default="ShaerWare/AI_Secretary_System",
+        alias="NEWS_GITHUB_REPOS",
+    )
+
     # Payment settings (Telegram Payments API)
     # Get token from @BotFather -> Payments -> select provider
     payment_provider_token: str | None = Field(default=None, alias="TELEGRAM_PAYMENT_TOKEN")
@@ -96,6 +102,10 @@ class TelegramSettings(BaseSettings):
             if part.isdigit():
                 ids.add(int(part))
         return ids
+
+    def get_news_repos(self) -> list[str]:
+        """Parse NEWS_GITHUB_REPOS into a list of owner/repo strings."""
+        return [r.strip() for r in self.news_github_repos.split(",") if r.strip()]
 
 
 @lru_cache

@@ -7,12 +7,20 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.cors_middleware import get_cors_middleware
 from auth_manager import User, get_current_user, require_not_guest
 from db.integration import (
     async_audit_logger,
     async_config_manager,
     async_widget_instance_manager,
 )
+
+
+def _invalidate_cors_cache() -> None:
+    """Invalidate CORS cache so widget domain changes take effect immediately."""
+    mw = get_cors_middleware()
+    if mw:
+        mw.invalidate_cache()
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +137,8 @@ async def admin_save_widget_config(
             name="Default Widget", description="Default widget (legacy)", id="default", **config
         )
 
+    _invalidate_cors_cache()
+
     # Audit log
     await async_audit_logger.log(
         action="update",
@@ -167,6 +177,8 @@ async def admin_create_widget_instance(
 
     instance = await async_widget_instance_manager.create_instance(**kwargs)
 
+    _invalidate_cors_cache()
+
     # Audit log
     await async_audit_logger.log(
         action="create",
@@ -204,6 +216,8 @@ async def admin_update_widget_instance(
 
     instance = await async_widget_instance_manager.update_instance(instance_id, **kwargs)
 
+    _invalidate_cors_cache()
+
     # Audit log
     await async_audit_logger.log(
         action="update",
@@ -223,6 +237,8 @@ async def admin_delete_widget_instance(instance_id: str, user: User = Depends(re
     success = await async_widget_instance_manager.delete_instance(instance_id, owner_id=owner_id)
     if not success:
         raise HTTPException(status_code=404, detail="Widget instance not found")
+
+    _invalidate_cors_cache()
 
     # Audit log
     await async_audit_logger.log(

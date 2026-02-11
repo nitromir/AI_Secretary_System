@@ -82,6 +82,20 @@ CREATE TABLE IF NOT EXISTS news_broadcasts (
     broadcast_at TEXT DEFAULT (datetime('now')),
     recipients_count INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS commit_news_cache (
+    sha TEXT PRIMARY KEY,
+    repo TEXT NOT NULL,
+    message TEXT,
+    post_text TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS commit_news_broadcasts (
+    sha TEXT PRIMARY KEY,
+    broadcast_at TEXT DEFAULT (datetime('now')),
+    recipients_count INTEGER DEFAULT 0
+);
 """
 
 
@@ -360,6 +374,76 @@ class SalesDatabase:
         rows = await cursor.fetchall()
         broadcast_set = {row[0] for row in rows}
         return [n for n in pr_numbers if n not in broadcast_set]
+
+    # ── Commit News Cache ──────────────────────────────────────────
+
+    async def get_cached_commit_news(self, sha: str) -> str | None:
+        """Get cached news post for a commit."""
+        cursor = await self._db.execute(
+            "SELECT post_text FROM commit_news_cache WHERE sha = ?",
+            (sha,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def save_commit_news_cache(
+        self, sha: str, repo: str, message: str, post_text: str
+    ) -> None:
+        """Save commit news post to cache."""
+        await self._db.execute(
+            """INSERT INTO commit_news_cache (sha, repo, message, post_text)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(sha) DO UPDATE SET
+                 post_text = excluded.post_text,
+                 created_at = datetime('now')""",
+            (sha, repo, message, post_text),
+        )
+        await self._db.commit()
+
+    async def get_all_cached_commit_news(self, shas: list[str]) -> dict[str, str]:
+        """Get all cached posts for given commit SHAs.
+
+        Returns:
+            Dict mapping sha -> post_text
+        """
+        if not shas:
+            return {}
+
+        placeholders = ",".join("?" * len(shas))
+        cursor = await self._db.execute(
+            f"SELECT sha, post_text FROM commit_news_cache WHERE sha IN ({placeholders})",
+            shas,
+        )
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    # ── Commit News Broadcasts ──────────────────────────────────────
+
+    async def get_unbroadcast_commit_shas(self, shas: list[str]) -> list[str]:
+        """Filter commit SHAs to get only those not yet broadcast."""
+        if not shas:
+            return []
+
+        placeholders = ",".join("?" * len(shas))
+        cursor = await self._db.execute(
+            f"SELECT sha FROM commit_news_broadcasts WHERE sha IN ({placeholders})",
+            shas,
+        )
+        rows = await cursor.fetchall()
+        broadcast_set = {row[0] for row in rows}
+        return [s for s in shas if s not in broadcast_set]
+
+    async def mark_commit_broadcast(self, sha: str, recipients_count: int) -> None:
+        """Mark commit as broadcast."""
+        await self._db.execute(
+            """INSERT INTO commit_news_broadcasts (sha, recipients_count)
+               VALUES (?, ?)
+               ON CONFLICT(sha) DO UPDATE SET
+                 broadcast_at = datetime('now'),
+                 recipients_count = excluded.recipients_count""",
+            (sha, recipients_count),
+        )
+        await self._db.commit()
 
 
 # ── Singleton ──────────────────────────────────────────────

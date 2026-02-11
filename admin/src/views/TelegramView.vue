@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useResponsive } from '@/composables/useResponsive'
 import {
   Send,
   Bot,
@@ -45,6 +46,10 @@ import { useToastStore } from '@/stores/toast'
 const { t } = useI18n()
 const queryClient = useQueryClient()
 const toast = useToastStore()
+const { isMobile } = useResponsive()
+
+// Mobile master-detail: show list or detail
+const showMobileList = ref(true)
 
 // State
 const selectedInstanceId = ref<string | null>(null)
@@ -654,7 +659,13 @@ watch(instances, (newInstances) => {
 <template>
   <div class="flex h-full gap-6 animate-fade-in">
     <!-- Sidebar: Instance List -->
-    <div class="w-80 flex-shrink-0 flex flex-col bg-card rounded-xl border border-border overflow-hidden">
+    <div
+      v-show="!isMobile || showMobileList"
+      :class="[
+        'flex-shrink-0 flex flex-col bg-card rounded-xl border border-border overflow-hidden',
+        isMobile ? 'w-full' : 'w-80'
+      ]"
+    >
       <!-- Header -->
       <div class="p-4 border-b border-border">
         <div class="flex items-center justify-between mb-2">
@@ -694,7 +705,7 @@ watch(instances, (newInstances) => {
                 ? 'bg-primary/10 border border-primary/30'
                 : 'hover:bg-secondary'
             ]"
-            @click="selectedInstanceId = instance.id"
+            @click="selectedInstanceId = instance.id; showMobileList = false"
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -716,7 +727,7 @@ watch(instances, (newInstances) => {
     </div>
 
     <!-- Main Content -->
-    <div class="flex-1 flex flex-col min-w-0">
+    <div v-show="!isMobile || !showMobileList" class="flex-1 flex flex-col min-w-0">
       <!-- No selection -->
       <div v-if="!selectedInstance" class="flex-1 flex items-center justify-center">
         <div class="text-center">
@@ -727,8 +738,18 @@ watch(instances, (newInstances) => {
 
       <!-- Instance Detail -->
       <template v-else>
+        <!-- Mobile back button -->
+        <button
+          v-if="isMobile"
+          class="flex items-center gap-2 text-sm text-primary mb-4 hover:underline"
+          @click="showMobileList = true"
+        >
+          <ChevronRight class="w-4 h-4 rotate-180" />
+          {{ t('telegram.bots') }}
+        </button>
+
         <!-- Instance Header -->
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 class="text-2xl font-bold flex items-center gap-2">
               {{ selectedInstance.name }}
@@ -746,7 +767,7 @@ watch(instances, (newInstances) => {
               {{ selectedInstance.description }}
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <!-- Control buttons -->
             <button
               v-if="!selectedInstance.running"
@@ -802,7 +823,7 @@ watch(instances, (newInstances) => {
         </div>
 
         <!-- Status Cards -->
-        <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div class="bg-card rounded-xl border border-border p-4">
             <div class="flex items-center gap-2 text-muted-foreground mb-1">
               <Bot class="w-4 h-4" />
@@ -838,7 +859,7 @@ watch(instances, (newInstances) => {
         </div>
 
         <!-- Tabs -->
-        <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6">
+        <div class="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit mb-6 tab-bar-scroll max-w-full whitespace-nowrap">
           <button
             v-for="tab in ['settings', 'users', 'messages', 'ai', 'buttons', 'sessions', 'sales'] as const"
             :key="tab"
@@ -942,7 +963,7 @@ watch(instances, (newInstances) => {
 
           <!-- AI Tab -->
           <template v-if="activeTab === 'ai'">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="bg-card rounded-xl border border-border p-4">
                 <h3 class="font-medium mb-2">{{ t('telegram.llmBackend') }}</h3>
                 <p class="text-lg font-semibold">{{ selectedInstance.llm_backend }}</p>
@@ -1398,7 +1419,7 @@ class="bg-primary h-full rounded-full transition-all"
                   GitHub webhook not configured
                 </div>
                 <div v-else class="space-y-3 text-sm">
-                  <div class="grid grid-cols-2 gap-3">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label class="text-xs text-muted-foreground">Repo Owner</label>
                       <p class="font-medium">{{ salesGithub.repo_owner }}</p>
@@ -1456,7 +1477,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
 
           <div class="p-4 overflow-y-auto max-h-[calc(90vh-120px)] space-y-4">
             <!-- Basic Info -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.botName') }} *</label>
                 <input
@@ -1607,7 +1628,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
             </div>
 
             <!-- AI Config -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.llmBackend') }}</label>
                 <select
@@ -1632,7 +1653,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
             </div>
 
             <!-- TTS Config -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.ttsEngine') }}</label>
                 <select
@@ -1818,7 +1839,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                   </div>
                   <p class="text-xs text-muted-foreground">{{ t('telegram.yoomoneyDesc') }}</p>
 
-                  <div class="grid grid-cols-2 gap-2">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label class="text-xs text-muted-foreground">client_id</label>
                       <input
@@ -1916,7 +1937,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                         class="w-full px-2 py-1 text-sm bg-background rounded focus:outline-none focus:ring-1 focus:ring-primary"
                         :placeholder="t('telegram.productDescription')"
                       />
-                      <div class="grid grid-cols-2 gap-2">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label class="text-xs text-muted-foreground">{{ t('telegram.productPriceRub') }}</label>
                           <input
@@ -2014,7 +2035,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
           <div class="p-4 overflow-y-auto max-h-[calc(90vh-120px)] space-y-4">
             <!-- Agent Prompt Form -->
             <template v-if="salesDialogType === 'prompt'">
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.promptKey') }} *</label>
                   <input v-model="salesForm.prompt_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. tz_qualified" />
@@ -2032,7 +2053,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.systemPrompt') }} *</label>
                 <textarea v-model="salesForm.system_prompt" rows="8" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-y font-mono text-sm" />
               </div>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.temperature') }}</label>
                   <input v-model.number="salesForm.temperature" type="number" step="0.1" min="0" max="2" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
@@ -2056,7 +2077,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
 
             <!-- Quiz Question Form -->
             <template v-if="salesDialogType === 'quiz'">
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.questionKey') }} *</label>
                   <input v-model="salesForm.question_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. project_type" />
@@ -2099,7 +2120,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
 
             <!-- Segment Form -->
             <template v-if="salesDialogType === 'segment'">
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.segmentKey') }} *</label>
                   <input v-model="salesForm.segment_key" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. tz_qualified" />
@@ -2113,7 +2134,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.description') }}</label>
                 <input v-model="salesForm.description" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.path') }}</label>
                   <select v-model="salesForm.path" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
@@ -2151,7 +2172,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
 
             <!-- Follow-up Rule Form -->
             <template v-if="salesDialogType === 'followup'">
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.name') }} *</label>
                   <input v-model="salesForm.name" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
@@ -2161,7 +2182,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                   <input v-model="salesForm.trigger" type="text" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" placeholder="e.g. quiz_incomplete" />
                 </div>
               </div>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.delayHours') }}</label>
                   <input v-model.number="salesForm.delay_hours" type="number" min="1" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
@@ -2201,7 +2222,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.text') }} *</label>
                 <textarea v-model="salesForm.text" rows="4" class="w-full px-3 py-2 bg-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-y" />
               </div>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium mb-1">{{ t('telegram.sales.form.rating') }}</label>
                   <div class="flex gap-1">
@@ -2256,7 +2277,7 @@ v-for="ev in (salesGithub.events || [])" :key="ev"
 
           <div class="p-4 space-y-4">
             <!-- Label & Icon -->
-            <div class="grid grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div class="col-span-2">
                 <label class="block text-sm font-medium mb-1">{{ t('telegram.buttonLabel') }} *</label>
                 <input

@@ -212,7 +212,7 @@ onUnmounted(() => {
 
     <!-- Toolbar -->
     <div class="flex items-center gap-4 flex-wrap">
-      <div class="flex gap-2">
+      <div class="flex gap-2 tab-bar-scroll max-w-full whitespace-nowrap">
         <button
           v-for="tab in ['overview', 'gpus', 'docker', 'processes', 'network', 'disks'] as const"
           :key="tab"
@@ -759,7 +759,7 @@ onUnmounted(() => {
           <div class="p-4 border-b border-border">
             <h2 class="text-lg font-semibold">TTS Streaming Cache</h2>
           </div>
-          <div class="p-4 grid grid-cols-3 gap-4">
+          <div class="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <p class="text-sm text-muted-foreground">Cache Size</p>
               <p class="text-xl font-bold">{{ metricsData.streaming_tts.cache_size }}</p>

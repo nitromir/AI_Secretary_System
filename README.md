@@ -15,7 +15,8 @@
 - **Multi-Instance Bots**: Несколько Telegram ботов с независимыми настройками (LLM, TTS, промпт)
 - **Multi-Instance Widgets**: Несколько чат-виджетов для разных сайтов/отделов
 - **FAQ System**: Мгновенные ответы на типичные вопросы
-- **Admin Panel**: Vue 3 PWA с 14 вкладками, i18n, темами, аудитом
+- **Sales Funnel**: Quiz-based segmentation, TZ generator, payment integration (YooMoney, Telegram Stars)
+- **Admin Panel**: Vue 3 PWA с 19 вкладками, i18n, темами, аудитом, responsive layout
 - **GSM Telephony**: Поддержка SIM7600E-H для голосовых звонков и SMS
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
 - **Telegram Bot**: Общение с ассистентом через Telegram
@@ -33,7 +34,7 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (13 tabs, PWA)  │  │
+                              │  │  Vue 3 Admin Panel (19 views, PWA) │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -48,7 +49,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ### Modular API Structure
 
-API endpoints organized into 12 routers with ~130 endpoints:
+API endpoints organized into 19 routers with ~348 endpoints:
 
 ```
 app/
@@ -67,7 +68,14 @@ app/
     ├── chat.py              # 10 endpoints - Sessions, messages, streaming
     ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
     ├── widget.py            # 7 endpoints  - Widget instances CRUD
-    └── gsm.py               # 12 endpoints - GSM telephony (SIM7600E-H)
+    ├── gsm.py               # 12 endpoints - GSM telephony (SIM7600E-H)
+    ├── backup.py            # 4 endpoints  - Backup/restore configuration
+    ├── bot_sales.py         # 15 endpoints - Sales funnel config, segments, testimonials
+    ├── yoomoney_webhook.py  # 2 endpoints  - YooMoney payment callbacks
+    ├── amocrm.py            # 18 endpoints - amoCRM OAuth2, contacts, leads, pipelines
+    ├── usage.py             # 8 endpoints  - Usage tracking, limits, statistics
+    ├── legal.py             # 6 endpoints  - Legal compliance
+    └── github_webhook.py    # 2 endpoints  - GitHub CI/CD webhook
 ```
 
 ### GPU Configuration (RTX 3060 12GB)
@@ -166,7 +174,7 @@ open http://localhost:8002/admin
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 PWA админ-панель с 13 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 19 вкладками:
 
 | Tab | Description |
 |-----|-------------|
@@ -183,6 +191,12 @@ open http://localhost:8002/admin
 | **Telegram** | Настройка Telegram бота |
 | **Audit** | Логирование действий, фильтрация, экспорт |
 | **Settings** | Язык, тема, экспорт/импорт конфигураций |
+| **GSM** | Управление GSM-модемом, звонки, SMS |
+| **amoCRM** | OAuth2 интеграция, контакты, лиды, пайплайны |
+| **Sales** | Конфигурация воронки продаж, сегменты, отзывы |
+| **Usage** | Трекинг использования TTS/STT/LLM, лимиты |
+| **Legal** | Юридическое соответствие, пользовательские соглашения |
+| **Backup** | Резервное копирование и восстановление конфигураций |
 
 ### Admin Panel Features
 
@@ -541,7 +555,7 @@ curl -X POST http://localhost:8002/admin/llm/backend \
 | **Google Gemini** | `gemini` | gemini-2.0-flash, gemini-2.5-pro | SDK |
 | **Moonshot Kimi** | `kimi` | kimi-k2, moonshot-v1-8k/32k/128k | api.moonshot.ai |
 | **OpenAI** | `openai` | gpt-4o, gpt-4o-mini | api.openai.com |
-| **Anthropic Claude** | `claude` | claude-opus-4, claude-sonnet-4 | api.anthropic.com |
+| **Anthropic Claude** | `claude` | claude-opus-4-6, claude-sonnet-4-5 | api.anthropic.com |
 | **DeepSeek** | `deepseek` | deepseek-chat, deepseek-reasoner | api.deepseek.com |
 | **OpenRouter** | `openrouter` | nemotron-3-nano:free, trinity-large:free, solar-pro-3:free | openrouter.ai |
 | **Custom** | `custom` | (user-defined) | (user-defined) |
@@ -643,7 +657,7 @@ curl -X POST http://localhost:8002/v1/audio/speech \
 curl http://localhost:8002/v1/models
 ```
 
-### Admin API (~118 endpoints via 11 routers)
+### Admin API (~348 endpoints via 19 routers)
 
 ```bash
 # Authentication
@@ -849,7 +863,7 @@ REDIS_URL=redis://localhost:6379/0  # Optional caching (graceful fallback if una
 
 ```
 AI_Secretary_System/
-├── orchestrator.py          # FastAPI server + ~60 admin endpoints
+├── orchestrator.py          # FastAPI server + app/routers/ (19 routers, ~348 endpoints)
 ├── auth_manager.py          # JWT authentication
 ├── service_manager.py       # Service process control
 ├── finetune_manager.py      # Fine-tuning pipeline
@@ -889,7 +903,7 @@ AI_Secretary_System/
 │
 ├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/           # 12 main views + LoginView
+│   │   ├── views/           # 19 main views + LoginView
 │   │   ├── api/             # API clients + SSE
 │   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
 │   │   ├── components/      # UI + charts
@@ -1098,10 +1112,17 @@ npm run build
 - [x] **Chat Management** — переименование, групповое удаление, группировка по источнику
 - [x] **Source Tracking** — отслеживание источника чат-сессий (admin/telegram/widget)
 - [x] **VLESS Proxy for Gemini** — маршрутизация через VLESS прокси с multiple proxies и автоматическим failover
+- [x] **Sales Funnel** — quiz-сегментация, TZ генератор, оплата (YooMoney, Telegram Stars)
+- [x] **amoCRM Integration** — OAuth2, контакты, лиды, пайплайны, синхронизация
+- [x] **Responsive Admin** — mobile-first адаптивная верстка для всех устройств
+- [x] **Web Role** — роль `web` с ограниченным доступом к инфраструктурным вкладкам
+- [x] **News System** — автоматические новости из GitHub PR/коммитов для Telegram
+- [x] **FAQ Sections** — тематические разделы FAQ (Продукт, Установка, Цены и поддержка)
+- [x] **Usage Tracking** — трекинг использования TTS/STT/LLM с лимитами
+- [x] **Backup & Restore** — экспорт/импорт конфигурации системы
 
 **В планах:**
 - [ ] Телефония SIM7600G-H (AT-команды)
-- [ ] Backup & Restore
 - [ ] Automated Testing (unit, integration, e2e)
 
 ## License
