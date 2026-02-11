@@ -55,6 +55,7 @@ from app.routers import (
     tts,
     usage,
     widget,
+    wiki_rag,
     yoomoney_webhook,
 )
 from app.security_headers import (
@@ -426,6 +427,7 @@ app.include_router(github_webhook.router)
 app.include_router(yoomoney_webhook.router)
 app.include_router(legal.router)
 app.include_router(backup.router)
+app.include_router(wiki_rag.router)
 app.include_router(amocrm.router)
 app.include_router(amocrm.webhook_router)
 
