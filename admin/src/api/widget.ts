@@ -6,7 +6,10 @@ export interface WidgetConfig {
   title: string
   greeting: string
   placeholder: string
+  placeholder_color?: string
+  placeholder_font?: string
   primary_color: string
+  button_icon?: string
   position: 'left' | 'right'
   allowed_domains: string[]
   tunnel_url: string
@@ -22,7 +25,10 @@ export interface WidgetInstance {
   title: string
   greeting?: string
   placeholder: string
+  placeholder_color?: string
+  placeholder_font?: string
   primary_color: string
+  button_icon?: string
   position: 'left' | 'right'
   // Access
   allowed_domains: string[]

@@ -49,7 +49,10 @@ class WidgetInstanceCreateRequest(BaseModel):
     title: str = "AI Ассистент"
     greeting: str = "Здравствуйте! Чем могу помочь?"
     placeholder: str = "Введите сообщение..."
+    placeholder_color: str = ""
+    placeholder_font: str = ""
     primary_color: str = "#c2410c"
+    button_icon: str = "chat"
     position: str = "right"
     allowed_domains: List[str] = []
     tunnel_url: Optional[str] = None
@@ -69,7 +72,10 @@ class WidgetInstanceUpdateRequest(BaseModel):
     title: Optional[str] = None
     greeting: Optional[str] = None
     placeholder: Optional[str] = None
+    placeholder_color: Optional[str] = None
+    placeholder_font: Optional[str] = None
     primary_color: Optional[str] = None
+    button_icon: Optional[str] = None
     position: Optional[str] = None
     allowed_domains: Optional[List[str]] = None
     tunnel_url: Optional[str] = None

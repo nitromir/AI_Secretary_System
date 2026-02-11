@@ -90,7 +90,10 @@ export interface WidgetInstanceData {
   title: string
   greeting?: string
   placeholder: string
+  placeholder_color?: string
+  placeholder_font?: string
   primary_color: string
+  button_icon?: string
   position: 'left' | 'right'
   allowed_domains: string[]
   tunnel_url?: string

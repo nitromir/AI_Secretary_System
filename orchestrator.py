@@ -3325,6 +3325,9 @@ window.aiChatSettings = {{
   greeting: '{_escape_js_string(config.get("greeting") or "")}',
   placeholder: '{_escape_js_string(config.get("placeholder") or "")}',
   primaryColor: '{config.get("primary_color", "#c2410c")}',
+  placeholderColor: '{config.get("placeholder_color") or ""}',
+  placeholderFont: '{_escape_js_string(config.get("placeholder_font") or "")}',
+  buttonIcon: '{config.get("button_icon") or "chat"}',
   position: '{config.get("position", "right")}'
 }};
 
