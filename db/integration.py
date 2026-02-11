@@ -24,6 +24,7 @@ from db.repositories import (
     FAQRepository,
     GSMCallLogRepository,
     GSMSMSLogRepository,
+    KnowledgeDocumentRepository,
     PaymentRepository,
     PresetRepository,
     TelegramRepository,
@@ -941,6 +942,72 @@ class AsyncUserManager:
             return await repo.get_user_count()
 
 
+# ============== Knowledge Document Manager ==============
+
+
+class AsyncKnowledgeDocManager:
+    """Async wrapper for KnowledgeDocumentRepository."""
+
+    async def get_all(self) -> List[dict]:
+        """Get all knowledge documents."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            return await repo.get_all_documents()
+
+    async def get_by_id(self, doc_id: int) -> Optional[dict]:
+        """Get document by ID."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            doc = await repo.get_by_id(doc_id)
+            return doc.to_dict() if doc else None
+
+    async def get_by_filename(self, filename: str) -> Optional[dict]:
+        """Get document by filename."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            doc = await repo.get_by_filename(filename)
+            return doc.to_dict() if doc else None
+
+    async def create(
+        self,
+        filename: str,
+        title: str,
+        source_type: str = "manual",
+        file_size_bytes: int = 0,
+        section_count: int = 0,
+        owner_id: Optional[int] = None,
+    ) -> dict:
+        """Create a knowledge document record."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            return await repo.create_document(
+                filename=filename,
+                title=title,
+                source_type=source_type,
+                file_size_bytes=file_size_bytes,
+                section_count=section_count,
+                owner_id=owner_id,
+            )
+
+    async def update(
+        self,
+        doc_id: int,
+        title: Optional[str] = None,
+        file_size_bytes: Optional[int] = None,
+        section_count: Optional[int] = None,
+    ) -> Optional[dict]:
+        """Update document metadata."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            return await repo.update_document(doc_id, title, file_size_bytes, section_count)
+
+    async def delete(self, doc_id: int) -> bool:
+        """Delete document record."""
+        async with AsyncSessionLocal() as session:
+            repo = KnowledgeDocumentRepository(session)
+            return await repo.delete_document(doc_id)
+
+
 # ============== Global Instances ==============
 
 # These can be used directly in orchestrator
@@ -957,6 +1024,7 @@ async_payment_manager = AsyncPaymentManager()
 async_amocrm_manager = AsyncAmoCRMManager()
 async_gsm_manager = AsyncGSMManager()
 async_user_manager = AsyncUserManager()
+async_knowledge_doc_manager = AsyncKnowledgeDocManager()
 
 
 # ============== Initialization Function ==============

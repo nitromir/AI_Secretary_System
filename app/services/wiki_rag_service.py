@@ -271,6 +271,47 @@ class WikiRAGService:
             "files_indexed": self._files_indexed,
         }
 
+    def search(self, query: str, top_k: int = 3) -> list[dict]:
+        """Structured search results with scores (for API/UI)."""
+        if not self.sections or not query.strip():
+            return []
+
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return []
+
+        scored: list[tuple[float, WikiSection]] = []
+        for section in self.sections:
+            score = 0.0
+            for token in query_tokens:
+                if token in section.tokens:
+                    tf = section.tokens[token]
+                    idf = self.idf.get(token, 0.0)
+                    score += tf * idf
+            if score > 0:
+                scored.append((score, section))
+
+        if not scored:
+            return []
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for score, section in scored[:top_k]:
+            results.append(
+                {
+                    "title": section.title,
+                    "body": section.body[:500],
+                    "source_file": section.source_file,
+                    "score": round(score, 3),
+                }
+            )
+        return results
+
+    def list_source_files(self) -> list[str]:
+        """List unique source files in the index."""
+        return sorted({s.source_file for s in self.sections})
+
     @property
     def stats(self) -> dict:
         """Index statistics."""

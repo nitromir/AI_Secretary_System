@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { finetuneApi, ttsFinetune, type TrainingConfig, type DatasetConfig, type VoiceSample, type TTSConfig, type TTSProcessingStatus, type TTSTrainingStatus } from '@/api'
+import { finetuneApi, ttsFinetune, wikiRagApi, type TrainingConfig, type DatasetConfig, type VoiceSample, type WikiSearchResult } from '@/api'
 import {
   Sparkles,
   Upload,
@@ -28,7 +28,12 @@ import {
   FileText,
   Zap,
   Code2,
-  Github
+  Github,
+  Cpu,
+  Cloud,
+  Search,
+  FileUp,
+  BookOpenCheck
 } from 'lucide-vue-next'
 import { ref, computed, watch, onUnmounted } from 'vue'
 
@@ -36,6 +41,15 @@ const queryClient = useQueryClient()
 
 // Active tab
 const activeTab = ref<'llm' | 'tts'>('llm')
+
+// LLM sub-mode: local LoRA vs cloud AI knowledge
+const llmMode = ref<'local' | 'cloud'>('local')
+
+// ============== Cloud AI (Wiki RAG) State ==============
+const searchQuery = ref('')
+const searchTopK = ref(3)
+const searchResults = ref<WikiSearchResult[]>([])
+const uploadingKnowledgeDoc = ref<File | null>(null)
 
 // ============== LLM Training State ==============
 const uploadingFile = ref<File | null>(null)
@@ -108,6 +122,19 @@ const { data: statusData, refetch: refetchStatus } = useQuery({
 const { data: adaptersData, refetch: refetchAdapters } = useQuery({
   queryKey: ['finetune-adapters'],
   queryFn: () => finetuneApi.listAdapters(),
+})
+
+// ============== Wiki RAG Queries ==============
+const { data: wikiStatsData, refetch: refetchWikiStats } = useQuery({
+  queryKey: ['wiki-rag-stats'],
+  queryFn: () => wikiRagApi.getStats(),
+  enabled: computed(() => activeTab.value === 'llm' && llmMode.value === 'cloud'),
+})
+
+const { data: wikiDocsData, refetch: refetchWikiDocs } = useQuery({
+  queryKey: ['wiki-rag-documents'],
+  queryFn: () => wikiRagApi.getDocuments(),
+  enabled: computed(() => activeTab.value === 'llm' && llmMode.value === 'cloud'),
 })
 
 // ============== TTS Queries ==============
@@ -217,6 +244,39 @@ const generateProjectMutation = useMutation({
   },
 })
 
+// ============== Wiki RAG Mutations ==============
+const reloadWikiMutation = useMutation({
+  mutationFn: () => wikiRagApi.reload(),
+  onSuccess: () => {
+    refetchWikiStats()
+    refetchWikiDocs()
+  },
+})
+
+const searchWikiMutation = useMutation({
+  mutationFn: ({ query, topK }: { query: string; topK: number }) => wikiRagApi.search(query, topK),
+  onSuccess: (data) => {
+    searchResults.value = data.results
+  },
+})
+
+const uploadDocMutation = useMutation({
+  mutationFn: (file: File) => wikiRagApi.uploadDocument(file),
+  onSuccess: () => {
+    refetchWikiDocs()
+    refetchWikiStats()
+    uploadingKnowledgeDoc.value = null
+  },
+})
+
+const deleteDocMutation = useMutation({
+  mutationFn: (id: number) => wikiRagApi.deleteDocument(id),
+  onSuccess: () => {
+    refetchWikiDocs()
+    refetchWikiStats()
+  },
+})
+
 // ============== TTS Mutations ==============
 const uploadTtsSampleMutation = useMutation({
   mutationFn: (file: File) => ttsFinetune.uploadSample(file),
@@ -281,6 +341,11 @@ const formattedEta = computed(() => {
   const seconds = Math.floor(status.value.eta_seconds % 60)
   return `${minutes}m ${seconds}s`
 })
+
+// ============== Wiki RAG Computed ==============
+const wikiStats = computed(() => wikiStatsData.value?.stats)
+const wikiSourceFiles = computed(() => wikiStatsData.value?.source_files || [])
+const wikiDocuments = computed(() => wikiDocsData.value?.documents || [])
 
 // ============== TTS Computed ==============
 const ttsSamples = computed(() => ttsSamplesData.value?.samples || [])
@@ -349,6 +414,33 @@ function stopLogStream() {
     logEventSource.close()
     logEventSource = null
   }
+}
+
+// ============== Wiki RAG Methods ==============
+function handleKnowledgeDocSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    uploadingKnowledgeDoc.value = file
+  }
+}
+
+function uploadKnowledgeDoc() {
+  if (uploadingKnowledgeDoc.value) {
+    uploadDocMutation.mutate(uploadingKnowledgeDoc.value)
+  }
+}
+
+function runWikiSearch() {
+  if (searchQuery.value.trim()) {
+    searchWikiMutation.mutate({ query: searchQuery.value, topK: searchTopK.value })
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 // ============== TTS Methods ==============
@@ -425,6 +517,34 @@ onUnmounted(() => {
 
     <!-- ============== LLM TAB ============== -->
     <template v-if="activeTab === 'llm'">
+      <!-- Local / Cloud AI Toggle -->
+      <div class="bg-card rounded-lg border border-border p-4">
+        <div class="grid grid-cols-2 gap-2 p-1 bg-secondary rounded-lg max-w-md">
+          <button
+            :class="[
+              'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
+              llmMode === 'local' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80'
+            ]"
+            @click="llmMode = 'local'"
+          >
+            <Cpu class="w-4 h-4" />
+            Local (LoRA)
+          </button>
+          <button
+            :class="[
+              'px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2',
+              llmMode === 'cloud' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary/80'
+            ]"
+            @click="llmMode = 'cloud'"
+          >
+            <Cloud class="w-4 h-4" />
+            Cloud AI
+          </button>
+        </div>
+      </div>
+
+      <!-- ====== LOCAL (LoRA) MODE ====== -->
+      <template v-if="llmMode === 'local'">
       <!-- Project Dataset Generator -->
       <div class="bg-card rounded-lg border border-border">
         <div class="p-4 border-b border-border">
@@ -840,6 +960,221 @@ v-if="!adapter.active" :disabled="deleteAdapterMutation.isPending.value" class="
           </div>
         </div>
       </div>
+      </template>
+
+      <!-- ====== CLOUD AI MODE ====== -->
+      <template v-if="llmMode === 'cloud'">
+        <!-- Wiki RAG Status -->
+        <div class="bg-card rounded-lg border border-border">
+          <div class="p-4 border-b border-border flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold flex items-center gap-2">
+                <BookOpenCheck class="w-5 h-5" />
+                Wiki RAG — База знаний
+              </h2>
+              <p class="text-sm text-muted-foreground mt-1">
+                Индексация документов для контекстных подсказок в промпте Cloud AI
+              </p>
+            </div>
+            <button
+              :disabled="reloadWikiMutation.isPending.value"
+              class="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-lg hover:bg-secondary/80 disabled:opacity-50 transition-colors text-sm"
+              @click="reloadWikiMutation.mutate()"
+            >
+              <RefreshCw :class="['w-4 h-4', reloadWikiMutation.isPending.value && 'animate-spin']" />
+              Переиндексировать
+            </button>
+          </div>
+
+          <div class="p-4">
+            <!-- Stats -->
+            <div v-if="wikiStats" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div class="p-3 bg-secondary rounded-lg">
+                <p class="text-xs text-muted-foreground">Секций</p>
+                <p class="text-xl font-bold">{{ wikiStats.sections_indexed }}</p>
+              </div>
+              <div class="p-3 bg-secondary rounded-lg">
+                <p class="text-xs text-muted-foreground">Файлов</p>
+                <p class="text-xl font-bold">{{ wikiStats.files_indexed }}</p>
+              </div>
+              <div class="p-3 bg-secondary rounded-lg">
+                <p class="text-xs text-muted-foreground">Уникальных токенов</p>
+                <p class="text-xl font-bold">{{ wikiStats.unique_tokens }}</p>
+              </div>
+              <div class="p-3 rounded-lg" :class="wikiStats.available ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'">
+                <p class="text-xs text-muted-foreground">Статус</p>
+                <p class="text-xl font-bold" :class="wikiStats.available ? 'text-green-500' : 'text-red-500'">
+                  {{ wikiStats.available ? 'Активен' : 'Пуст' }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Source files -->
+            <div v-if="wikiSourceFiles.length" class="mt-2">
+              <p class="text-sm font-medium mb-2">Проиндексированные файлы:</p>
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="file in wikiSourceFiles"
+                  :key="file"
+                  class="px-2 py-0.5 bg-secondary text-xs rounded"
+                >{{ file }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Knowledge Base Documents -->
+        <div class="bg-card rounded-lg border border-border">
+          <div class="p-4 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+              <FileUp class="w-5 h-5" />
+              Документы базы знаний
+            </h2>
+            <p class="text-sm text-muted-foreground mt-1">
+              Загрузка .md / .txt файлов в wiki-pages/ для индексации
+            </p>
+          </div>
+
+          <div class="p-4 space-y-4">
+            <!-- Upload -->
+            <div class="flex items-center gap-3">
+              <input
+                id="knowledge-doc-upload"
+                type="file"
+                accept=".md,.txt"
+                class="hidden"
+                @change="handleKnowledgeDocSelect"
+              />
+              <label
+                for="knowledge-doc-upload"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg cursor-pointer hover:bg-secondary/80 transition-colors text-sm"
+              >
+                <Upload class="w-4 h-4" />
+                Выбрать файл
+              </label>
+              <template v-if="uploadingKnowledgeDoc">
+                <span class="text-sm">{{ uploadingKnowledgeDoc.name }} ({{ formatFileSize(uploadingKnowledgeDoc.size) }})</span>
+                <button
+                  :disabled="uploadDocMutation.isPending.value"
+                  class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
+                  @click="uploadKnowledgeDoc"
+                >
+                  <Loader2 v-if="uploadDocMutation.isPending.value" class="w-4 h-4 animate-spin inline mr-1" />
+                  Загрузить
+                </button>
+              </template>
+            </div>
+
+            <!-- Error -->
+            <div v-if="uploadDocMutation.error.value" class="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">
+              <AlertCircle class="w-4 h-4 flex-shrink-0" />
+              {{ uploadDocMutation.error.value }}
+            </div>
+
+            <!-- Documents table -->
+            <div v-if="wikiDocuments.length" class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th class="text-left p-2 font-medium text-muted-foreground">Файл</th>
+                    <th class="text-left p-2 font-medium text-muted-foreground">Название</th>
+                    <th class="text-left p-2 font-medium text-muted-foreground">Тип</th>
+                    <th class="text-right p-2 font-medium text-muted-foreground">Секций</th>
+                    <th class="text-right p-2 font-medium text-muted-foreground">Размер</th>
+                    <th class="text-right p-2 font-medium text-muted-foreground"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="doc in wikiDocuments" :key="doc.id" class="border-b border-border/50 hover:bg-secondary/50">
+                    <td class="p-2 font-mono text-xs">{{ doc.filename }}</td>
+                    <td class="p-2">{{ doc.title }}</td>
+                    <td class="p-2">
+                      <span class="px-1.5 py-0.5 bg-secondary text-xs rounded">{{ doc.source_type }}</span>
+                    </td>
+                    <td class="p-2 text-right">{{ doc.section_count }}</td>
+                    <td class="p-2 text-right text-muted-foreground">{{ formatFileSize(doc.file_size_bytes) }}</td>
+                    <td class="p-2 text-right">
+                      <button
+                        :disabled="deleteDocMutation.isPending.value"
+                        class="p-1.5 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
+                        @click="deleteDocMutation.mutate(doc.id)"
+                      >
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="text-center p-6 text-muted-foreground text-sm">
+              Документы не загружены. Существующие wiki-pages/ файлы будут синхронизированы автоматически.
+            </div>
+          </div>
+        </div>
+
+        <!-- Test Search -->
+        <div class="bg-card rounded-lg border border-border">
+          <div class="p-4 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+              <Search class="w-5 h-5" />
+              Тест поиска
+            </h2>
+            <p class="text-sm text-muted-foreground mt-1">
+              Проверка релевантности результатов TF-IDF поиска по базе знаний
+            </p>
+          </div>
+
+          <div class="p-4 space-y-4">
+            <div class="flex items-center gap-3">
+              <input
+                v-model="searchQuery"
+                type="text"
+                placeholder="Введите поисковый запрос..."
+                class="flex-1 px-3 py-2 bg-secondary rounded-lg text-sm"
+                @keydown.enter="runWikiSearch"
+              />
+              <select
+                v-model="searchTopK"
+                class="px-3 py-2 bg-secondary rounded-lg text-sm"
+              >
+                <option :value="3">Top 3</option>
+                <option :value="5">Top 5</option>
+                <option :value="10">Top 10</option>
+              </select>
+              <button
+                :disabled="searchWikiMutation.isPending.value || !searchQuery.trim()"
+                class="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
+                @click="runWikiSearch"
+              >
+                <Loader2 v-if="searchWikiMutation.isPending.value" class="w-4 h-4 animate-spin" />
+                <Search v-else class="w-4 h-4" />
+                Поиск
+              </button>
+            </div>
+
+            <!-- Results -->
+            <div v-if="searchResults.length" class="space-y-3">
+              <div
+                v-for="(result, idx) in searchResults"
+                :key="idx"
+                class="p-4 bg-secondary/50 rounded-lg border border-border"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <h4 class="font-medium text-sm">{{ result.title }}</h4>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-muted-foreground">{{ result.source_file }}</span>
+                    <span class="px-2 py-0.5 bg-primary/20 text-primary text-xs font-mono rounded">{{ result.score }}</span>
+                  </div>
+                </div>
+                <p class="text-sm text-muted-foreground whitespace-pre-line line-clamp-4">{{ result.body }}</p>
+              </div>
+            </div>
+            <div v-else-if="searchWikiMutation.isSuccess.value && !searchResults.length" class="text-center p-4 text-muted-foreground text-sm">
+              Ничего не найдено по запросу «{{ searchQuery }}»
+            </div>
+          </div>
+        </div>
+      </template>
     </template>
 
     <!-- ============== TTS TAB ============== -->

@@ -59,6 +59,7 @@ python scripts/migrate_sales_bot.py          # Sales funnel tables
 python scripts/migrate_add_payment_fields.py # Payment fields for sales
 python scripts/migrate_legal_compliance.py   # Legal compliance tables
 python scripts/migrate_gemini_to_cloud.py    # Migrate standalone gemini backend to cloud provider
+python scripts/migrate_knowledge_base.py     # Knowledge base documents table (wiki-pages/ tracking)
 python scripts/seed_tz_generator.py          # Seed TZ generator bot data
 python scripts/seed_tz_widget.py             # Seed TZ widget data
 ```
@@ -107,7 +108,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (19 routers, ~348 endpoints) │
+│  orchestrator.py + app/routers/ (20 routers, ~356 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (19 views, PWA)                │  │
 │  │                admin/dist/                              │  │
@@ -139,7 +140,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Cloud LLM routing**: `cloud_llm_service.py` (project root) has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`. The standalone `gemini` backend (`llm_service.py`) is deprecated — all cloud LLM is now routed via `CloudLLMService`. Legacy `LLM_BACKEND=gemini` is auto-migrated to `cloud:{provider_id}` on startup (auto-creates a Gemini provider from `GEMINI_API_KEY` env if needed). Migration script: `scripts/migrate_gemini_to_cloud.py`.
 
-**Wiki RAG**: `app/services/wiki_rag_service.py` — lightweight TF-IDF retrieval over `wiki-pages/*.md`. Indexes sections by `##`/`###` headers on startup, injects relevant context into LLM system prompt. Zero external dependencies, zero GPU. Initialized in `orchestrator.py` startup, stored in `ServiceContainer.wiki_rag_service`.
+**Wiki RAG & Knowledge Base**: `app/services/wiki_rag_service.py` — lightweight TF-IDF retrieval over `wiki-pages/*.md`. Indexes sections by `##`/`###` headers on startup, injects relevant context into LLM system prompt. Zero external dependencies, zero GPU. Initialized in `orchestrator.py` startup, stored in `ServiceContainer.wiki_rag_service`. `app/routers/wiki_rag.py` exposes admin API: stats, reload, search, and Knowledge Base document CRUD (upload/edit/delete `.md`/`.txt` files). Documents tracked in `knowledge_documents` table (`KnowledgeDocument` model), managed via `AsyncKnowledgeDocManager` in `db/integration.py`. Existing `wiki-pages/*.md` auto-synced to DB on first request. Admin UI: Finetune → LLM → Cloud AI toggle (wiki stats, knowledge base table, test search). Migration: `scripts/migrate_knowledge_base.py`.
 
 **amoCRM integration**: `app/services/amocrm_service.py` is a pure async HTTP client (no DB) with optional proxy support (`AMOCRM_PROXY` env var for Docker/VPN environments). `app/routers/amocrm.py` handles OAuth2 flow, token auto-refresh, and proxies API calls. Config/tokens stored via `AsyncAmoCRMManager` in `db/integration.py`. Webhook at `POST /webhooks/amocrm`. For private amoCRM integrations, auth codes are obtained from the integration settings (not OAuth redirect). If Docker can't reach amoCRM (VPN on host), run `scripts/amocrm_proxy.py` on the host.
 
@@ -165,7 +166,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Widget session persistence** (Replain-style): The widget preserves chat history across page navigations. Session ID is stored in both a cookie (`SameSite=None; Secure`, 30-day TTL) and `localStorage` (cookie-first, localStorage fallback). On page load, `preloadHistory()` fetches the session via `GET /widget/chat/session/{id}` (public, no auth, `source="widget"` only). The open/closed state is tracked in `sessionStorage` — if the chat was open before navigation, it auto-opens and renders history on the next page. `clearSession()` wipes cookie + localStorage + sessionStorage.
 
-**Other routers**: `audit.py` (audit log viewer/export/cleanup), `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `github_webhook.py` (GitHub CI/CD webhook handler).
+**Other routers**: `audit.py` (audit log viewer/export/cleanup), `usage.py` (usage statistics/analytics), `legal.py` (legal compliance, migration: `scripts/migrate_legal_compliance.py`), `wiki_rag.py` (Wiki RAG stats/search/reload + Knowledge Base CRUD), `github_webhook.py` (GitHub CI/CD webhook handler).
 
 ## Code Patterns
 
