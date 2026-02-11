@@ -1,37 +1,47 @@
 ## Навигация
 
-### 🏠 Главная
+### Главная
 * [[Home]]
-* [[Installation]]
 
-### 📱 Админ-панель
+### Мониторинг
 * [[Dashboard]]
-* [[Chat]]
+* [[Monitoring]]
 * [[Services]]
+* [[Audit]]
+* [[Usage]]
+
+### ИИ и модели
 * [[LLM]]
 * [[TTS]]
-* [[FAQ]]
-* [[Finetune]]
-* [[Cloud-AI-Training]]
-* [[Monitoring]]
 * [[Models]]
-* [[Widget]]
-* [[Telegram]]
-* [[GSM]]
-* [[Audit]]
-* [[Settings]]
+* [[Finetune]]
+* [[Personas]]
 
-### 🔌 Интеграции
+### Каналы
+* [[Chat]]
+* [[Telegram]]
+* [[Widget]]
+* [[GSM]]
+
+### Бизнес
+* [[FAQ]]
+* [[Sales]]
+* [[CRM]]
+* [[Payments]]
+
+### Система
+* [[Settings]]
+* [[Backup]]
+* [[Wiki-RAG]]
+
+### Интеграции
 * [[Cloud-LLM-Providers]]
 * [[VLESS-Proxy]]
-* [[Telegram-Integration]]
-* [[Widget-Integration]]
 
-### 📚 Разработка
+### Справка
 * [[API-Reference]]
-* [[Development-Setup]]
-* [[Docker-Deployment]]
+* [[Troubleshooting]]
 
 ---
 
-📖 [GitHub](https://github.com/ShaerWare/AI_Secretary_System)
+[GitHub](https://github.com/ShaerWare/AI_Secretary_System)
