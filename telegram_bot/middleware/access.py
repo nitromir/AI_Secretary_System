@@ -6,8 +6,6 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from ..config import get_telegram_settings
-
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +13,35 @@ logger = logging.getLogger(__name__)
 class AccessMiddleware(BaseMiddleware):
     """Drop updates from users not in the whitelist.
 
-    If TELEGRAM_ALLOWED_USERS is empty, all users are allowed.
+    If allowed_users is empty, all users are allowed.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        settings = get_telegram_settings()
-        self._allowed = settings.get_allowed_user_ids()
+        self._allowed: set[int] = set()
+
+        # Multi-instance mode: whitelist managed via API config (not env vars)
+        from ..state import get_bot_config
+
+        bot_config = get_bot_config()
+        if bot_config is not None:
+            # Multi-instance: admin_ids is the only filter on BotConfig;
+            # allowed_users is handled at the API/DB level, not here.
+            pass
+        else:
+            # Standalone mode: try env-based settings
+            try:
+                from ..config import get_telegram_settings
+
+                settings = get_telegram_settings()
+                self._allowed = settings.get_allowed_user_ids()
+            except Exception:
+                pass
+
         if self._allowed:
             logger.info("Access whitelist: %s", self._allowed)
         else:
-            logger.warning("TELEGRAM_ALLOWED_USERS is empty — bot is open to everyone")
+            logger.warning("No access whitelist — bot is open to everyone")
 
     async def __call__(
         self,
