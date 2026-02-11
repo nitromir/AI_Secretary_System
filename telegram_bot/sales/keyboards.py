@@ -21,9 +21,9 @@ WIKI_URL = "https://github.com/ShaerWare/AI_Secretary_System/wiki"
 # ── Default action buttons (fallback when not loaded from API) ──────────
 
 DEFAULT_ACTION_BUTTONS: list[dict[str, Any]] = [
-    {"id": "diy", "label": "Установить самостоятельно", "icon": "📦", "order": 1, "enabled": True},
-    {"id": "pay_5k", "label": "Оплата 5К", "icon": "💳", "order": 2, "enabled": True},
-    {"id": "support", "label": "Техподдержка", "icon": "🛠️", "order": 3, "enabled": True},
+    {"id": "support", "label": "Техподдержка", "icon": "🛠️", "order": 1, "enabled": True},
+    {"id": "diy", "label": "Установить самостоятельно", "icon": "📦", "order": 2, "enabled": True},
+    {"id": "pay_5k", "label": "Оплата 5К", "icon": "💳", "order": 3, "enabled": True},
     {"id": "wiki", "label": "Wiki", "icon": "📚", "order": 4, "enabled": True},
     {"id": "ask", "label": "Задать вопрос", "icon": "❓", "order": 5, "enabled": True},
     {"id": "news", "label": "Новости", "icon": "📰", "order": 6, "enabled": True},
@@ -99,7 +99,7 @@ def build_main_keyboard(action_buttons: list[dict[str, Any]] | None = None) -> R
     # If no row info, use default layout
     if len(rows) == 1 and 0 in rows and len(rows[0]) == len(enabled):
         # No row info provided - use default 2-3-3-1 layout
-        layout = [1, 3, 3, 1]  # [diy], [pay, support, wiki], [ask, news, start], [tz]
+        layout = [1, 1, 3, 2, 1]  # [support], [diy], [pay, wiki, ask], [news, start], [tz]
         idx = 0
         for row_size in layout:
             row = []
