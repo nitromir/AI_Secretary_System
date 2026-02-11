@@ -31,11 +31,6 @@ async def on_text_message(message: Message, state: FSMContext) -> None:
     if not message.from_user or not message.text:
         return
 
-    # If user is in any FSM state (sales funnel), skip — let sales handlers deal
-    current_state = await state.get_state()
-    if current_state is not None:
-        return
-
     user_id = message.from_user.id
     lock = _get_lock(user_id)
 
