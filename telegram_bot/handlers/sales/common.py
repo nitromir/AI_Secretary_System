@@ -181,25 +181,25 @@ async def reply_kb_support(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text == "📚 Wiki")
+@router.message(F.text.in_({"📚 Wiki", "📚 Wiki проекта"}))
 async def reply_kb_wiki(message: Message, state: FSMContext) -> None:
-    """Handle Wiki button from reply keyboard — show FAQ."""
+    """Handle Wiki button from reply keyboard — show FAQ sections."""
     if message.from_user:
         db = await get_sales_db()
         await db.log_event(message.from_user.id, "reply_kb_wiki")
 
-    from ...sales.keyboards import faq_kb
+    from ...sales.keyboards import faq_menu_kb
     from ...sales.texts import FAQ_WIKI_INTRO
 
     await message.answer(
         FAQ_WIKI_INTRO,
-        reply_markup=faq_kb(),
+        reply_markup=faq_menu_kb(),
     )
 
 
 @router.callback_query(F.data.startswith("faq:"))
 async def faq_handler(callback: CallbackQuery, state: FSMContext) -> None:
-    """Handle FAQ question callbacks."""
+    """Handle FAQ section navigation and question callbacks."""
     if not callback.data:
         await callback.answer()
         return
@@ -210,28 +210,102 @@ async def faq_handler(callback: CallbackQuery, state: FSMContext) -> None:
         db = await get_sales_db()
         await db.log_event(callback.from_user.id, "faq_clicked", {"question": action})
 
-    # Back to FAQ list
-    if action == "back":
-        from ...sales.keyboards import faq_kb
+    # ── Section categories ──────────────────────────────────
+    if action == "cat_product":
+        from ...sales.keyboards import faq_product_kb
+        from ...sales.texts import FAQ_PRODUCT_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_PRODUCT_INTRO,
+                reply_markup=faq_product_kb(),
+            )
+        await callback.answer()
+        return
+
+    if action == "cat_install":
+        from ...sales.keyboards import faq_install_kb
+        from ...sales.texts import FAQ_INSTALL_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_INSTALL_INTRO,
+                reply_markup=faq_install_kb(),
+            )
+        await callback.answer()
+        return
+
+    if action == "cat_pricing":
+        from ...sales.keyboards import faq_pricing_kb
+        from ...sales.texts import FAQ_PRICING_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_PRICING_INTRO,
+                reply_markup=faq_pricing_kb(),
+            )
+        await callback.answer()
+        return
+
+    # ── Back navigation ─────────────────────────────────────
+    if action == "back_menu":
+        from ...sales.keyboards import faq_menu_kb
         from ...sales.texts import FAQ_WIKI_INTRO
 
         if callback.message:
             await callback.message.edit_text(
                 FAQ_WIKI_INTRO,
-                reply_markup=faq_kb(),
+                reply_markup=faq_menu_kb(),
             )
         await callback.answer()
         return
 
-    # Show FAQ answer
+    if action == "back_product":
+        from ...sales.keyboards import faq_product_kb
+        from ...sales.texts import FAQ_PRODUCT_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_PRODUCT_INTRO,
+                reply_markup=faq_product_kb(),
+            )
+        await callback.answer()
+        return
+
+    if action == "back_install":
+        from ...sales.keyboards import faq_install_kb
+        from ...sales.texts import FAQ_INSTALL_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_INSTALL_INTRO,
+                reply_markup=faq_install_kb(),
+            )
+        await callback.answer()
+        return
+
+    if action == "back_pricing":
+        from ...sales.keyboards import faq_pricing_kb
+        from ...sales.texts import FAQ_PRICING_INTRO
+
+        if callback.message:
+            await callback.message.edit_text(
+                FAQ_PRICING_INTRO,
+                reply_markup=faq_pricing_kb(),
+            )
+        await callback.answer()
+        return
+
+    # ── Show FAQ answer ─────────────────────────────────────
     from ...sales.keyboards import faq_back_kb
-    from ...sales.texts import FAQ_ANSWERS
+    from ...sales.texts import FAQ_ANSWERS, FAQ_KEY_TO_SECTION
 
     answer = FAQ_ANSWERS.get(action)
     if answer and callback.message:
+        section = FAQ_KEY_TO_SECTION.get(action)
         await callback.message.edit_text(
             answer,
-            reply_markup=faq_back_kb(),
+            reply_markup=faq_back_kb(section),
         )
 
     await callback.answer()
@@ -258,7 +332,7 @@ async def reply_kb_ask_question(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text == "🚀 Старт")
+@router.message(F.text.in_({"🚀 Старт", "🏠 Главное меню"}))
 async def reply_kb_start(message: Message, state: FSMContext) -> None:
     """Handle start button — return to welcome screen with main keyboard."""
     if not message.from_user:

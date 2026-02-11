@@ -295,6 +295,27 @@ FAQ_WIKI_INTRO = (
     "👇 **Частые вопросы** (нажмите для ответа):"
 )
 
+FAQ_PRODUCT_INTRO = "🤖 **Раздел: Продукт**\n\nВыберите вопрос:"
+
+FAQ_INSTALL_INTRO = "🛠️ **Раздел: Установка**\n\nВыберите вопрос:"
+
+FAQ_PRICING_INTRO = "💰 **Раздел: Цены и поддержка**\n\nВыберите вопрос:"
+
+# Mapping from FAQ key to section for back-navigation
+FAQ_KEY_TO_SECTION: dict[str, str] = {
+    "what_is": "product",
+    "offline": "product",
+    "security": "product",
+    "vs_cloud": "product",
+    "cloud_models": "product",
+    "hardware": "install",
+    "install": "install",
+    "integrations": "install",
+    "price": "pricing",
+    "support": "pricing",
+    "free_trial": "pricing",
+}
+
 FAQ_ANSWERS = {
     "what_is": (
         "❓ **Что такое AI Secretary?**\n\n"
