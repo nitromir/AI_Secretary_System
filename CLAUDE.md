@@ -60,6 +60,7 @@ python scripts/migrate_add_payment_fields.py # Payment fields for sales
 python scripts/migrate_legal_compliance.py   # Legal compliance tables
 python scripts/migrate_gemini_to_cloud.py    # Migrate standalone gemini backend to cloud provider
 python scripts/migrate_knowledge_base.py     # Knowledge base documents table (wiki-pages/ tracking)
+python scripts/migrate_widget_placeholder_style.py  # Widget placeholder style migration
 python scripts/seed_tz_generator.py          # Seed TZ generator bot data
 python scripts/seed_tz_widget.py             # Seed TZ widget data
 ```
@@ -108,7 +109,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (20 routers, ~356 endpoints) │
+│  orchestrator.py + app/routers/ (20 routers, ~359 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (19 views, PWA)                │  │
 │  │                admin/dist/                              │  │
