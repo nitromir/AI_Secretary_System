@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from ..config import get_telegram_settings
+from ..state import get_bot_config
 
 
 @dataclass
@@ -53,8 +54,10 @@ class SessionStore:
             conversation_id=conversation_id,
             model=settings.default_model,
         )
-        # Add system prompt if configured
-        system_prompt = settings.get_system_prompt()
+        # Add system prompt: prefer BotConfig (from DB), fallback to env var
+        bot_config = get_bot_config()
+        system_prompt = (bot_config.system_prompt if bot_config and bot_config.system_prompt
+                         else settings.get_system_prompt())
         if system_prompt:
             session.messages.append({"role": "system", "content": system_prompt})
         self._sessions[user_id] = session
