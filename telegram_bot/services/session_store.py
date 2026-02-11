@@ -56,8 +56,11 @@ class SessionStore:
         )
         # Add system prompt: prefer BotConfig (from DB), fallback to env var
         bot_config = get_bot_config()
-        system_prompt = (bot_config.system_prompt if bot_config and bot_config.system_prompt
-                         else settings.get_system_prompt())
+        system_prompt = (
+            bot_config.system_prompt
+            if bot_config and bot_config.system_prompt
+            else settings.get_system_prompt()
+        )
         if system_prompt:
             session.messages.append({"role": "system", "content": system_prompt})
         self._sessions[user_id] = session
