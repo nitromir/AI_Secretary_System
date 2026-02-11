@@ -68,7 +68,7 @@
 
   // State
   let isOpen = false;
-  let sessionId = localStorage.getItem(settings.sessionKey);
+  let sessionId = getCookie(settings.sessionKey) || localStorage.getItem(settings.sessionKey);
   let messages = [];
   let isStreaming = false;
 
@@ -423,14 +423,75 @@
     input.style.height = Math.min(input.scrollHeight, 100) + 'px';
   });
 
+  let historyLoaded = false;
+  // Cache for preloaded history (fetched on page load, rendered on open)
+  let pendingHistory = null;
+
+  async function preloadHistory() {
+    if (historyLoaded || !sessionId) return;
+    historyLoaded = true;
+
+    try {
+      const res = await fetch(`${settings.apiUrl}/widget/chat/session/${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        const history = data.session && data.session.messages;
+        if (history && history.length > 0) {
+          pendingHistory = history;
+          return;
+        }
+      } else if (res.status === 404) {
+        // Stale session — clear and start fresh
+        sessionId = null;
+        deleteCookie(settings.sessionKey);
+        localStorage.removeItem(settings.sessionKey);
+        sessionStorage.removeItem(settings.sessionKey + '_open');
+      }
+    } catch (e) {
+      // Network error — allow retry on next open
+      historyLoaded = false;
+    }
+  }
+
+  function renderHistory() {
+    if (messages.length > 0) return; // Already rendered
+    addMessage('assistant', settings.greeting);
+    if (pendingHistory) {
+      for (const msg of pendingHistory) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          addMessage(msg.role, msg.content);
+        }
+      }
+      pendingHistory = null;
+    }
+  }
+
   function toggleChat() {
     isOpen = !isOpen;
     window_.classList.toggle('open', isOpen);
     button.classList.remove('has-unread');
+    // Remember open/closed state across page navigations
+    if (isOpen) {
+      sessionStorage.setItem(settings.sessionKey + '_open', '1');
+    } else {
+      sessionStorage.removeItem(settings.sessionKey + '_open');
+    }
 
     if (isOpen && messages.length === 0) {
-      addMessage('assistant', settings.greeting);
+      renderHistory();
     }
+  }
+
+  // Preload history immediately on page load
+  const historyReady = preloadHistory();
+
+  // Auto-open if chat was open before page navigation
+  if (sessionStorage.getItem(settings.sessionKey + '_open') === '1') {
+    historyReady.then(() => {
+      isOpen = true;
+      window_.classList.toggle('open', true);
+      renderHistory();
+    });
   }
 
   function addMessage(role, content, isTemp = false) {
@@ -499,6 +560,7 @@
         });
         const sessionData = await sessionRes.json();
         sessionId = sessionData.session.id;
+        setCookie(settings.sessionKey, sessionId, SESSION_TTL_DAYS);
         localStorage.setItem(settings.sessionKey, sessionId);
       }
 
@@ -579,6 +641,7 @@
       // Clear invalid session on auth/not-found errors
       if (error.message.includes('404') || error.message.includes('401') || error.message.includes('Session')) {
         sessionId = null;
+        deleteCookie(settings.sessionKey);
         localStorage.removeItem(settings.sessionKey);
       }
     } finally {
@@ -603,6 +666,23 @@
     return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
   }
 
+  // Cookie helpers for cross-origin session persistence
+  const SESSION_TTL_DAYS = 30;
+
+  function setCookie(name, value, days) {
+    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + expires + ';path=/;SameSite=None;Secure';
+  }
+
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function deleteCookie(name) {
+    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=None;Secure';
+  }
+
   // Expose API
   window.aiChat = {
     open: () => { if (!isOpen) toggleChat(); },
@@ -610,7 +690,11 @@
     clearSession: () => {
       sessionId = null;
       messages = [];
+      historyLoaded = false;
+      pendingHistory = null;
+      deleteCookie(settings.sessionKey);
       localStorage.removeItem(settings.sessionKey);
+      sessionStorage.removeItem(settings.sessionKey + '_open');
       messagesEl.innerHTML = '';
     }
   };

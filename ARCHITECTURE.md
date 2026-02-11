@@ -201,6 +201,12 @@ calls_log/
 - Кастомизация внешнего вида
 - Автогенерация widget.js
 
+**Персистентность сессий** (Replain-style):
+- Session ID хранится в cookie (`SameSite=None; Secure`, 30 дней) + `localStorage` (fallback)
+- При загрузке страницы — `preloadHistory()` загружает историю через `GET /widget/chat/session/{id}`
+- Состояние открыт/закрыт сохраняется в `sessionStorage` — автовосстановление при навигации
+- Безопасность: публичный GET эндпоинт отдаёт только сессии с `source="widget"`
+
 ## Streaming TTS Pipeline
 
 ```
