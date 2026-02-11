@@ -12,6 +12,7 @@
 * [[TTS]]
 * [[FAQ]]
 * [[Finetune]]
+* [[Cloud-AI-Training]]
 * [[Monitoring]]
 * [[Models]]
 * [[Widget]]
