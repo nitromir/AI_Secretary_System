@@ -749,7 +749,7 @@ watch(instances, (newInstances) => {
         </button>
 
         <!-- Instance Header -->
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 class="text-2xl font-bold flex items-center gap-2">
               {{ selectedInstance.name }}
@@ -767,7 +767,7 @@ watch(instances, (newInstances) => {
               {{ selectedInstance.description }}
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <!-- Control buttons -->
             <button
               v-if="!selectedInstance.running"
