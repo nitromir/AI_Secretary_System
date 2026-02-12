@@ -69,8 +69,10 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
         )
 
     def _call_api(self, texts: list[str], task_type: str) -> list[list[float]]:
+        import time
+
         url = f"{self.API_URL}/{self.model_name}:batchEmbedContents"
-        requests = [
+        requests_body = [
             {
                 "model": f"models/{self.model_name}",
                 "content": {"parts": [{"text": t}]},
@@ -78,17 +80,30 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
             }
             for t in texts
         ]
-        payload = {"requests": requests}
+        payload = {"requests": requests_body}
 
-        response = self._client.post(url, json=payload, params={"key": self._api_key})
-        response.raise_for_status()
-        data = response.json()
-
-        return [item["values"] for item in data["embeddings"]]
+        # Retry with backoff (VLESS proxy can be flaky)
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = self._client.post(url, json=payload, params={"key": self._api_key})
+                response.raise_for_status()
+                data = response.json()
+                return [item["values"] for item in data["embeddings"]]
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(
+                        f"Gemini embedding attempt {attempt + 1} failed: {e}, retrying in {wait}s"
+                    )
+                    time.sleep(wait)
+        raise last_err  # type: ignore[misc]
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         results: list[list[float]] = []
-        batch_size = 100
+        # Smaller batches for reliability through VLESS proxy
+        batch_size = 20
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             results.extend(self._call_api(batch, "RETRIEVAL_DOCUMENT"))
