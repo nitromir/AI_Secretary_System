@@ -1,1 +1,1 @@
-"""WhatsApp sales funnel — reuses texts and database from telegram_bot."""
+"""WhatsApp sales funnel — texts.py + keyboards.py adapted for WhatsApp interactive messages."""

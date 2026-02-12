@@ -8,6 +8,8 @@ the full response before sending (no streaming to user).
 import asyncio
 import logging
 
+from ..sales.keyboards import welcome_buttons
+from ..sales.texts import WELCOME_TEXT
 from ..services.llm_router import get_llm_router
 from ..services.session_store import get_session_store
 from ..services.whatsapp_client import MAX_TEXT_LENGTH, get_whatsapp_client
@@ -42,14 +44,37 @@ async def handle_text_message(phone: str, text: str, message_id: str) -> None:
 async def _process_message(phone: str, text: str, message_id: str) -> None:
     """Core logic: mark as read, call LLM, send response."""
     wa_client = get_whatsapp_client()
-    store = get_session_store()
-    router = get_llm_router()
 
     # Mark as read (blue checkmarks)
     try:
         await wa_client.mark_as_read(message_id)
     except Exception:
         logger.debug("Failed to mark message as read", exc_info=True)
+
+    # Greeting detection — send welcome with quick-reply buttons
+    _GREETINGS = {
+        "/start",
+        "/menu",
+        "start",
+        "menu",
+        "привет",
+        "здравствуйте",
+        "хай",
+        "hello",
+        "hi",
+    }
+    lower = text.lower().strip()
+    if lower in _GREETINGS:
+        keyboard = welcome_buttons()
+        buttons = [
+            {"id": b["reply"]["id"], "title": b["reply"]["title"]}
+            for b in keyboard["action"]["buttons"]
+        ]
+        await wa_client.send_buttons(to=phone, body=WELCOME_TEXT, buttons=buttons)
+        return
+
+    store = get_session_store()
+    router = get_llm_router()
 
     session = store.get_or_create(phone)
     session.append_message("user", text)

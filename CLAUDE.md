@@ -165,6 +165,14 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 - FAQ is split into 3 sections: Product (`what_is`, `offline`, `security`, `vs_cloud`, `cloud_models`), Installation (`hardware`, `install`, `integrations`), Pricing & Support (`price`, `support`, `free_trial`). Callback data uses `faq:cat_*` for categories, `faq:back_*` for navigation, `faq:{key}` for answers. `FAQ_KEY_TO_SECTION` dict in `texts.py` maps answer keys to sections for back-navigation.
 - Reply keyboard buttons are loaded from DB (`action_buttons` config) or fallback to `DEFAULT_ACTION_BUTTONS` in `keyboards.py`. Button text matching in handlers must match the `"{icon} {label}"` format from the DB config.
 
+**WhatsApp Sales Bot** (`whatsapp_bot/sales/` + `whatsapp_bot/handlers/`): Maps Telegram's inline keyboards to WhatsApp interactive messages. Key modules:
+- `whatsapp_bot/sales/texts.py` — message templates adapted for WhatsApp (`*bold*` not `**bold**`), 11 FAQ answers, section intros, placeholder texts for WA-10 flows
+- `whatsapp_bot/sales/keyboards.py` — 32 keyboard builders using `_quick_reply()` (≤3 buttons, titles ≤20 chars) and `_list_message()` (≤10 sections, ≤10 rows) helpers. Naming: `*_buttons()` = quick-reply, `*_list()` = list message
+- `whatsapp_bot/handlers/interactive.py` — callback routing by `prefix:action` format: `sales:*` (welcome flow), `faq:*` (full FAQ navigation), `tz:*` (WA-10 placeholder), `nav:*` (generic). Helpers `_send_buttons()` / `_send_list()` extract payloads from keyboard dicts
+- `whatsapp_bot/handlers/messages.py` — greeting detection (9 trigger words) sends welcome buttons instead of LLM
+- WhatsApp constraints: no URL buttons (URLs in body text), no message editing (new message per interaction), reply IDs use `prefix:action` convention (same as Telegram `callback_data`)
+- FAQ sections identical to Telegram: Product (5 questions), Installation (3), Pricing & Support (3). Same `FAQ_KEY_TO_SECTION` mapping for back-navigation
+
 **Backup/restore**: `app/routers/backup.py` + `app/services/backup_service.py` — export/import system configuration and data.
 
 **Widget test chat**: Widget instances can be tested live from the admin panel. `app/routers/chat.py` accepts an optional `widget_instance_id` parameter on streaming endpoints, which overrides LLM/TTS settings to match the widget's config. Frontend in `WidgetView.vue` test tab. The embeddable widget (`web-widget/ai-chat-widget.js`) performs a runtime enabled check via `GET /widget/status` (public, no auth) — if the instance is disabled, the widget icon won't render on the site. When embedded in the admin panel, the widget auto-attaches JWT from `localStorage('admin_token')` for authenticated chat.

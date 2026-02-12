@@ -2,13 +2,77 @@
 
 Handles responses to quick-reply buttons and list selections.
 This is the WhatsApp equivalent of Telegram's callback_query handler.
+
+Routing by reply_id prefix:
+  sales:*  → welcome flow + WA-10 placeholders
+  faq:*    → full FAQ navigation
+  tz:*     → TZ quiz (WA-10 placeholder)
+  nav:*    → generic navigation (welcome, menu)
 """
 
 import logging
 from typing import Any
 
+from ..sales import keyboards as kb
+from ..sales.texts import (
+    COMING_SOON_TEXT,
+    CONTACT_TEXT,
+    DIY_GITHUB_TEXT,
+    FAQ_ANSWERS,
+    FAQ_INSTALL_INTRO,
+    FAQ_KEY_TO_SECTION,
+    FAQ_MENU_TEXT,
+    FAQ_PRICING_INTRO,
+    FAQ_PRODUCT_INTRO,
+    MENU_TEXT,
+    WELCOME_TEXT,
+    WHAT_IS_TEXT,
+)
+from ..services.whatsapp_client import get_whatsapp_client
+
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Send helpers ─────────────────────────────────────────────
+
+
+async def _send_buttons(phone: str, body: str, keyboard: dict[str, Any]) -> None:
+    """Extract buttons from keyboard dict and send via WhatsApp client."""
+    wa = get_whatsapp_client()
+    buttons = [
+        {"id": b["reply"]["id"], "title": b["reply"]["title"]}
+        for b in keyboard["action"]["buttons"]
+    ]
+    header = keyboard.get("header", {}).get("text", "")
+    footer = keyboard.get("footer", {}).get("text", "")
+    await wa.send_buttons(
+        to=phone,
+        body=body,
+        buttons=buttons,
+        header=header,
+        footer=footer,
+    )
+
+
+async def _send_list(phone: str, body: str, keyboard: dict[str, Any]) -> None:
+    """Extract sections from keyboard dict and send via WhatsApp client."""
+    wa = get_whatsapp_client()
+    button_text = keyboard["action"]["button"]
+    sections = keyboard["action"]["sections"]
+    header = keyboard.get("header", {}).get("text", "")
+    footer = keyboard.get("footer", {}).get("text", "")
+    await wa.send_list(
+        to=phone,
+        body=body,
+        button_text=button_text,
+        sections=sections,
+        header=header,
+        footer=footer,
+    )
+
+
+# ─── Main router ──────────────────────────────────────────────
 
 
 async def handle_interactive_reply(phone: str, reply: dict[str, Any]) -> None:
@@ -18,7 +82,7 @@ async def handle_interactive_reply(phone: str, reply: dict[str, Any]) -> None:
         phone: Sender phone number
         reply: Interactive reply payload from webhook.
             For buttons: {"type": "button_reply", "button_reply": {"id": "...", "title": "..."}}
-            For lists:   {"type": "list_reply", "list_reply": {"id": "...", "title": "...", "description": "..."}}
+            For lists:   {"type": "list_reply", "list_reply": {"id": "...", "title": "...", ...}}
     """
     reply_type = reply.get("type", "")
     reply_id = ""
@@ -34,5 +98,116 @@ async def handle_interactive_reply(phone: str, reply: dict[str, Any]) -> None:
 
     logger.info("Interactive reply from %s: %s (type=%s)", phone, reply_id, reply_type)
 
-    # TODO (WA-10): Route to sales funnel handlers based on reply_id prefix
-    # e.g. "sales:start_quiz" → quiz handler, "faq:what_is" → FAQ handler
+    prefix, _, action = reply_id.partition(":")
+    if not action:
+        logger.warning("Invalid reply_id format (no prefix): %s", reply_id)
+        return
+
+    if prefix == "sales":
+        await _handle_sales(phone, action)
+    elif prefix == "faq":
+        await _handle_faq(phone, action)
+    elif prefix == "tz":
+        await _handle_tz(phone, action)
+    elif prefix == "nav":
+        await _handle_nav(phone, action)
+    else:
+        logger.warning("Unknown prefix %r in reply_id %s", prefix, reply_id)
+
+
+# ─── Sales flow ───────────────────────────────────────────────
+
+
+async def _handle_sales(phone: str, action: str) -> None:
+    """Handle sales:* callbacks — welcome flow + WA-10 placeholders."""
+    wa = get_whatsapp_client()
+
+    if action == "github":
+        await wa.send_text(to=phone, text=DIY_GITHUB_TEXT)
+        await _send_buttons(phone, "Что дальше?", kb.welcome_buttons())
+
+    elif action == "faq":
+        await _send_list(phone, FAQ_MENU_TEXT, kb.faq_list())
+
+    elif action == "what_is":
+        await _send_buttons(phone, WHAT_IS_TEXT, kb.what_is_buttons())
+
+    elif action == "back_welcome":
+        await _send_buttons(phone, WELCOME_TEXT, kb.welcome_buttons())
+
+    elif action == "contact":
+        await _send_buttons(phone, CONTACT_TEXT, kb.contact_buttons())
+
+    else:
+        # WA-10 placeholder: quiz, DIY, basic, custom flows
+        logger.info("Unhandled sales action: %s (WA-10 placeholder)", action)
+        await _send_buttons(phone, COMING_SOON_TEXT, kb.menu_buttons())
+
+
+# ─── FAQ flow ─────────────────────────────────────────────────
+
+
+async def _handle_faq(phone: str, action: str) -> None:
+    """Handle faq:* callbacks — full FAQ navigation."""
+    wa = get_whatsapp_client()
+
+    # Category selection
+    if action == "cat_product":
+        await _send_list(phone, FAQ_PRODUCT_INTRO, kb.faq_product_list())
+
+    elif action == "cat_install":
+        await _send_list(phone, FAQ_INSTALL_INTRO, kb.faq_install_list())
+
+    elif action == "cat_pricing":
+        await _send_list(phone, FAQ_PRICING_INTRO, kb.faq_pricing_list())
+
+    # Back navigation
+    elif action == "back_menu":
+        await _send_buttons(phone, FAQ_MENU_TEXT, kb.faq_menu_buttons())
+
+    elif action == "back_product":
+        await _send_list(phone, FAQ_PRODUCT_INTRO, kb.faq_product_list())
+
+    elif action == "back_install":
+        await _send_list(phone, FAQ_INSTALL_INTRO, kb.faq_install_list())
+
+    elif action == "back_pricing":
+        await _send_list(phone, FAQ_PRICING_INTRO, kb.faq_pricing_list())
+
+    # FAQ answer lookup
+    elif action in FAQ_ANSWERS:
+        answer_text = FAQ_ANSWERS[action]
+        section = FAQ_KEY_TO_SECTION.get(action, "product")
+        # Send answer as text (may exceed 1024 char button-body limit)
+        await wa.send_text(to=phone, text=answer_text)
+        # Then send back-navigation buttons
+        await _send_buttons(
+            phone,
+            "Выберите действие 👇",
+            kb.faq_back_buttons(section),
+        )
+
+    else:
+        logger.warning("Unknown FAQ action: %s", action)
+
+
+# ─── TZ flow (WA-10 placeholder) ─────────────────────────────
+
+
+async def _handle_tz(phone: str, action: str) -> None:
+    """Handle tz:* callbacks — placeholder for WA-10."""
+    logger.info("Unhandled TZ action: %s (WA-10 placeholder)", action)
+    await _send_buttons(phone, COMING_SOON_TEXT, kb.menu_buttons())
+
+
+# ─── Navigation ──────────────────────────────────────────────
+
+
+async def _handle_nav(phone: str, action: str) -> None:
+    """Handle nav:* callbacks — generic navigation."""
+    if action == "welcome":
+        await _send_buttons(phone, WELCOME_TEXT, kb.welcome_buttons())
+    elif action == "menu":
+        await _send_buttons(phone, MENU_TEXT, kb.menu_buttons())
+    else:
+        logger.warning("Unknown nav action: %s", action)
