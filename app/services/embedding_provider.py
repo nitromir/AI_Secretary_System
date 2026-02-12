@@ -44,7 +44,7 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
 
     Model: models/text-embedding-004 (768 dims, free tier 1500 req/min).
     Batch: up to 100 texts per call.
-    Reuses VLESS proxy env vars from GeminiProvider if set.
+    If VLESS proxy env vars are set (by GeminiProvider for LLM), retries without proxy on failure.
     """
 
     def __init__(self, api_key: str):
@@ -54,32 +54,64 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
             raise ImportError("google-generativeai not installed")
 
         self._genai = genai
+        self._api_key = api_key
         self.model_name = "models/text-embedding-004"
         self.dimension = 768
 
         genai.configure(api_key=api_key)
         logger.info(f"GeminiEmbeddingProvider initialized: {self.model_name}")
 
+    def _call_with_proxy_fallback(self, func):
+        """Try the call; if proxy fails, retry without proxy."""
+        import os
+
+        try:
+            return func()
+        except Exception as first_err:
+            # Check if proxy env vars are set (from GeminiProvider for LLM)
+            proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]
+            saved = {k: os.environ.pop(k) for k in proxy_vars if k in os.environ}
+            if not saved:
+                raise  # No proxy was set, can't retry
+
+            logger.info("Wiki RAG embeddings: retrying without VLESS proxy...")
+            try:
+                self._genai.configure(api_key=self._api_key)
+                result = func()
+                logger.info("Wiki RAG embeddings: success without proxy")
+                return result
+            except Exception:
+                # Restore proxy vars and raise original error
+                os.environ.update(saved)
+                self._genai.configure(api_key=self._api_key)
+                raise first_err
+
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         results: list[list[float]] = []
-        # Gemini batch limit is ~100 texts
         batch_size = 100
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = self._genai.embed_content(
-                model=self.model_name,
-                content=batch,
-                task_type="RETRIEVAL_DOCUMENT",
-            )
+
+            def _embed(b=batch):
+                return self._genai.embed_content(
+                    model=self.model_name,
+                    content=b,
+                    task_type="RETRIEVAL_DOCUMENT",
+                )
+
+            response = self._call_with_proxy_fallback(_embed)
             results.extend(response["embedding"])
         return results
 
     def embed_query(self, text: str) -> list[float]:
-        response = self._genai.embed_content(
-            model=self.model_name,
-            content=text,
-            task_type="RETRIEVAL_QUERY",
-        )
+        def _embed():
+            return self._genai.embed_content(
+                model=self.model_name,
+                content=text,
+                task_type="RETRIEVAL_QUERY",
+            )
+
+        response = self._call_with_proxy_fallback(_embed)
         return response["embedding"]
 
     def provider_name(self) -> str:
