@@ -62,6 +62,10 @@ class EditMessageRequest(BaseModel):
     content: str
 
 
+class SwitchBranchRequest(BaseModel):
+    message_id: str
+
+
 # ============== Sessions Endpoints ==============
 
 
@@ -119,6 +123,11 @@ async def admin_get_chat_session(session_id: str, user: User = Depends(get_curre
     session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Include sibling info for branch navigation
+    sibling_info = await async_chat_manager.get_sibling_info(session_id)
+    session["sibling_info"] = sibling_info
+
     return {"session": session}
 
 
@@ -358,7 +367,7 @@ async def admin_edit_chat_message(
     request: EditMessageRequest,
     user: User = Depends(get_current_user),
 ):
-    """Редактировать сообщение пользователя и перегенерировать ответ"""
+    """Редактировать сообщение (non-destructive: creates new branch)"""
     container = get_container()
     owner_id = None if user.role == "admin" else user.id
     session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
@@ -378,17 +387,14 @@ async def admin_edit_chat_message(
     if message["role"] != "user":
         raise HTTPException(status_code=400, detail="Can only edit user messages")
 
-    # Удаляем это сообщение и все последующие
-    await async_chat_manager.delete_message(session_id, message_id)
-
-    # Добавляем отредактированное сообщение
-    user_msg = await async_chat_manager.add_message(session_id, "user", request.content)
+    # Non-destructive edit: creates sibling branch, deactivates old
+    user_msg = await async_chat_manager.edit_message(session_id, message_id, request.content)
 
     llm_service = container.llm_service
-    # Если был ответ после этого сообщения - генерируем новый
     if not llm_service:
         return {"message": user_msg}
 
+    # Generate new response for the edited message
     default_prompt = None
     if hasattr(llm_service, "get_system_prompt"):
         default_prompt = llm_service.get_system_prompt()
@@ -399,7 +405,10 @@ async def admin_edit_chat_message(
         if hasattr(response_text, "__iter__") and not isinstance(response_text, str):
             response_text = "".join(response_text)
 
-        assistant_msg = await async_chat_manager.add_message(session_id, "assistant", response_text)
+        # Add response as child of the new edited message
+        assistant_msg = await async_chat_manager.add_message(
+            session_id, "assistant", response_text, parent_id=user_msg["id"]
+        )
         return {"message": user_msg, "response": assistant_msg}
 
     except Exception as e:
@@ -421,7 +430,7 @@ async def admin_delete_chat_message(
 async def admin_regenerate_chat_response(
     session_id: str, message_id: str, user: User = Depends(get_current_user)
 ):
-    """Перегенерировать ответ на сообщение"""
+    """Перегенерировать ответ (non-destructive: creates new branch)"""
     container = get_container()
     owner_id = None if user.role == "admin" else user.id
     session = await async_chat_manager.get_session(session_id, owner_id=owner_id)
@@ -432,22 +441,37 @@ async def admin_regenerate_chat_response(
     if not llm_service:
         raise HTTPException(status_code=503, detail="LLM service not available")
 
-    # Находим сообщение пользователя
-    message_index = -1
-    for i, msg in enumerate(session["messages"]):
+    # Find the message to regenerate
+    target_msg = None
+    for msg in session["messages"]:
         if msg["id"] == message_id:
-            message_index = i
+            target_msg = msg
             break
 
-    if message_index == -1:
+    if not target_msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    # Если есть сообщение после этого - удаляем его (ответ ассистента)
-    if message_index + 1 < len(session["messages"]):
-        next_msg = session["messages"][message_index + 1]
-        await async_chat_manager.delete_message(session_id, next_msg["id"])
+    # Determine the user message that should be the parent of the new response
+    if target_msg["role"] == "assistant":
+        # Regenerate assistant message: deactivate it, add new sibling
+        parent_msg = await async_chat_manager.branch_regenerate(session_id, message_id)
+        if not parent_msg:
+            raise HTTPException(status_code=500, detail="Failed to prepare regeneration")
+        parent_id = parent_msg["id"]
+    else:
+        # Regenerating from a user message: find and deactivate existing assistant response
+        # Look for active assistant children
+        for i, msg in enumerate(session["messages"]):
+            if msg["id"] == message_id:
+                # Check if next message is assistant
+                if i + 1 < len(session["messages"]):
+                    next_msg = session["messages"][i + 1]
+                    if next_msg["role"] == "assistant":
+                        await async_chat_manager.branch_regenerate(session_id, next_msg["id"])
+                break
+        parent_id = message_id
 
-    # Генерируем новый ответ
+    # Generate new response
     default_prompt = None
     if hasattr(llm_service, "get_system_prompt"):
         default_prompt = llm_service.get_system_prompt()
@@ -458,9 +482,40 @@ async def admin_regenerate_chat_response(
         if hasattr(response_text, "__iter__") and not isinstance(response_text, str):
             response_text = "".join(response_text)
 
-        assistant_msg = await async_chat_manager.add_message(session_id, "assistant", response_text)
+        assistant_msg = await async_chat_manager.add_message(
+            session_id, "assistant", response_text, parent_id=parent_id
+        )
         return {"response": assistant_msg}
 
     except Exception as e:
         logger.error(f"❌ Chat regenerate error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Branch Endpoints ==============
+
+
+@router.get("/sessions/{session_id}/branches")
+async def admin_get_branch_tree(session_id: str, user: User = Depends(get_current_user)):
+    """Получить дерево веток чата"""
+    branches = await async_chat_manager.get_branch_tree(session_id)
+    return {"branches": branches}
+
+
+@router.post("/sessions/{session_id}/branches/switch")
+async def admin_switch_branch(
+    session_id: str,
+    request: SwitchBranchRequest,
+    user: User = Depends(get_current_user),
+):
+    """Переключить активную ветку"""
+    success = await async_chat_manager.switch_branch(session_id, request.message_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Return updated session
+    session = await async_chat_manager.get_session(session_id)
+    if session:
+        sibling_info = await async_chat_manager.get_sibling_info(session_id)
+        session["sibling_info"] = sibling_info
+    return {"status": "ok", "session": session}

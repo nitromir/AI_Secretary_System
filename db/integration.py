@@ -172,11 +172,12 @@ class AsyncChatManager:
         session_id: str,
         role: str,
         content: str,
+        parent_id: Optional[str] = None,
     ) -> Optional[dict]:
         """Add message to session."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
-            return await repo.add_message(session_id, role, content)
+            return await repo.add_message(session_id, role, content, parent_id=parent_id)
 
     async def edit_message(
         self,
@@ -184,10 +185,20 @@ class AsyncChatManager:
         message_id: str,
         content: str,
     ) -> Optional[dict]:
-        """Edit message."""
+        """Non-destructive edit: creates new sibling branch."""
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
             return await repo.edit_message(session_id, message_id, content)
+
+    async def branch_regenerate(
+        self,
+        session_id: str,
+        message_id: str,
+    ) -> Optional[dict]:
+        """Non-destructive regenerate: deactivate and return parent user msg."""
+        async with AsyncSessionLocal() as session:
+            repo = ChatRepository(session)
+            return await repo.branch_regenerate(session_id, message_id)
 
     async def delete_message(
         self,
@@ -198,6 +209,24 @@ class AsyncChatManager:
         async with AsyncSessionLocal() as session:
             repo = ChatRepository(session)
             return await repo.delete_message(session_id, message_id)
+
+    async def get_branch_tree(self, session_id: str) -> List[dict]:
+        """Get full branch tree structure for a session."""
+        async with AsyncSessionLocal() as session:
+            repo = ChatRepository(session)
+            return await repo.get_branch_tree(session_id)
+
+    async def get_sibling_info(self, session_id: str) -> dict:
+        """Get sibling info for messages with alternatives."""
+        async with AsyncSessionLocal() as session:
+            repo = ChatRepository(session)
+            return await repo.get_sibling_info(session_id)
+
+    async def switch_branch(self, session_id: str, message_id: str) -> bool:
+        """Switch active branch to the given message."""
+        async with AsyncSessionLocal() as session:
+            repo = ChatRepository(session)
+            return await repo.switch_branch(session_id, message_id)
 
     async def count_messages(
         self,

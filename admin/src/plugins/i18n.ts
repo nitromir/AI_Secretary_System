@@ -263,7 +263,11 @@ const messages = {
         unknown: 'Другие'
       },
       selectLlm: 'Выбрать LLM провайдер',
-      defaultLlm: 'По умолчанию'
+      defaultLlm: 'По умолчанию',
+      branchTree: 'Дерево веток',
+      version: 'Версия {current} из {total}',
+      switchBranch: 'Переключить ветку',
+      noBranches: 'Нет веток',
     },
     // Auth
     auth: {
@@ -1084,7 +1088,11 @@ const messages = {
         unknown: 'Other'
       },
       selectLlm: 'Select LLM provider',
-      defaultLlm: 'Default'
+      defaultLlm: 'Default',
+      branchTree: 'Branch Tree',
+      version: 'Version {current} of {total}',
+      switchBranch: 'Switch Branch',
+      noBranches: 'No branches',
     },
     // Auth
     auth: {
