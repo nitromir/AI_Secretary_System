@@ -151,7 +151,9 @@ async def get_whatsapp_instance(
 
 @router.put("/instances/{instance_id}")
 async def update_whatsapp_instance(
-    instance_id: str, request: WhatsAppInstanceUpdateRequest, user: User = Depends(require_not_guest)
+    instance_id: str,
+    request: WhatsAppInstanceUpdateRequest,
+    user: User = Depends(require_not_guest),
 ):
     """Update a WhatsApp bot instance."""
     # Check if exists and verify ownership
@@ -242,9 +244,7 @@ async def restart_whatsapp_instance(instance_id: str, user: User = Depends(requi
 
 
 @router.get("/instances/{instance_id}/status")
-async def get_whatsapp_instance_status(
-    instance_id: str, user: User = Depends(get_current_user)
-):
+async def get_whatsapp_instance_status(instance_id: str, user: User = Depends(get_current_user)):
     """Get status of a specific WhatsApp bot instance."""
     owner_id = None if user.role == "admin" else user.id
     instance = await async_whatsapp_instance_manager.get_instance(instance_id, owner_id=owner_id)

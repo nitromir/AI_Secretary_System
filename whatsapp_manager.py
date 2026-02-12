@@ -115,7 +115,9 @@ class WhatsAppManager:
             try:
                 from auth_manager import create_access_token
 
-                token, _ = create_access_token(username="__internal_wa_bot__", role="admin", user_id=0)
+                token, _ = create_access_token(
+                    username="__internal_wa_bot__", role="admin", user_id=0
+                )
                 env["WA_INTERNAL_TOKEN"] = token
             except Exception as e:
                 logger.warning(f"Could not generate internal token: {e}")
