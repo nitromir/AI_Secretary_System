@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -19,6 +20,7 @@ from db.repositories.bot_event import BotEventRepository
 from db.repositories.bot_followup import BotFollowupQueueRepository, BotFollowupRuleRepository
 from db.repositories.bot_github import BotGithubRepository
 from db.repositories.bot_hardware import BotHardwareRepository
+from db.repositories.bot_instance import BotInstanceRepository
 from db.repositories.bot_quiz import BotQuizRepository
 from db.repositories.bot_segment import BotSegmentRepository
 from db.repositories.bot_subscriber import BotSubscriberRepository
@@ -612,11 +614,19 @@ async def delete_ab_test(instance_id: str, test_id: int, user: User = Depends(re
 
 @router.get("/subscribers")
 async def list_subscribers(instance_id: str, user: User = Depends(get_current_user)):
-    """List all subscribers for bot."""
+    """List all subscribers for bot, enriched with user profile data."""
     await _check_instance(instance_id)
     async with AsyncSessionLocal() as session:
         repo = BotSubscriberRepository(session)
         subscribers = await repo.list_by_bot(instance_id)
+        # Enrich with username/first_name from user profiles
+        profile_repo = BotUserProfileRepository(session)
+        profiles = await profile_repo.list_by_bot(instance_id)
+        profile_map = {p["user_id"]: p for p in profiles}
+        for sub in subscribers:
+            profile = profile_map.get(sub["user_id"])
+            sub["username"] = profile["username"] if profile else None
+            sub["first_name"] = profile["first_name"] if profile else None
     return {"subscribers": subscribers}
 
 
@@ -632,24 +642,74 @@ async def get_subscriber_stats(instance_id: str, user: User = Depends(get_curren
 
 class BroadcastRequest(BaseModel):
     message: str
-    buttons: List[dict] = []
+    user_ids: List[int] = []
+    parse_mode: str = "HTML"
 
 
 @router.post("/broadcast")
 async def broadcast_message(
     instance_id: str, request: BroadcastRequest, user: User = Depends(require_not_guest)
 ):
-    """Get subscriber list for manual broadcast (actual send is done by bot service)."""
+    """Send a message to selected subscribers (or all active if user_ids is empty)."""
     await _check_instance(instance_id)
+
+    # Get bot token
     async with AsyncSessionLocal() as session:
-        repo = BotSubscriberRepository(session)
-        user_ids = await repo.get_active_subscribers(instance_id)
+        inst_repo = BotInstanceRepository(session)
+        instance_data = await inst_repo.get_instance_with_token(instance_id)
+    if not instance_data or not instance_data.get("bot_token"):
+        raise HTTPException(status_code=400, detail="Bot token not configured")
+    bot_token = instance_data["bot_token"]
+
+    # Determine target user IDs
+    if request.user_ids:
+        target_ids = request.user_ids
+    else:
+        async with AsyncSessionLocal() as session:
+            repo = BotSubscriberRepository(session)
+            target_ids = await repo.get_active_subscribers(instance_id)
+
+    if not target_ids:
+        return {"status": "ok", "sent_count": 0, "failed_count": 0, "errors": []}
+
+    sent_count = 0
+    failed_count = 0
+    errors: List[dict] = []
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for uid in target_ids:
+            try:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={
+                        "chat_id": uid,
+                        "text": request.message,
+                        "parse_mode": request.parse_mode,
+                    },
+                )
+                data = resp.json()
+                if data.get("ok"):
+                    sent_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({"user_id": uid, "error": data.get("description", "Unknown")})
+            except Exception as e:
+                failed_count += 1
+                errors.append({"user_id": uid, "error": str(e)})
+
+    logger.info(
+        f"Broadcast to {instance_id}: sent={sent_count}, failed={failed_count}, "
+        f"by user={user.username}"
+    )
+    await async_audit_logger.log(
+        user.username, "broadcast", f"Sent broadcast to {sent_count}/{len(target_ids)} subscribers"
+    )
+
     return {
         "status": "ok",
-        "subscriber_count": len(user_ids),
-        "user_ids": user_ids,
-        "message": request.message,
-        "buttons": request.buttons,
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+        "errors": errors[:20],
     }
 
 

@@ -154,12 +154,32 @@ export const botSalesRoutes: DemoRoute[] = [
   {
     method: 'GET',
     pattern: /^\/admin\/telegram\/instances\/([^/]+)\/subscribers$/,
-    handler: () => ({ subscribers: [] }),
+    handler: () => ({
+      subscribers: [
+        { id: 1, bot_id: 'bot-sales', user_id: 100001, subscribed: true, subscribed_at: daysAgo(30), username: 'anna_k', first_name: 'Анна' },
+        { id: 2, bot_id: 'bot-sales', user_id: 100002, subscribed: true, subscribed_at: daysAgo(25), username: 'dmitriy_v', first_name: 'Дмитрий' },
+        { id: 3, bot_id: 'bot-sales', user_id: 100003, subscribed: true, subscribed_at: daysAgo(20), username: null, first_name: 'Елена' },
+        { id: 4, bot_id: 'bot-sales', user_id: 100004, subscribed: false, subscribed_at: daysAgo(18), unsubscribed_at: daysAgo(5), username: 'ivan_p', first_name: 'Иван' },
+        { id: 5, bot_id: 'bot-sales', user_id: 100005, subscribed: true, subscribed_at: daysAgo(15), username: 'maria_s', first_name: 'Мария' },
+        { id: 6, bot_id: 'bot-sales', user_id: 100006, subscribed: true, subscribed_at: daysAgo(10), username: 'alexey_r', first_name: 'Алексей' },
+        { id: 7, bot_id: 'bot-sales', user_id: 100007, subscribed: true, subscribed_at: daysAgo(7), username: null, first_name: null },
+        { id: 8, bot_id: 'bot-sales', user_id: 100008, subscribed: true, subscribed_at: daysAgo(3), username: 'olga_n', first_name: 'Ольга' },
+      ],
+    }),
   },
   {
     method: 'GET',
     pattern: /^\/admin\/telegram\/instances\/([^/]+)\/subscribers\/stats$/,
     handler: () => ({ stats: { total_active: 156 } }),
+  },
+  {
+    method: 'POST',
+    pattern: /^\/admin\/telegram\/instances\/([^/]+)\/broadcast$/,
+    handler: ({ body }) => {
+      const userIds = (body as { user_ids?: number[] })?.user_ids || []
+      const count = userIds.length || 156
+      return { status: 'ok', sent_count: count, failed_count: 0, errors: [] }
+    },
   },
   // GitHub Config
   {
