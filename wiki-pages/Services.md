@@ -53,7 +53,7 @@
 | Параметр | Описание | Значение по умолчанию |
 |----------|----------|----------------------|
 | `VLLM_API_URL` | URL API сервера | `http://localhost:11434` |
-| `VLLM_MODEL_NAME` | Имя модели/LoRA | `lydia` |
+| `VLLM_MODEL_NAME` | Имя модели/LoRA | `anna` |
 | `CUDA_VISIBLE_DEVICES` | GPU для использования | `0` |
 | `GPU_MEMORY_UTILIZATION` | Лимит VRAM | `0.5` (50%) |
 

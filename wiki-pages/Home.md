@@ -2,15 +2,26 @@
 
 Добро пожаловать в документацию **AI Secretary System** - виртуального секретаря с клонированием голоса и поддержкой локальных/облачных LLM.
 
+## Демо
+
+| Ресурс | Ссылка |
+|--------|--------|
+| **Админ-панель** (демо) | [ai-sekretar24.ru](https://ai-sekretar24.ru/) |
+| **Чат-бот техподдержки** | [@shaerware_digital_bot](https://t.me/shaerware_digital_bot) |
+
 ## Возможности системы
 
 - **Клонирование голоса** — XTTS v2, OpenVoice, Piper TTS
 - **Локальный LLM** — vLLM + Qwen/Llama/DeepSeek с LoRA
-- **Облачные LLM** — Gemini, OpenAI, Claude, DeepSeek, Kimi, OpenRouter
+- **Облачные LLM** — Gemini, OpenAI, Claude, DeepSeek, Kimi, OpenRouter + Claude Code CLI bridge
 - **Telegram боты** — мультиинстанс с воронкой продаж и платежами
+- **WhatsApp боты** — мультиинстанс через WhatsApp Cloud API с воронкой продаж
 - **Веб-виджеты** — чат для сайтов (мультиинстанс)
 - **amoCRM** — OAuth2 интеграция, контакты, сделки, воронки
 - **GSM телефония** — SIM7600E-H, голосовые звонки, SMS
+- **Fine-tuning** — LoRA для LLM + TTS fine-tuning (Qwen3-TTS)
+- **Wiki RAG** — база знаний с TF-IDF поиском для контекста LLM
+- **Rate Limiting** — per-instance лимиты для ботов и виджетов
 - **Админ-панель** — Vue 3 PWA, i18n (ru/en), 4 роли (admin/user/web/guest)
 
 ## Навигация по документации
@@ -25,11 +36,12 @@
 | [[LLM]] | Настройки LLM, персоны, облачные провайдеры |
 | [[TTS]] | Настройки синтеза речи, пресеты голосов |
 | [[FAQ]] | Управление быстрыми ответами |
-| [[Finetune]] | Дообучение моделей (LoRA) |
+| [[Finetune]] | Дообучение моделей (LoRA для LLM, TTS fine-tuning) |
 | [[Monitoring]] | Мониторинг GPU/CPU, логи |
 | [[Models]] | Управление моделями HuggingFace |
 | [[Widget]] | Настройка веб-виджетов (мультиинстанс) |
 | [[Telegram]] | Управление Telegram ботами (мультиинстанс) |
+| [[WhatsApp]] | Управление WhatsApp ботами (Cloud API, мультиинстанс) |
 | [[GSM]] | GSM телефония (звонки, SMS) |
 | [[Sales]] | Воронка продаж Telegram ботов (квиз, сегменты, follow-up) |
 | [[CRM]] | Интеграция с amoCRM (контакты, сделки, воронки) |
@@ -48,6 +60,8 @@
 | [[Wiki-RAG]] | База знаний: документы, TF-IDF поиск |
 | [[Backup]] | Экспорт/импорт конфигурации |
 | [[API-Reference]] | Справочник API (REST, OpenAI-совместимый) |
+| [[Installation]] | Руководство по установке (Docker и локально) |
+| [[Cloud-AI-Training]] | Wiki RAG — обучение облачных LLM на документации |
 | [[Troubleshooting]] | Решение типичных проблем |
 
 ---
