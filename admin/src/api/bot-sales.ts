@@ -108,6 +108,15 @@ export interface Subscriber {
   subscribed: boolean
   subscribed_at?: string
   unsubscribed_at?: string
+  username?: string
+  first_name?: string
+}
+
+export interface BroadcastResult {
+  status: string
+  sent_count: number
+  failed_count: number
+  errors?: Array<{ user_id: number; error: string }>
 }
 
 export interface GithubConfig {
@@ -212,6 +221,10 @@ export const botSalesApi = {
     api.get<{ subscribers: Subscriber[] }>(`${base(id)}/subscribers`),
   getSubscriberStats: (id: string) =>
     api.get<{ stats: { total_active: number } }>(`${base(id)}/subscribers/stats`),
+  broadcast: (
+    id: string,
+    data: { message: string; user_ids: number[]; parse_mode?: string },
+  ) => api.post<BroadcastResult>(`${base(id)}/broadcast`, data),
 
   // --- GitHub Config ---
   getGithubConfig: (id: string) =>

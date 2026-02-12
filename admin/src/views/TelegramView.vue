@@ -40,7 +40,7 @@ import {
   Wallet,
 } from 'lucide-vue-next'
 import { botInstancesApi, botSalesApi, llmApi, type BotInstance, type BotInstanceSession, type ActionButton, type PaymentProduct } from '@/api'
-import type { AgentPrompt, QuizQuestion, Segment, FollowupRule, Testimonial, HardwareSpec, GithubConfig, FunnelData } from '@/api/bot-sales'
+import type { AgentPrompt, QuizQuestion, Segment, FollowupRule, Testimonial, HardwareSpec, GithubConfig, FunnelData, Subscriber } from '@/api/bot-sales'
 import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
@@ -81,6 +81,10 @@ const salesTestimonials = ref<Testimonial[]>([])
 const salesHardware = ref<HardwareSpec[]>([])
 const salesFunnel = ref<FunnelData>({})
 const salesSubscriberCount = ref(0)
+const salesSubscribers = ref<Subscriber[]>([])
+const selectedSubscriberIds = ref<Set<number>>(new Set())
+const broadcastMessage = ref('')
+const broadcastSending = ref(false)
 const salesGithub = ref<GithubConfig | null>(null)
 const salesLoading = ref(false)
 
@@ -202,8 +206,14 @@ async function loadSalesData(section?: string) {
       const stats = await botSalesApi.getSubscriberStats(id)
       salesSubscriberCount.value = stats.stats?.total_active || 0
     } else if (s === 'subscribers') {
-      const stats = await botSalesApi.getSubscriberStats(id)
+      const [stats, list] = await Promise.all([
+        botSalesApi.getSubscriberStats(id),
+        botSalesApi.listSubscribers(id),
+      ])
       salesSubscriberCount.value = stats.stats?.total_active || 0
+      salesSubscribers.value = list.subscribers || []
+      selectedSubscriberIds.value = new Set()
+      broadcastMessage.value = ''
     } else if (s === 'github') {
       const data = await botSalesApi.getGithubConfig(id)
       salesGithub.value = data.config || null
@@ -212,6 +222,46 @@ async function loadSalesData(section?: string) {
     console.error('Failed to load sales data:', e)
   } finally {
     salesLoading.value = false
+  }
+}
+
+function toggleSubscriber(userId: number) {
+  const s = new Set(selectedSubscriberIds.value)
+  if (s.has(userId)) s.delete(userId)
+  else s.add(userId)
+  selectedSubscriberIds.value = s
+}
+
+function toggleAllSubscribers() {
+  const active = salesSubscribers.value.filter((s) => s.subscribed)
+  if (selectedSubscriberIds.value.size === active.length) {
+    selectedSubscriberIds.value = new Set()
+  } else {
+    selectedSubscriberIds.value = new Set(active.map((s) => s.user_id))
+  }
+}
+
+async function sendBroadcast() {
+  if (!selectedInstanceId.value || !broadcastMessage.value.trim()) return
+  broadcastSending.value = true
+  try {
+    const result = await botSalesApi.broadcast(selectedInstanceId.value, {
+      message: broadcastMessage.value,
+      user_ids: [...selectedSubscriberIds.value],
+    })
+    toast.success(
+      t('telegram.sales.sendResult', {
+        sent: result.sent_count,
+        failed: result.failed_count,
+      }),
+    )
+    broadcastMessage.value = ''
+    selectedSubscriberIds.value = new Set()
+  } catch (e) {
+    console.error('Broadcast failed:', e)
+    toast.error(String(e))
+  } finally {
+    broadcastSending.value = false
   }
 }
 
@@ -1403,10 +1453,86 @@ class="bg-primary h-full rounded-full transition-all"
             <!-- Subscribers Section -->
             <template v-else-if="salesSection === 'subscribers'">
               <div class="bg-card rounded-xl border border-border p-4">
-                <h3 class="font-medium mb-4">{{ t('telegram.sales.subscribers') }}</h3>
-                <div class="text-center py-8">
-                  <p class="text-3xl font-bold">{{ salesSubscriberCount }}</p>
-                  <p class="text-sm text-muted-foreground mt-1">{{ t('telegram.sales.subscribersDesc') }}</p>
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="font-medium">{{ t('telegram.sales.subscriberList') }}</h3>
+                  <div class="flex items-center gap-3 text-sm text-muted-foreground">
+                    <span>{{ t('telegram.sales.active') }}: {{ salesSubscriberCount }}</span>
+                    <span v-if="selectedSubscriberIds.size > 0">
+                      {{ t('telegram.sales.selected') }}: {{ selectedSubscriberIds.size }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Subscriber Table -->
+                <div v-if="salesSubscribers.length === 0" class="text-center py-8 text-muted-foreground text-sm">
+                  {{ t('telegram.sales.noSubscribers') }}
+                </div>
+                <div v-else class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="border-b border-border text-left text-muted-foreground">
+                        <th class="pb-2 pr-2 w-8">
+                          <input
+                            type="checkbox"
+                            class="rounded border-border"
+                            :checked="selectedSubscriberIds.size > 0 && selectedSubscriberIds.size === salesSubscribers.filter(s => s.subscribed).length"
+                            @change="toggleAllSubscribers()" />
+                        </th>
+                        <th class="pb-2 px-2">ID</th>
+                        <th class="pb-2 px-2">Username</th>
+                        <th class="pb-2 px-2">{{ t('telegram.sales.form.name') }}</th>
+                        <th class="pb-2 px-2">{{ t('common.status') }}</th>
+                        <th class="pb-2 px-2">{{ t('common.date') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="sub in salesSubscribers" :key="sub.user_id" class="border-b border-border/50 hover:bg-muted/30">
+                        <td class="py-2 pr-2">
+                          <input
+                            type="checkbox"
+                            class="rounded border-border"
+                            :checked="selectedSubscriberIds.has(sub.user_id)"
+                            :disabled="!sub.subscribed"
+                            @change="toggleSubscriber(sub.user_id)" />
+                        </td>
+                        <td class="py-2 px-2 font-mono text-xs">{{ sub.user_id }}</td>
+                        <td class="py-2 px-2">{{ sub.username ? '@' + sub.username : '—' }}</td>
+                        <td class="py-2 px-2">{{ sub.first_name || '—' }}</td>
+                        <td class="py-2 px-2">
+                          <span
+                            class="inline-block px-2 py-0.5 rounded-full text-xs"
+                            :class="sub.subscribed ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground'">
+                            {{ sub.subscribed ? t('telegram.sales.active') : t('telegram.sales.inactive') }}
+                          </span>
+                        </td>
+                        <td class="py-2 px-2 text-xs text-muted-foreground">
+                          {{ sub.subscribed_at ? new Date(sub.subscribed_at).toLocaleDateString() : '—' }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Broadcast Message Form -->
+                <div v-if="selectedSubscriberIds.size > 0" class="mt-4 pt-4 border-t border-border">
+                  <h4 class="text-sm font-medium mb-2">{{ t('telegram.sales.sendMessage') }}</h4>
+                  <textarea
+                    v-model="broadcastMessage"
+                    class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
+                    :placeholder="t('telegram.sales.messageText')" />
+                  <div class="flex items-center justify-between mt-2">
+                    <span class="text-xs text-muted-foreground">
+                      {{ t('telegram.sales.selected') }}: {{ selectedSubscriberIds.size }}
+                    </span>
+                    <button
+                      class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      :disabled="broadcastSending || !broadcastMessage.trim()"
+                      @click="sendBroadcast()">
+                      <Loader2 v-if="broadcastSending" class="w-4 h-4 animate-spin" />
+                      <Send v-else class="w-4 h-4" />
+                      {{ broadcastSending ? t('telegram.sales.sending') : t('telegram.sales.sendMessage') }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </template>

@@ -38,7 +38,7 @@ Guest demo: demo / demo (read-only access)
 
 ```bash
 python scripts/manage_users.py list                          # List all users
-python scripts/manage_users.py create <user> <pass> --role user  # Create user (admin|user|guest)
+python scripts/manage_users.py create <user> <pass> --role user  # Create user (admin|user|web|guest)
 python scripts/manage_users.py set-password <user> <pass>    # Reset password
 python scripts/manage_users.py set-role <user> <role>        # Change role
 python scripts/manage_users.py disable <user>                # Deactivate user
@@ -163,7 +163,7 @@ Frontend: `auth.ts` store fetches deployment mode via `GET /admin/deployment-mod
 
 **Multi-user RBAC**: `User` model in `db/models.py` with roles: `guest` (read-only), `user` (own resources), `admin` (full access). `auth_manager.py` provides DB-backed auth with salted password hashing, JWT tokens with `user_id`, and `require_not_guest` dependency for write endpoints. Resources with `owner_id` column (ChatSession, BotInstance, WidgetInstance, WhatsAppInstance, CloudLLMProvider, TTSPreset) are filtered by ownership for non-admin users. `UserRepository` in `db/repositories/user.py`, `AsyncUserManager` in `db/integration.py`. Profile/password endpoints in `app/routers/auth.py`. Migration: `scripts/migrate_users.py`, `scripts/migrate_user_ownership.py`. CLI management: `scripts/manage_users.py`.
 
-**Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
+**Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials, subscribers, broadcast). Subscriber list is enriched with user profile data (username, first_name) from `bot_user_profiles`. `POST /broadcast` sends messages to selected subscribers via Telegram Bot API (httpx). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
 
 **Telegram Sales Bot** (`telegram_bot/`): Aiogram 3.x bot with sales funnel, FAQ, and AI chat. Key modules:
 - `telegram_bot/sales/keyboards.py` — all inline keyboards (welcome, quiz, DIY, basic, custom, TZ quiz, FAQ, contact)
