@@ -51,9 +51,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 const isDev = import.meta.env.DEV
 const isDemo = import.meta.env.VITE_DEMO_MODE === 'true'
 
+export type DeploymentMode = 'full' | 'cloud' | 'local'
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('admin_token'))
   const user = ref<User | null>(null)
+  const deploymentMode = ref<DeploymentMode>('full')
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -62,6 +65,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isUser = computed(() => user.value?.role === 'user' || user.value?.role === 'web' || isAdmin.value)
   const isWeb = computed(() => user.value?.role === 'web')
   const isGuest = computed(() => user.value?.role === 'guest')
+  const isCloudMode = computed(() => deploymentMode.value === 'cloud')
 
   // Legacy compat aliases
   const isOperator = isUser
@@ -88,6 +92,19 @@ export const useAuthStore = defineStore('auth', () => {
     return hasPermission(`${resource}.${action}`)
   }
 
+  // Fetch deployment mode from backend
+  async function fetchDeploymentMode() {
+    try {
+      const response = await fetch('/admin/deployment-mode')
+      if (response.ok) {
+        const data = await response.json()
+        deploymentMode.value = data.mode || 'full'
+      }
+    } catch {
+      // Default to full if backend unreachable
+    }
+  }
+
   // Initialize from localStorage
   if (token.value) {
     try {
@@ -97,6 +114,8 @@ export const useAuthStore = defineStore('auth', () => {
         username: payload.sub,
         role: payload.role
       }
+      // Fetch deployment mode on init
+      fetchDeploymentMode()
     } catch {
       token.value = null
       localStorage.removeItem('admin_token')
@@ -147,6 +166,9 @@ export const useAuthStore = defineStore('auth', () => {
         role: payload.role
       }
 
+      // Fetch deployment mode from backend
+      await fetchDeploymentMode()
+
       return true
     } catch (e) {
       // In dev mode, allow login without backend
@@ -194,6 +216,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token,
     user,
+    deploymentMode,
     isLoading,
     error,
     isAuthenticated,
@@ -201,6 +224,7 @@ export const useAuthStore = defineStore('auth', () => {
     isUser,
     isWeb,
     isGuest,
+    isCloudMode,
     isOperator,
     isViewer,
     hasPermission,

@@ -130,6 +130,15 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Request flow:** User message → FAQ check (instant match) OR LLM → TTS → Audio response
 
+**Deployment modes** (`DEPLOYMENT_MODE` env var): Controls what services/routers exist in a given deployment, orthogonal to user roles (which control who can do what). Three modes:
+- `full` (default) — everything loaded, current behavior
+- `cloud` — cloud LLM only, no GPU/TTS/STT/GSM services, hardware routers not registered, hardware admin tabs hidden
+- `local` — same as `full` (explicit opt-in for documentation clarity)
+
+Backend: `orchestrator.py` conditionally registers hardware routers (`services`, `monitor`, `gsm`, `stt`, `tts`) and skips TTS/STT/GPU initialization in cloud mode. Health endpoint includes `deployment_mode` and adjusts health logic (TTS not required in cloud). `GET /admin/deployment-mode` returns current mode. `/auth/me` includes `deployment_mode`.
+
+Frontend: `auth.ts` store fetches deployment mode via `GET /admin/deployment-mode`, exposes `isCloudMode` computed. Nav items and routes with `localOnly: true` are hidden/guarded in cloud mode (Dashboard, Services, TTS, Monitoring, Models, Finetune, GSM). Cloud users redirect to `/chat`.
+
 ### Key Architectural Decisions
 
 **Global state in orchestrator.py** (~3500 lines, ~106 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
@@ -242,6 +251,7 @@ ADMIN_JWT_SECRET=...                # Auto-generated if empty
 ADMIN_USERNAME=admin                # Legacy fallback when users table is empty
 ADMIN_PASSWORD_HASH=...             # Legacy fallback (SHA-256 of password)
 REDIS_URL=redis://localhost:6379/0  # Optional, graceful fallback if unavailable
+DEPLOYMENT_MODE=full                # "full", "cloud", or "local" — controls service loading
 DEV_MODE=1                          # Makes backend proxy to Vite dev server (:5173)
 AMOCRM_PROXY=http://host:8888      # Optional, for Docker/VPN environments
 RATE_LIMIT_ENABLED=true             # Global rate limiting (slowapi)
