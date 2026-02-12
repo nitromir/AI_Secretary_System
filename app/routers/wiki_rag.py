@@ -130,6 +130,25 @@ async def wiki_rag_reload(user: User = Depends(require_not_guest)):
     return {"status": "ok", **result}
 
 
+@router.post("/reindex-embeddings")
+async def wiki_rag_reindex_embeddings(user: User = Depends(require_not_guest)):
+    """Force rebuild all embedding vectors from scratch."""
+    wiki_rag = _get_wiki_rag()
+    if not wiki_rag:
+        raise HTTPException(status_code=503, detail="Wiki RAG сервис не инициализирован")
+
+    result = wiki_rag.reindex_embeddings()
+
+    await async_audit_logger.log(
+        action="reindex_embeddings",
+        resource="wiki_rag",
+        user_id=user.username,
+        details=result,
+    )
+
+    return {"status": "ok", **result}
+
+
 @router.post("/search")
 async def wiki_rag_search(
     request: WikiSearchRequest,

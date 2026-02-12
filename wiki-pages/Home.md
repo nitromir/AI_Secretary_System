@@ -20,7 +20,7 @@
 - **amoCRM** — OAuth2 интеграция, контакты, сделки, воронки
 - **GSM телефония** — SIM7600E-H, голосовые звонки, SMS
 - **Fine-tuning** — LoRA для LLM + TTS fine-tuning (Qwen3-TTS)
-- **Wiki RAG** — база знаний с TF-IDF поиском для контекста LLM
+- **Wiki RAG** — база знаний с BM25 поиском и стеммингом для контекста LLM
 - **Rate Limiting** — per-instance лимиты для ботов и виджетов
 - **Админ-панель** — Vue 3 PWA, i18n (ru/en), 4 роли (admin/user/web/guest)
 
@@ -58,7 +58,7 @@
 | [[Payments]] | Платежи: Telegram Stars, YooKassa, YooMoney |
 | [[Personas]] | Персоны секретаря (Анна, Марина), промпты |
 | [[Prompts]] | Карта системных промптов: приоритеты, хранение, редактирование |
-| [[Wiki-RAG]] | База знаний: документы, TF-IDF поиск |
+| [[Wiki-RAG]] | База знаний: документы, BM25 поиск |
 | [[Backup]] | Экспорт/импорт конфигурации |
 | [[Deployment-Profiles]] | Профили развёртывания (full/cloud/local) |
 | [[API-Reference]] | Справочник API (REST, OpenAI-совместимый) |
