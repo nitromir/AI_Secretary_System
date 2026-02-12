@@ -51,5 +51,8 @@ sqlalchemy[asyncio]==2.0.25
 alembic==1.18.1
 redis>=5.0.0
 
+# Wiki RAG
+snowballstemmer>=2.2.0  # Russian/English stemming for BM25 search
+
 # Docker management (for starting vLLM from container)
 docker>=7.0.0
