@@ -6,6 +6,22 @@ export interface ChatMessage {
   content: string
   timestamp: string
   edited?: boolean
+  parent_id?: string | null
+  is_active?: boolean
+}
+
+export interface SiblingInfo {
+  index: number
+  total: number
+  siblings: string[]
+}
+
+export interface BranchNode {
+  id: string
+  role: string
+  content_preview: string
+  is_active: boolean
+  children: BranchNode[]
 }
 
 export interface ChatSession {
@@ -17,6 +33,7 @@ export interface ChatSession {
   source_id?: string
   created: string
   updated: string
+  sibling_info?: Record<string, SiblingInfo>
 }
 
 export interface ChatSessionSummary {
@@ -89,6 +106,16 @@ export const chatApi = {
   regenerateResponse: (sessionId: string, messageId: string) =>
     api.post<{ response: ChatMessage }>(
       `/admin/chat/sessions/${sessionId}/messages/${messageId}/regenerate`
+    ),
+
+  // Branches
+  getBranches: (sessionId: string) =>
+    api.get<{ branches: BranchNode[] }>(`/admin/chat/sessions/${sessionId}/branches`),
+
+  switchBranch: (sessionId: string, messageId: string) =>
+    api.post<{ status: string; session: ChatSession }>(
+      `/admin/chat/sessions/${sessionId}/branches/switch`,
+      { message_id: messageId }
     ),
 
   // Streaming chat

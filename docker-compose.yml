@@ -52,6 +52,20 @@ services:
       - ./app:/app/app:ro
       - ./bridge_manager.py:/app/bridge_manager.py:ro
       - ./finetune_manager.py:/app/finetune_manager.py:ro
+      - ./multi_bot_manager.py:/app/multi_bot_manager.py:ro
+      - ./telegram_bot_service.py:/app/telegram_bot_service.py:ro
+      - ./whatsapp_manager.py:/app/whatsapp_manager.py:ro
+      - ./auth_manager.py:/app/auth_manager.py:ro
+      - ./model_manager.py:/app/model_manager.py:ro
+      - ./llm_service.py:/app/llm_service.py:ro
+      - ./phone_service.py:/app/phone_service.py:ro
+      - ./xray_proxy_manager.py:/app/xray_proxy_manager.py:ro
+      - ./piper_tts_service.py:/app/piper_tts_service.py:ro
+      - ./stt_service.py:/app/stt_service.py:ro
+      - ./openvoice_service.py:/app/openvoice_service.py:ro
+      - ./tts_finetune_manager.py:/app/tts_finetune_manager.py:ro
+      - ./telegram_bot:/app/telegram_bot:ro
+      - ./whatsapp_bot:/app/whatsapp_bot:ro
       - ./services/bridge:/app/services/bridge:ro
       # Claude CLI for bridge auto-start in Docker
       # If claude is installed elsewhere, adjust the path

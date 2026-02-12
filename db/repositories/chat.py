@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -216,8 +216,9 @@ class ChatRepository(BaseRepository[ChatSession]):
         session_id: str,
         role: str,
         content: str,
+        parent_id: Optional[str] = None,
     ) -> Optional[dict]:
-        """Add message to session."""
+        """Add message to session. Auto-detects parent if not provided."""
         result = await self.session.execute(
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
@@ -228,6 +229,12 @@ class ChatRepository(BaseRepository[ChatSession]):
         if not session:
             return None
 
+        # Auto-detect parent: last active message in the session
+        if parent_id is None:
+            active_msgs = [m for m in session.messages if m.is_active]
+            if active_msgs:
+                parent_id = active_msgs[-1].id
+
         message = ChatMessage(
             id=self._generate_message_id(),
             session_id=session_id,
@@ -235,12 +242,15 @@ class ChatRepository(BaseRepository[ChatSession]):
             content=content,
             edited=False,
             created=datetime.utcnow(),
+            parent_id=parent_id,
+            is_active=True,
         )
 
         self.session.add(message)
 
         # Auto-generate title from first message
-        if len(session.messages) == 0 and session.title == "Новый чат":
+        active_msgs = [m for m in session.messages if m.is_active]
+        if len(active_msgs) == 0 and session.title == "Новый чат":
             session.title = content[:50] + ("..." if len(content) > 50 else "")
 
         session.updated = datetime.utcnow()
@@ -257,7 +267,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         message_id: str,
         content: str,
     ) -> Optional[dict]:
-        """Edit existing message."""
+        """Non-destructive edit: deactivate old branch, create new sibling."""
         result = await self.session.execute(
             select(ChatMessage)
             .where(ChatMessage.id == message_id)
@@ -268,9 +278,52 @@ class ChatRepository(BaseRepository[ChatSession]):
         if not message:
             return None
 
-        message.content = content
-        message.edited = True
-        message.created = datetime.utcnow()
+        # Deactivate this message and all its active descendants
+        await self._deactivate_branch(session_id, message_id)
+
+        # Create new message as sibling (same parent_id as original)
+        new_message = ChatMessage(
+            id=self._generate_message_id(),
+            session_id=session_id,
+            role=message.role,
+            content=content,
+            edited=True,
+            created=datetime.utcnow(),
+            parent_id=message.parent_id,
+            is_active=True,
+        )
+
+        self.session.add(new_message)
+
+        # Update session timestamp
+        session = await self.session.get(ChatSession, session_id)
+        if session:
+            session.updated = datetime.utcnow()
+
+        await self.session.commit()
+        await self.session.refresh(new_message)
+        await invalidate_session_cache(session_id)
+
+        return new_message.to_dict()
+
+    async def branch_regenerate(
+        self,
+        session_id: str,
+        message_id: str,
+    ) -> Optional[dict]:
+        """Non-destructive regenerate: deactivate assistant message, return parent user msg."""
+        result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.id == message_id)
+            .where(ChatMessage.session_id == session_id)
+        )
+        message = result.scalar_one_or_none()
+
+        if not message:
+            return None
+
+        # Deactivate this message and all its active descendants
+        await self._deactivate_branch(session_id, message_id)
 
         # Update session timestamp
         session = await self.session.get(ChatSession, session_id)
@@ -280,8 +333,190 @@ class ChatRepository(BaseRepository[ChatSession]):
         await self.session.commit()
         await invalidate_session_cache(session_id)
 
-        msg_data: dict[str, Any] = message.to_dict()
-        return msg_data
+        # Return the parent message (user message) so caller can generate response
+        if message.parent_id:
+            parent_result = await self.session.execute(
+                select(ChatMessage).where(ChatMessage.id == message.parent_id)
+            )
+            parent = parent_result.scalar_one_or_none()
+            if parent:
+                return parent.to_dict()
+
+        return message.to_dict()
+
+    async def _deactivate_branch(self, session_id: str, message_id: str) -> None:
+        """Deactivate a message and all its active descendants recursively."""
+        # Deactivate the message itself
+        await self.session.execute(
+            update(ChatMessage).where(ChatMessage.id == message_id).values(is_active=False)
+        )
+
+        # Find active children
+        children_result = await self.session.execute(
+            select(ChatMessage.id)
+            .where(ChatMessage.parent_id == message_id)
+            .where(ChatMessage.is_active.is_(True))
+        )
+        child_ids = [row[0] for row in children_result.all()]
+
+        for child_id in child_ids:
+            await self._deactivate_branch(session_id, child_id)
+
+    async def get_active_messages(self, session_id: str) -> List[dict]:
+        """Get ordered list of active messages for display."""
+        result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .where(ChatMessage.is_active.is_(True))
+            .order_by(ChatMessage.created.asc())
+        )
+        messages = result.scalars().all()
+        return [m.to_dict() for m in messages]
+
+    async def get_branch_tree(self, session_id: str) -> List[dict]:
+        """Get full branch tree structure for a session."""
+        result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created.asc())
+        )
+        all_messages = result.scalars().all()
+
+        if not all_messages:
+            return []
+
+        # Build lookup maps
+        children_map: Dict[Optional[str], List[ChatMessage]] = {}
+        for m in all_messages:
+            children_map.setdefault(m.parent_id, []).append(m)
+
+        def build_node(msg: ChatMessage) -> dict:
+            kids = children_map.get(msg.id, [])
+            return {
+                "id": msg.id,
+                "role": msg.role,
+                "content_preview": msg.content[:50] + ("..." if len(msg.content) > 50 else ""),
+                "is_active": msg.is_active,
+                "children": [build_node(c) for c in kids],
+            }
+
+        # Root nodes are messages with no parent
+        roots = children_map.get(None, [])
+        return [build_node(r) for r in roots]
+
+    async def get_sibling_info(self, session_id: str) -> Dict[str, dict]:
+        """Get sibling info for messages that have alternatives.
+
+        Returns dict mapping message_id to {index, total, siblings: [id, ...]}.
+        """
+        result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created.asc())
+        )
+        all_messages = result.scalars().all()
+
+        # Group by parent_id
+        by_parent: Dict[Optional[str], List[ChatMessage]] = {}
+        for m in all_messages:
+            by_parent.setdefault(m.parent_id, []).append(m)
+
+        sibling_info: Dict[str, dict] = {}
+        for parent_id, siblings in by_parent.items():
+            if len(siblings) <= 1:
+                continue
+            sibling_ids = [s.id for s in siblings]
+            for i, s in enumerate(siblings):
+                sibling_info[s.id] = {
+                    "index": i,
+                    "total": len(siblings),
+                    "siblings": sibling_ids,
+                }
+
+        return sibling_info
+
+    async def switch_branch(self, session_id: str, message_id: str) -> bool:
+        """Switch active branch to the given message.
+
+        Deactivates siblings and their descendants, activates this message
+        and its ancestors up to root.
+        """
+        result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.id == message_id)
+            .where(ChatMessage.session_id == session_id)
+        )
+        message = result.scalar_one_or_none()
+
+        if not message:
+            return False
+
+        # Find siblings (messages with same parent_id in same session)
+        siblings_result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .where(ChatMessage.parent_id == message.parent_id)
+            .where(ChatMessage.id != message_id)
+        )
+        siblings = siblings_result.scalars().all()
+
+        # Deactivate siblings and their descendants
+        for sibling in siblings:
+            if sibling.is_active:
+                await self._deactivate_branch(session_id, sibling.id)
+
+        # Activate this message
+        message.is_active = True
+
+        # Activate the active path from this message downward (first active child chain)
+        await self._activate_default_path(session_id, message_id)
+
+        # Activate all ancestors up to root
+        current_parent_id = message.parent_id
+        while current_parent_id:
+            parent_result = await self.session.execute(
+                select(ChatMessage).where(ChatMessage.id == current_parent_id)
+            )
+            parent = parent_result.scalar_one_or_none()
+            if not parent:
+                break
+            parent.is_active = True
+            current_parent_id = parent.parent_id
+
+        # Update session timestamp
+        session = await self.session.get(ChatSession, session_id)
+        if session:
+            session.updated = datetime.utcnow()
+
+        await self.session.commit()
+        await invalidate_session_cache(session_id)
+
+        return True
+
+    async def _activate_default_path(self, session_id: str, message_id: str) -> None:
+        """Activate the first child chain from a message (default path forward)."""
+        children_result = await self.session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.parent_id == message_id)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created.desc())
+        )
+        children = children_result.scalars().all()
+
+        if not children:
+            return
+
+        # Pick the most recent child as the active one
+        active_child = children[0]
+        active_child.is_active = True
+
+        # Deactivate other children
+        for child in children[1:]:
+            if child.is_active:
+                await self._deactivate_branch(session_id, child.id)
+
+        # Continue down the chain
+        await self._activate_default_path(session_id, active_child.id)
 
     async def delete_message(
         self,
@@ -322,7 +557,7 @@ class ChatRepository(BaseRepository[ChatSession]):
         session_id: str,
         system_prompt: Optional[str] = None,
     ) -> List[dict]:
-        """Get messages in LLM format (role, content)."""
+        """Get active messages in LLM format (role, content)."""
         result = await self.session.execute(
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
@@ -340,9 +575,10 @@ class ChatRepository(BaseRepository[ChatSession]):
         if prompt:
             messages.append({"role": "system", "content": prompt})
 
-        # Add message history
+        # Add active message history only
         for msg in session.messages:
-            messages.append({"role": msg.role, "content": msg.content})
+            if msg.is_active:
+                messages.append({"role": msg.role, "content": msg.content})
 
         return messages
 

@@ -2,7 +2,8 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
-import { chatApi, ttsApi, llmApi, sttApi, type ChatSession, type ChatMessage, type ChatSessionSummary, type GroupedSessions, type CloudProvider } from '@/api'
+import { chatApi, ttsApi, llmApi, sttApi, type ChatSession, type ChatMessage, type ChatSessionSummary, type GroupedSessions, type CloudProvider, type BranchNode, type SiblingInfo } from '@/api'
+import BranchTree from '@/components/BranchTree.vue'
 import { useConfirmStore } from '@/stores/confirm'
 import {
   MessageSquare,
@@ -32,7 +33,8 @@ import {
   MicOff,
   CheckSquare,
   ListChecks,
-  Brain
+  Brain,
+  GitBranch
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -131,12 +133,33 @@ const { data: llmProvidersData } = useQuery({
   queryFn: () => llmApi.getProviders(true),
 })
 
+// Branch tree query
+const { data: branchData, refetch: refetchBranches } = useQuery({
+  queryKey: ['chat-branches', currentSessionId],
+  queryFn: () => currentSessionId.value ? chatApi.getBranches(currentSessionId.value) : null,
+  enabled: computed(() => !!currentSessionId.value),
+})
+
 // Computed
 const sessions = computed(() => sessionsData.value?.sessions || [])
 const groupedSessions = computed(() => groupedSessionsData.value?.sessions || null)
 const currentSession = computed(() => sessionData.value?.session)
 const messages = computed(() => currentSession.value?.messages || [])
 const defaultPrompt = computed(() => defaultPromptData.value?.prompt || '')
+const branchTree = computed(() => branchData.value?.branches || [])
+const siblingInfo = computed(() => currentSession.value?.sibling_info || {})
+
+// Check if session has any branches
+const hasBranches = computed(() => {
+  function checkBranching(nodes: BranchNode[]): boolean {
+    if (nodes.length > 1) return true
+    for (const node of nodes) {
+      if (checkBranching(node.children)) return true
+    }
+    return false
+  }
+  return branchTree.value.length > 0 && checkBranching(branchTree.value)
+})
 
 // Available LLM options for dropdown
 interface LlmOption {
@@ -249,6 +272,7 @@ const editMessageMutation = useMutation({
   onSuccess: () => {
     editingMessageId.value = null
     refetchSession()
+    refetchBranches()
     scrollToBottom()
   },
 })
@@ -258,7 +282,17 @@ const regenerateMutation = useMutation({
     chatApi.regenerateResponse(sessionId, messageId),
   onSuccess: () => {
     refetchSession()
+    refetchBranches()
     scrollToBottom()
+  },
+})
+
+const switchBranchMutation = useMutation({
+  mutationFn: ({ sessionId, messageId }: { sessionId: string; messageId: string }) =>
+    chatApi.switchBranch(sessionId, messageId),
+  onSuccess: () => {
+    refetchSession()
+    refetchBranches()
   },
 })
 
@@ -476,26 +510,32 @@ function regenerateResponse(messageId: string) {
   })
 }
 
-// Find the previous user message for an assistant message
-function findPreviousUserMessageId(assistantMessageId: string): string | null {
-  const msgList = messages.value
-  const index = msgList.findIndex(m => m.id === assistantMessageId)
-  if (index <= 0) return null
-
-  // Look backwards for the user message
-  for (let i = index - 1; i >= 0; i--) {
-    if (msgList[i].role === 'user') {
-      return msgList[i].id
-    }
-  }
-  return null
+function regenerateAssistantResponse(assistantMessageId: string) {
+  if (!currentSessionId.value) return
+  regenerateMutation.mutate({
+    sessionId: currentSessionId.value,
+    messageId: assistantMessageId,
+  })
 }
 
-function regenerateAssistantResponse(assistantMessageId: string) {
-  const userMessageId = findPreviousUserMessageId(assistantMessageId)
-  if (userMessageId) {
-    regenerateResponse(userMessageId)
-  }
+function onBranchSwitch(messageId: string) {
+  if (!currentSessionId.value) return
+  switchBranchMutation.mutate({
+    sessionId: currentSessionId.value,
+    messageId,
+  })
+}
+
+function switchToSibling(messageId: string) {
+  if (!currentSessionId.value) return
+  switchBranchMutation.mutate({
+    sessionId: currentSessionId.value,
+    messageId,
+  })
+}
+
+function getSiblingInfo(messageId: string): SiblingInfo | null {
+  return siblingInfo.value[messageId] || null
 }
 
 function deleteMessage(messageId: string) {
@@ -954,6 +994,8 @@ watch(sessions, (newSessions) => {
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Chat Header -->
       <div v-if="currentSession" class="p-4 border-b border-border flex items-center justify-between bg-card">
+        <!-- Branch indicator -->
+        <GitBranch v-if="hasBranches" class="w-4 h-4 text-muted-foreground mr-2 flex-shrink-0" />
         <div class="flex-1 min-w-0">
           <h2 class="font-semibold truncate">{{ currentSession.title }}</h2>
           <p class="text-xs text-muted-foreground">
@@ -1007,6 +1049,8 @@ watch(sessions, (newSessions) => {
         </div>
       </div>
 
+      <!-- Messages + Branch Tree row -->
+      <div class="flex-1 flex overflow-hidden">
       <!-- Messages -->
       <div
         ref="messagesContainer"
@@ -1078,6 +1122,22 @@ watch(sessions, (newSessions) => {
                 <div class="flex items-center gap-2 mt-2 text-xs opacity-60">
                   <span>{{ formatTime(message.timestamp) }}</span>
                   <span v-if="message.edited" class="italic">(edited)</span>
+                  <!-- Version navigation for messages with siblings -->
+                  <template v-if="getSiblingInfo(message.id)">
+                    <span class="flex items-center gap-1 ml-1">
+                      <button
+                        class="px-0.5 hover:text-foreground disabled:opacity-30"
+                        :disabled="getSiblingInfo(message.id)!.index === 0"
+                        @click="switchToSibling(getSiblingInfo(message.id)!.siblings[getSiblingInfo(message.id)!.index - 1])"
+                      >&lt;</button>
+                      <span>{{ getSiblingInfo(message.id)!.index + 1 }}/{{ getSiblingInfo(message.id)!.total }}</span>
+                      <button
+                        class="px-0.5 hover:text-foreground disabled:opacity-30"
+                        :disabled="getSiblingInfo(message.id)!.index === getSiblingInfo(message.id)!.total - 1"
+                        @click="switchToSibling(getSiblingInfo(message.id)!.siblings[getSiblingInfo(message.id)!.index + 1])"
+                      >&gt;</button>
+                    </span>
+                  </template>
                 </div>
 
                 <!-- Actions -->
@@ -1175,6 +1235,15 @@ watch(sessions, (newSessions) => {
           </div>
         </template>
       </div>
+
+      <!-- Branch Tree Panel -->
+      <BranchTree
+        v-if="hasBranches"
+        :branches="branchTree"
+        :session-id="currentSessionId || ''"
+        @switch="onBranchSwitch"
+      />
+      </div><!-- end Messages + Branch Tree row -->
 
       <!-- Input Area -->
       <div v-if="currentSession" class="p-4 border-t border-border bg-card">

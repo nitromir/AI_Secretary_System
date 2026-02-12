@@ -147,12 +147,12 @@ class ChatSession(Base):
             "updated": self.updated.isoformat() if self.updated else None,
         }
         if include_messages:
-            result["messages"] = [m.to_dict() for m in self.messages]
+            result["messages"] = [m.to_dict() for m in self.messages if m.is_active]
         return result
 
     def to_summary(self) -> dict:
         """Return summary for list view"""
-        messages = self.messages or []
+        messages = [m for m in (self.messages or []) if m.is_active]
         last_msg = messages[-1].content[:100] if messages else None
         return {
             "id": self.id,
@@ -182,8 +182,28 @@ class ChatMessage(Base):
     edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Branching fields
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
     # Relationships
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
+    children: Mapped[List["ChatMessage"]] = relationship(
+        "ChatMessage",
+        back_populates="parent",
+        foreign_keys=[parent_id],
+    )
+    parent: Mapped[Optional["ChatMessage"]] = relationship(
+        "ChatMessage",
+        back_populates="children",
+        foreign_keys=[parent_id],
+        remote_side=[id],
+    )
 
     __table_args__ = (Index("ix_chat_messages_session_created", "session_id", "created"),)
 
@@ -194,6 +214,8 @@ class ChatMessage(Base):
             "content": self.content,
             "edited": self.edited,
             "timestamp": self.created.isoformat() if self.created else None,
+            "parent_id": self.parent_id,
+            "is_active": self.is_active,
         }
 
 
