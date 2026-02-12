@@ -20,6 +20,7 @@
 ### Каналы
 * [[Chat]]
 * [[Telegram]]
+* [[WhatsApp]]
 * [[Widget]]
 * [[GSM]]
 
@@ -39,6 +40,8 @@
 * [[VLESS-Proxy]]
 
 ### Справка
+* [[Installation]]
+* [[Cloud-AI-Training]]
 * [[API-Reference]]
 * [[Troubleshooting]]
 

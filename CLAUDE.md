@@ -14,6 +14,7 @@ AI Secretary System — virtual secretary with voice cloning (XTTS v2, OpenVoice
 # Docker (recommended)
 cp .env.docker.example .env && docker compose up -d          # GPU mode
 docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d  # CPU mode
+docker compose -f docker-compose.yml -f docker-compose.full.yml up -d # Full containerized (includes vLLM)
 
 # Local
 ./start_gpu.sh              # GPU: XTTS + Qwen2.5-7B + LoRA
@@ -97,7 +98,7 @@ pytest -m "not integration" -v         # Exclude integration (needs external ser
 pytest -m "not gpu" -v                 # Exclude GPU-required tests
 ```
 
-Pytest uses `asyncio_mode = "auto"` — async test functions run without needing `@pytest.mark.asyncio`. Custom markers: `slow`, `integration`, `gpu`.
+**Note:** The `tests/` directory does not exist yet — test infrastructure is configured in `pyproject.toml` but tests have not been written. Pytest uses `asyncio_mode = "auto"` — async test functions run without needing `@pytest.mark.asyncio`. Custom markers: `slow`, `integration`, `gpu`.
 
 ### CI
 
@@ -131,7 +132,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 ### Key Architectural Decisions
 
-**Global state in orchestrator.py** (~3200 lines, ~106 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
+**Global state in orchestrator.py** (~3500 lines, ~106 endpoints): This is the FastAPI entry point. It initializes all services as module-level globals, populates the `ServiceContainer`, and includes all routers. Legacy endpoints (OpenAI-compatible `/v1/*`) still live here alongside the modular router system.
 
 **ServiceContainer (`app/dependencies.py`)**: Singleton holding references to all initialized services (TTS, LLM, STT, Wiki RAG). Routers get services via FastAPI `Depends`. Populated during app startup in `orchestrator.py`.
 
@@ -141,7 +142,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **WhatsApp bots**: Run as subprocesses managed by `whatsapp_manager.py` (same pattern as Telegram's `multi_bot_manager.py`). Each instance has independent config (phone_number_id, access_token, LLM backend, TTS, system prompt). Bots with `auto_start=true` restart on app startup. Env vars passed to subprocess: `WA_INSTANCE_ID`, `WA_INTERNAL_TOKEN` (internal admin JWT). Bot module: `whatsapp_bot/` (runs as `python -m whatsapp_bot`). Logs: `logs/whatsapp_bot_{instance_id}.log`. DB model: `WhatsAppInstance` in `db/models.py`, repo: `db/repositories/whatsapp_instance.py`, manager: `AsyncWhatsAppInstanceManager` in `db/integration.py`. API: `app/routers/whatsapp.py` (10 endpoints: CRUD + start/stop/restart/status/logs). Migration: `scripts/migrate_whatsapp.py`. Admin UI: `WhatsAppView.vue`.
 
-**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `whatsapp_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`. Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`, `wiki_rag_service.py`).
+**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `whatsapp_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`, `model_manager.py`, `bridge_manager.py` (Claude Code CLI bridge), `xray_proxy_manager.py` (VLESS proxy for xray-core), `phone_service.py` (telephony). Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`, `wiki_rag_service.py`).
 
 **Cloud LLM routing**: `cloud_llm_service.py` (project root) has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`. The standalone `gemini` backend (`llm_service.py`) is deprecated — all cloud LLM is now routed via `CloudLLMService`. Legacy `LLM_BACKEND=gemini` is auto-migrated to `cloud:{provider_id}` on startup (auto-creates a Gemini provider from `GEMINI_API_KEY` env if needed). Migration script: `scripts/migrate_gemini_to_cloud.py`.
 
@@ -258,6 +259,55 @@ RATE_LIMIT_DEFAULT=60/minute        # Default rate limit for all endpoints
 - **Admin panel**: Vue 3 + Composition API + Pinia stores + vue-i18n. API clients in `admin/src/api/`, one per domain.
 - **mypy strict scope** — Only `db/`, `auth_manager.py`, `service_manager.py` require typed defs; other modules are relaxed. mypy is soft in CI (`|| true`).
 - **Pre-commit hooks** — ruff lint+format, mypy (core only), eslint, hadolint (Docker), plus standard checks (trailing whitespace, large files ≤1MB, private key detection, merge conflicts). See `.pre-commit-config.yaml`.
+
+## Parallel Development (Two Claude Code Instances)
+
+This project is developed simultaneously from two machines running Claude Code:
+- **local** — dev workstation with GPU (RTX 3060), hardware access, full stack
+- **server** — cloud VPS, no GPU, cloud LLM only, production-facing
+
+### Environment Detection
+
+Each machine identifies itself via per-machine memory at `~/.claude/projects/.../memory/MEMORY.md`. The memory file MUST contain a `## Machine Role` section with `local` or `server`. **Check your machine role before any git or file operations.**
+
+### Git Workflow Rules
+
+1. **Never push directly to `main`** — always create a feature branch and PR
+2. **Branch prefixes by machine:**
+   - `local/*` — branches created on local dev machine
+   - `server/*` — branches created on server
+   - `docs/*`, `chore/*`, `fix/*`, `feat/*` — shared prefixes are OK, but add machine suffix if both might work on similar tasks (e.g., `feat/whatsapp-local`, `feat/whatsapp-server`)
+3. **Always `git pull` before starting work** — stale branches cause merge conflicts
+4. **Do not amend or force-push commits made by the other instance**
+5. **If you see uncommitted changes you didn't make** — another instance may have been working. Ask the user before discarding
+
+### File Ownership Zones
+
+To minimize merge conflicts, each machine has primary ownership of certain areas:
+
+**Local machine primary:**
+- Hardware services: `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `vllm_llm_service.py`
+- GPU/hardware: `system_monitor.py`, `app/services/gsm_service.py`, `app/routers/gsm.py`, `app/routers/services.py`, `app/routers/monitor.py`
+- Fine-tuning: `tts_finetune_manager.py`, `finetune_manager.py`
+- Voice samples: `Анна/`, `Марина/`
+- Start scripts: `start_gpu.sh`, `start_cpu.sh`, `start_qwen.sh`
+
+**Server primary:**
+- Cloud services: `cloud_llm_service.py`, `xray_proxy_manager.py`
+- Deployment: `docker-compose*.yml`, `Dockerfile`, `scripts/docker-entrypoint.sh`
+- Bot operations: `whatsapp_manager.py`, `multi_bot_manager.py` (runtime config, not structure)
+- Production data: `data/`, `logs/`
+
+**Shared (both can edit, but coordinate via branches):**
+- `orchestrator.py`, `app/routers/`, `db/`, `admin/` — use feature branches, never edit on main
+- `CLAUDE.md` — either machine can update, but pull first
+- Migration scripts — create new files only, never modify existing migrations
+
+### Coordination Protocol
+
+- Before starting a multi-file change, check `git status` and `git log --oneline -5` to see if the other instance has recent work
+- If working on overlapping areas, create the branch immediately and push it — this signals to the other instance that the area is being worked on
+- Prefer small, focused PRs over large sweeping changes — reduces conflict surface
 
 ## Known Issues
 
