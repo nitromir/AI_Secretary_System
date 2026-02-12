@@ -16,6 +16,7 @@
 * [[Models]]
 * [[Finetune]]
 * [[Personas]]
+* [[Prompts]]
 
 ### Каналы
 * [[Chat]]

@@ -57,6 +57,7 @@
 | [[VLESS-Proxy]] | Настройка VLESS прокси для Gemini |
 | [[Payments]] | Платежи: Telegram Stars, YooKassa, YooMoney |
 | [[Personas]] | Персоны секретаря (Анна, Марина), промпты |
+| [[Prompts]] | Карта системных промптов: приоритеты, хранение, редактирование |
 | [[Wiki-RAG]] | База знаний: документы, TF-IDF поиск |
 | [[Backup]] | Экспорт/импорт конфигурации |
 | [[API-Reference]] | Справочник API (REST, OpenAI-совместимый) |
