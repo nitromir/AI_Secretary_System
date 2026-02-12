@@ -155,6 +155,11 @@ except ImportError:
 # Определяем какой LLM backend использовать
 LLM_BACKEND = os.getenv("LLM_BACKEND", "vllm").lower()  # "vllm" or "cloud:{provider_id}"
 
+# Deployment mode: "full" (default), "cloud" (no GPU/hardware), "local" (explicit full)
+DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "full").lower()
+if DEPLOYMENT_MODE not in ("full", "cloud", "local"):
+    DEPLOYMENT_MODE = "full"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -408,22 +413,17 @@ app.add_middleware(SecurityHeadersMiddleware, enabled=SECURITY_HEADERS_ENABLED)
 # Include modular routers
 # NOTE: These routers use the ServiceContainer from app.dependencies
 # which is populated in startup_event
+
+# Always-available routers (all deployment modes)
 app.include_router(auth.router)
 app.include_router(audit.router)
-app.include_router(services.router)
-app.include_router(monitor.router)
 app.include_router(faq.router)
-if stt is not None:
-    app.include_router(stt.router)
 app.include_router(llm.router)
-if tts is not None:
-    app.include_router(tts.router)
 app.include_router(chat.router)
 app.include_router(telegram.router)
 app.include_router(whatsapp.router)
 app.include_router(usage.router)
 app.include_router(widget.router)
-app.include_router(gsm.router)
 app.include_router(bot_sales.router)
 app.include_router(github_webhook.router)
 app.include_router(yoomoney_webhook.router)
@@ -432,6 +432,16 @@ app.include_router(backup.router)
 app.include_router(wiki_rag.router)
 app.include_router(amocrm.router)
 app.include_router(amocrm.webhook_router)
+
+# Hardware/GPU routers — skip in cloud mode
+if DEPLOYMENT_MODE != "cloud":
+    app.include_router(services.router)
+    app.include_router(monitor.router)
+    app.include_router(gsm.router)
+    if stt is not None:
+        app.include_router(stt.router)
+    if tts is not None:
+        app.include_router(tts.router)
 
 # Глобальные сервисы
 voice_service: Optional["VoiceCloneService"] = None  # XTTS (Марина) - GPU CC >= 7.0
@@ -641,77 +651,83 @@ async def startup_event():
         streaming_tts_manager, \
         LLM_BACKEND
 
-    logger.info("🚀 Запуск AI Secretary Orchestrator")
+    logger.info(f"🚀 Запуск AI Secretary Orchestrator (mode={DEPLOYMENT_MODE})")
 
     # Initialize database first
     await init_database()
 
     try:
-        # Инициализация Piper TTS (Dmitri, Irina) - CPU, загружаем первым
-        if PIPER_AVAILABLE:
-            logger.info("📦 Загрузка Piper TTS Service (CPU)...")
-            try:
-                piper_service = PiperTTSService()
-            except Exception as e:
-                logger.warning(f"⚠️ Piper TTS недоступен: {e}")
-                piper_service = None
-        else:
-            logger.info("⏭️ Piper TTS не установлен (пропускаем)")
-            piper_service = None
-
-        # Инициализация OpenVoice v2 (Марина) - GPU CC 6.1+ (P104-100)
-        if OPENVOICE_AVAILABLE:
-            logger.info("📦 Загрузка OpenVoice TTS Service (GPU CC 6.1+)...")
-            try:
-                openvoice_service = OpenVoiceService()
-                logger.info("✅ OpenVoice v2 загружен (P104-100)")
-            except Exception as e:
-                logger.warning(f"⚠️ OpenVoice недоступен: {e}")
-                openvoice_service = None
-        else:
-            logger.info("⏭️ OpenVoice не установлен (пропускаем)")
-            openvoice_service = None
-
-        # Инициализация XTTS (Анна) - GPU CC >= 7.0, по умолчанию
-        if XTTS_AVAILABLE:
-            logger.info("📦 Загрузка Voice Clone Service (XTTS - Анна)...")
-            try:
-                anna_voice_service = VoiceCloneService(voice_samples_dir="./Анна")
-                logger.info(
-                    f"✅ XTTS (Анна) загружен: {len(anna_voice_service.voice_samples)} образцов"
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ XTTS (Анна) недоступен: {e}")
-                anna_voice_service = None
-        else:
-            logger.info("⏭️ XTTS не установлен (пропускаем)")
-            anna_voice_service = None
-
-        # Инициализация XTTS (Марина) - GPU CC >= 7.0, опционально
-        if XTTS_AVAILABLE:
-            logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")
-            try:
-                voice_service = VoiceCloneService(voice_samples_dir="./Марина")
-                logger.info(
-                    f"✅ XTTS (Марина) загружен: {len(voice_service.voice_samples)} образцов"
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ XTTS (Марина) недоступен (требуется GPU CC >= 7.0): {e}")
-                voice_service = None
-        else:
-            voice_service = None
-
-        # Устанавливаем голос по умолчанию
+        # TTS/STT services — skip entirely in cloud mode
         global current_voice_config
-        if anna_voice_service:
-            current_voice_config = {"engine": "xtts", "voice": "anna"}
-            logger.info("🎤 Голос по умолчанию: Анна (XTTS)")
-        elif voice_service:
-            current_voice_config = {"engine": "xtts", "voice": "marina"}
-            logger.info("🎤 Голос по умолчанию: Марина (XTTS)")
-        elif piper_service:
-            current_voice_config = {"engine": "piper", "voice": "dmitri"}
-            logger.info("🎤 Голос по умолчанию: Дмитрий (Piper)")
+        if DEPLOYMENT_MODE == "cloud":
+            logger.info("☁️ Cloud mode: пропускаем TTS/STT/GPU сервисы")
+            piper_service = None
+            openvoice_service = None
+            anna_voice_service = None
+            voice_service = None
+            stt_service = None
+            current_voice_config = {"engine": "none", "voice": "none"}
+        else:
+            # Инициализация Piper TTS (Dmitri, Irina) - CPU, загружаем первым
+            if PIPER_AVAILABLE:
+                logger.info("📦 Загрузка Piper TTS Service (CPU)...")
+                try:
+                    piper_service = PiperTTSService()
+                except Exception as e:
+                    logger.warning(f"⚠️ Piper TTS недоступен: {e}")
+                    piper_service = None
+            else:
+                logger.info("⏭️ Piper TTS не установлен (пропускаем)")
+                piper_service = None
+
+            # Инициализация OpenVoice v2 (Марина) - GPU CC 6.1+ (P104-100)
+            if OPENVOICE_AVAILABLE:
+                logger.info("📦 Загрузка OpenVoice TTS Service (GPU CC 6.1+)...")
+                try:
+                    openvoice_service = OpenVoiceService()
+                    logger.info("✅ OpenVoice v2 загружен (P104-100)")
+                except Exception as e:
+                    logger.warning(f"⚠️ OpenVoice недоступен: {e}")
+                    openvoice_service = None
+            else:
+                logger.info("⏭️ OpenVoice не установлен (пропускаем)")
+                openvoice_service = None
+
+            # Инициализация XTTS (Анна) - GPU CC >= 7.0, по умолчанию
+            if XTTS_AVAILABLE:
+                logger.info("📦 Загрузка Voice Clone Service (XTTS - Анна)...")
+                try:
+                    anna_voice_service = VoiceCloneService(voice_samples_dir="./Анна")
+                    logger.info(f"✅ XTTS (Анна): {len(anna_voice_service.voice_samples)} образцов")
+                except Exception as e:
+                    logger.warning(f"⚠️ XTTS (Анна) недоступен: {e}")
+                    anna_voice_service = None
+            else:
+                logger.info("⏭️ XTTS не установлен (пропускаем)")
+                anna_voice_service = None
+
+            # Инициализация XTTS (Марина) - GPU CC >= 7.0, опционально
+            if XTTS_AVAILABLE:
+                logger.info("📦 Загрузка Voice Clone Service (XTTS - Марина)...")
+                try:
+                    voice_service = VoiceCloneService(voice_samples_dir="./Марина")
+                    logger.info(f"✅ XTTS (Марина): {len(voice_service.voice_samples)} образцов")
+                except Exception as e:
+                    logger.warning(f"⚠️ XTTS (Марина) недоступен: {e}")
+                    voice_service = None
+            else:
+                voice_service = None
+
+            # Устанавливаем голос по умолчанию
+            if anna_voice_service:
+                current_voice_config = {"engine": "xtts", "voice": "anna"}
+                logger.info("🎤 Голос по умолчанию: Анна (XTTS)")
+            elif voice_service:
+                current_voice_config = {"engine": "xtts", "voice": "marina"}
+                logger.info("🎤 Голос по умолчанию: Марина (XTTS)")
+            elif piper_service:
+                current_voice_config = {"engine": "piper", "voice": "dmitri"}
+                logger.info("🎤 Голос по умолчанию: Дмитрий (Piper)")
 
         # Инициализация LLM Service (vLLM или Cloud)
         # Auto-migrate legacy "gemini" backend to cloud provider system
@@ -841,16 +857,17 @@ async def startup_event():
         container.streaming_tts_manager = streaming_tts_manager
         container.current_voice_config = current_voice_config
 
-        # Initialize GSM telephony service (auto mock mode if no hardware)
-        try:
-            from app.services.gsm_service import GSMService
+        # Initialize GSM telephony service (skip in cloud mode)
+        if DEPLOYMENT_MODE != "cloud":
+            try:
+                from app.services.gsm_service import GSMService
 
-            gsm_service = GSMService(mock_mode=True)
-            await gsm_service.initialize()
-            container.gsm_service = gsm_service
-            logger.info("✅ GSM service initialized (mock mode)")
-        except Exception as gsm_err:
-            logger.warning(f"⚠️ GSM service not available: {gsm_err}")
+                gsm_service = GSMService(mock_mode=True)
+                await gsm_service.initialize()
+                container.gsm_service = gsm_service
+                logger.info("✅ GSM service initialized (mock mode)")
+            except Exception as gsm_err:
+                logger.warning(f"⚠️ GSM service not available: {gsm_err}")
 
         # Initialize Wiki RAG service
         try:
@@ -942,13 +959,18 @@ async def health_check():
         or services_status["voice_clone_openvoice"]
         or services_status["piper_tts"]
     )
-    core_ok = any_tts and services_status["llm"]
+    # In cloud mode, TTS is not required for healthy status
+    if DEPLOYMENT_MODE == "cloud":
+        core_ok = services_status["llm"]
+    else:
+        core_ok = any_tts and services_status["llm"]
 
     # Get database status
     db_status = await get_database_status()
 
     result = {
         "status": "healthy" if core_ok else "degraded",
+        "deployment_mode": DEPLOYMENT_MODE,
         "services": services_status,
         "database": db_status.get("database", {}),
         "timestamp": datetime.now().isoformat(),
@@ -959,6 +981,12 @@ async def health_check():
         result["streaming_tts_stats"] = streaming_tts_manager.get_stats()
 
     return result
+
+
+@app.get("/admin/deployment-mode")
+async def get_deployment_mode():
+    """Return current deployment mode for frontend."""
+    return {"mode": DEPLOYMENT_MODE}
 
 
 def synthesize_with_current_voice(text: str, output_path: str, language: str = "ru"):

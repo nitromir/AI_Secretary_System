@@ -34,7 +34,7 @@ const router = createRouter({
       path: '/',
       name: 'dashboard',
       component: DashboardView,
-      meta: { title: 'Dashboard', icon: 'LayoutDashboard', excludeRoles: ['web'] }
+      meta: { title: 'Dashboard', icon: 'LayoutDashboard', excludeRoles: ['web'], localOnly: true }
     },
     {
       path: '/chat',
@@ -46,7 +46,7 @@ const router = createRouter({
       path: '/services',
       name: 'services',
       component: ServicesView,
-      meta: { title: 'Services', icon: 'Server', minRole: 'user', excludeRoles: ['web'] }
+      meta: { title: 'Services', icon: 'Server', minRole: 'user', excludeRoles: ['web'], localOnly: true }
     },
     {
       path: '/llm',
@@ -58,7 +58,7 @@ const router = createRouter({
       path: '/tts',
       name: 'tts',
       component: TtsView,
-      meta: { title: 'TTS', icon: 'Mic', minRole: 'user', excludeRoles: ['web'] }
+      meta: { title: 'TTS', icon: 'Mic', minRole: 'user', excludeRoles: ['web'], localOnly: true }
     },
     {
       path: '/faq',
@@ -70,19 +70,19 @@ const router = createRouter({
       path: '/finetune',
       name: 'finetune',
       component: FinetuneView,
-      meta: { title: 'Fine-tune', icon: 'Sparkles' }
+      meta: { title: 'Fine-tune', icon: 'Sparkles', localOnly: true }
     },
     {
       path: '/monitoring',
       name: 'monitoring',
       component: MonitoringView,
-      meta: { title: 'Monitoring', icon: 'Activity', minRole: 'user' }
+      meta: { title: 'Monitoring', icon: 'Activity', minRole: 'user', localOnly: true }
     },
     {
       path: '/models',
       name: 'models',
       component: ModelsView,
-      meta: { title: 'Models', icon: 'HardDrive', minRole: 'admin' }
+      meta: { title: 'Models', icon: 'HardDrive', minRole: 'admin', localOnly: true }
     },
     {
       path: '/widget',
@@ -106,7 +106,7 @@ const router = createRouter({
       path: '/gsm',
       name: 'gsm',
       component: GSMView,
-      meta: { title: 'GSM Telephony', icon: 'Phone', minRole: 'admin' }
+      meta: { title: 'GSM Telephony', icon: 'Phone', minRole: 'admin', localOnly: true }
     },
     {
       path: '/audit',
@@ -179,6 +179,12 @@ router.beforeEach((to, from, next) => {
   // Check excludeRoles (e.g. 'web' excluded from dashboard, services)
   const excludeRoles = to.meta.excludeRoles as string[] | undefined
   if (excludeRoles?.includes(userRole)) {
+    next({ name: 'chat' })
+    return
+  }
+
+  // Check deployment mode (localOnly routes hidden in cloud mode)
+  if (to.meta.localOnly && authStore.isCloudMode) {
     next({ name: 'chat' })
     return
   }

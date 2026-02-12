@@ -1,6 +1,8 @@
 # app/routers/auth.py
 """Authentication router - login, user info, auth status, profile management."""
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.rate_limiter import RATE_LIMIT_AUTH, limiter
@@ -42,7 +44,13 @@ async def admin_login(request: Request, login_request: LoginRequest):
 @router.get("/me")
 async def admin_get_current_user(user: User = Depends(get_current_user)):
     """Get current authenticated user info."""
-    return {"id": user.id, "username": user.username, "role": user.role}
+    deployment_mode = os.getenv("DEPLOYMENT_MODE", "full").lower()
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "deployment_mode": deployment_mode,
+    }
 
 
 @router.get("/profile")

@@ -34,9 +34,10 @@ const authStore = useAuthStore()
 
 const ROLE_LEVEL: Record<UserRole, number> = { guest: 0, web: 1, user: 1, admin: 2 }
 
-function isVisibleForRole(item: { minRole?: UserRole; excludeRoles?: UserRole[] }): boolean {
+function isVisibleForRole(item: { minRole?: UserRole; excludeRoles?: UserRole[]; localOnly?: boolean }): boolean {
   const userRole = authStore.user?.role || 'guest'
   if (item.excludeRoles?.includes(userRole)) return false
+  if (item.localOnly && authStore.isCloudMode) return false
   if (!item.minRole) return true
   return ROLE_LEVEL[userRole] >= ROLE_LEVEL[item.minRole]
 }
@@ -48,9 +49,9 @@ const allNavGroups = computed(() => [
     nameKey: 'nav.group.monitoring',
     icon: Activity,
     items: [
-      { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard, excludeRoles: ['web'] as UserRole[] },
-      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole },
-      { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[] },
+      { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard, excludeRoles: ['web'] as UserRole[], localOnly: true },
+      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole, localOnly: true },
+      { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[], localOnly: true },
       { path: '/audit', nameKey: 'nav.audit', icon: FileText, minRole: 'user' as UserRole },
     ]
   },
@@ -60,9 +61,9 @@ const allNavGroups = computed(() => [
     icon: Brain,
     items: [
       { path: '/llm', nameKey: 'nav.llm', icon: Brain, minRole: 'user' as UserRole },
-      { path: '/tts', nameKey: 'nav.tts', icon: Mic, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[] },
-      { path: '/models', nameKey: 'nav.models', icon: AudioLines, minRole: 'admin' as UserRole },
-      { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles },
+      { path: '/tts', nameKey: 'nav.tts', icon: Mic, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[], localOnly: true },
+      { path: '/models', nameKey: 'nav.models', icon: AudioLines, minRole: 'admin' as UserRole, localOnly: true },
+      { path: '/finetune', nameKey: 'nav.finetune', icon: Sparkles, localOnly: true },
     ]
   },
   {
@@ -74,7 +75,7 @@ const allNavGroups = computed(() => [
       { path: '/telegram', nameKey: 'nav.telegram', icon: Send, minRole: 'user' as UserRole },
       { path: '/whatsapp', nameKey: 'nav.whatsapp', icon: MessageCircle, minRole: 'user' as UserRole },
       { path: '/widget', nameKey: 'nav.widget', icon: Code2, minRole: 'user' as UserRole },
-      { path: '/gsm', nameKey: 'nav.gsm', icon: Phone, minRole: 'admin' as UserRole },
+      { path: '/gsm', nameKey: 'nav.gsm', icon: Phone, minRole: 'admin' as UserRole, localOnly: true },
     ]
   },
   {
