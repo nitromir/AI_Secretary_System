@@ -8,8 +8,6 @@ the full response before sending (no streaming to user).
 import asyncio
 import logging
 
-from ..sales.keyboards import welcome_buttons
-from ..sales.texts import WELCOME_TEXT
 from ..services.llm_router import get_llm_router
 from ..services.session_store import get_session_store
 from ..services.whatsapp_client import MAX_TEXT_LENGTH, get_whatsapp_client
@@ -65,13 +63,30 @@ async def _process_message(phone: str, text: str, message_id: str) -> None:
     }
     lower = text.lower().strip()
     if lower in _GREETINGS:
-        keyboard = welcome_buttons()
-        buttons = [
-            {"id": b["reply"]["id"], "title": b["reply"]["title"]}
-            for b in keyboard["action"]["buttons"]
-        ]
-        await wa_client.send_buttons(to=phone, body=WELCOME_TEXT, buttons=buttons)
+        from .sales.welcome import handle_welcome
+
+        await handle_welcome(phone)
         return
+
+    # State-aware routing: check if user is in a free-text input state
+    from ..sales.database import get_sales_db
+
+    try:
+        db = await get_sales_db()
+        state = await db.get_user_state(phone)
+        if state:
+            if state == "custom_step_1":
+                from .sales.custom import handle_custom_step_1_text
+
+                await handle_custom_step_1_text(phone, text)
+                return
+            elif state == "diy_gpu_custom":
+                from .sales.diy import handle_gpu_custom_text
+
+                await handle_gpu_custom_text(phone, text)
+                return
+    except Exception:
+        logger.debug("Sales DB state check failed", exc_info=True)
 
     store = get_session_store()
     router = get_llm_router()

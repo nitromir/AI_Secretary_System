@@ -4,9 +4,9 @@ Handles responses to quick-reply buttons and list selections.
 This is the WhatsApp equivalent of Telegram's callback_query handler.
 
 Routing by reply_id prefix:
-  sales:*  → welcome flow + WA-10 placeholders
+  sales:*  → sales funnel (quiz, DIY, basic, custom paths)
   faq:*    → full FAQ navigation
-  tz:*     → TZ quiz (WA-10 placeholder)
+  tz:*     → TZ quiz (placeholder)
   nav:*    → generic navigation (welcome, menu)
 """
 
@@ -16,8 +16,6 @@ from typing import Any
 from ..sales import keyboards as kb
 from ..sales.texts import (
     COMING_SOON_TEXT,
-    CONTACT_TEXT,
-    DIY_GITHUB_TEXT,
     FAQ_ANSWERS,
     FAQ_INSTALL_INTRO,
     FAQ_KEY_TO_SECTION,
@@ -26,7 +24,6 @@ from ..sales.texts import (
     FAQ_PRODUCT_INTRO,
     MENU_TEXT,
     WELCOME_TEXT,
-    WHAT_IS_TEXT,
 )
 from ..services.whatsapp_client import get_whatsapp_client
 
@@ -119,29 +116,10 @@ async def handle_interactive_reply(phone: str, reply: dict[str, Any]) -> None:
 
 
 async def _handle_sales(phone: str, action: str) -> None:
-    """Handle sales:* callbacks — welcome flow + WA-10 placeholders."""
-    wa = get_whatsapp_client()
+    """Route sales:* callbacks to the sales handler package."""
+    from .sales.router import route_sales_action
 
-    if action == "github":
-        await wa.send_text(to=phone, text=DIY_GITHUB_TEXT)
-        await _send_buttons(phone, "Что дальше?", kb.welcome_buttons())
-
-    elif action == "faq":
-        await _send_list(phone, FAQ_MENU_TEXT, kb.faq_list())
-
-    elif action == "what_is":
-        await _send_buttons(phone, WHAT_IS_TEXT, kb.what_is_buttons())
-
-    elif action == "back_welcome":
-        await _send_buttons(phone, WELCOME_TEXT, kb.welcome_buttons())
-
-    elif action == "contact":
-        await _send_buttons(phone, CONTACT_TEXT, kb.contact_buttons())
-
-    else:
-        # WA-10 placeholder: quiz, DIY, basic, custom flows
-        logger.info("Unhandled sales action: %s (WA-10 placeholder)", action)
-        await _send_buttons(phone, COMING_SOON_TEXT, kb.menu_buttons())
+    await route_sales_action(phone, action)
 
 
 # ─── FAQ flow ─────────────────────────────────────────────────

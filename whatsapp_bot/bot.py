@@ -32,8 +32,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     logger.info("WhatsApp bot starting up")
+    # Initialize sales database
+    from .sales.database import close_sales_db, get_sales_db
+
+    await get_sales_db()
     yield
     # Cleanup
+    await close_sales_db()
     client = get_whatsapp_client()
     await client.close()
     logger.info("WhatsApp bot shut down")
