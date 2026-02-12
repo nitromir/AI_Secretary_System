@@ -42,8 +42,9 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
     """
     Google Gemini embedding via REST API (httpx).
 
-    Uses httpx instead of genai SDK to avoid gRPC proxy conflicts when
-    GeminiProvider for LLM sets global HTTP_PROXY env vars for VLESS.
+    Uses httpx instead of genai SDK to avoid gRPC proxy caching issues.
+    Reuses VLESS proxy from HTTP_PROXY env var if set (for regions where
+    Google APIs are blocked).
 
     Model: text-embedding-004 (768 dims, free tier 1500 req/min).
     Batch: up to 100 texts per call.
@@ -52,14 +53,20 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
     API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def __init__(self, api_key: str):
+        import os
+
         import httpx
 
-        # Don't use proxy for embedding requests (LLM GeminiProvider sets proxy globally)
-        self._client = httpx.Client(timeout=60.0, proxy=None)
+        # Reuse VLESS proxy from LLM GeminiProvider if available
+        proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+        self._client = httpx.Client(timeout=120.0, proxy=proxy_url)
         self._api_key = api_key
         self.model_name = "text-embedding-004"
         self.dimension = 768
-        logger.info(f"GeminiEmbeddingProvider initialized: {self.model_name} (REST API)")
+        proxy_info = f", proxy={proxy_url}" if proxy_url else ""
+        logger.info(
+            f"GeminiEmbeddingProvider initialized: {self.model_name} (REST API{proxy_info})"
+        )
 
     def _call_api(self, texts: list[str], task_type: str) -> list[list[float]]:
         url = f"{self.API_URL}/{self.model_name}:batchEmbedContents"
