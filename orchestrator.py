@@ -543,6 +543,20 @@ async def _auto_start_bridge_if_needed():
         logger.error(f"🌉 Error during bridge auto-start: {e}")
 
 
+async def _build_wiki_embeddings(wiki_rag):
+    """Background task: build embedding vectors for Wiki RAG sections."""
+    try:
+        result = wiki_rag.build_embeddings()
+        if result.get("status") == "ok":
+            total = result.get("total", result.get("cached", 0))
+            new = result.get("new", 0)
+            logger.info(f"✅ Wiki RAG embeddings: {total} секций ({new} новых)")
+        elif result.get("status") == "error":
+            logger.warning(f"⚠️ Wiki RAG embeddings error: {result.get('error')}")
+    except Exception as e:
+        logger.warning(f"⚠️ Wiki RAG embeddings build failed: {e}")
+
+
 async def _auto_start_telegram_bots():
     """Auto-start Telegram bots that have auto_start=True."""
     from db.integration import async_bot_instance_manager
@@ -875,6 +889,54 @@ async def startup_event():
 
             wiki_rag = WikiRAGService(Path("wiki-pages"))
             container.wiki_rag_service = wiki_rag
+
+            # Initialize embedding provider for Wiki RAG (tiered: local > cloud > none)
+            embedding_provider = None
+
+            # Phase 3: Local embeddings (best quality, DEPLOYMENT_MODE=full only)
+            if DEPLOYMENT_MODE != "cloud":
+                try:
+                    from app.services.embedding_provider import (
+                        LOCAL_EMBEDDINGS_AVAILABLE,
+                        LocalEmbeddingProvider,
+                    )
+
+                    if LOCAL_EMBEDDINGS_AVAILABLE:
+                        embedding_provider = LocalEmbeddingProvider()
+                        logger.info("✅ Wiki RAG: local embeddings (sentence-transformers)")
+                except Exception as local_err:
+                    logger.debug(f"Wiki RAG: local embeddings not available: {local_err}")
+
+            # Phase 2: Cloud embeddings from active LLM provider
+            if not embedding_provider and llm_service and hasattr(llm_service, "config"):
+                try:
+                    cloud_config = llm_service.config
+                    provider_type = cloud_config.get("provider_type", "")
+                    api_key = cloud_config.get("api_key", "")
+
+                    if provider_type == "gemini" and api_key:
+                        from app.services.embedding_provider import GeminiEmbeddingProvider
+
+                        embedding_provider = GeminiEmbeddingProvider(api_key=api_key)
+                        logger.info("✅ Wiki RAG: cloud embeddings (Gemini)")
+                    elif api_key and cloud_config.get("base_url"):
+                        from app.services.embedding_provider import OpenAIEmbeddingProvider
+
+                        embedding_provider = OpenAIEmbeddingProvider(
+                            api_key=api_key,
+                            base_url=cloud_config["base_url"],
+                        )
+                        logger.info("✅ Wiki RAG: cloud embeddings (OpenAI-compatible)")
+                except Exception as cloud_err:
+                    logger.debug(f"Wiki RAG: cloud embeddings not available: {cloud_err}")
+
+            if embedding_provider:
+                wiki_rag.set_embedding_provider(embedding_provider)
+                # Build embeddings in background
+                asyncio.get_event_loop().create_task(_build_wiki_embeddings(wiki_rag))
+            else:
+                logger.info("📚 Wiki RAG: BM25 only (no embedding provider)")
+
         except Exception as wiki_err:
             logger.warning(f"⚠️ Wiki RAG service not available: {wiki_err}")
 

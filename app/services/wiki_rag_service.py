@@ -1,22 +1,31 @@
 """
-Lightweight Wiki RAG service — retrieves relevant wiki sections for user queries.
+Wiki RAG service — retrieves relevant wiki sections for user queries.
 
-Uses BM25 Okapi scoring with Russian/English stemming. Parses wiki-pages/*.md
-on startup, builds an inverted index, and returns top-k relevant sections
-formatted as context for LLM system prompt injection.
+Tiered search:
+1. Semantic embeddings (if provider available) — best for "сколько стоит" → "тарифы"
+2. BM25 Okapi with Russian/English stemming — always available as fallback
 
-Works offline, zero GPU, zero API keys.
+Parses wiki-pages/*.md on startup, builds inverted index and optional
+embedding vectors. Returns top-k relevant sections for LLM system prompt injection.
 """
 
+from __future__ import annotations
+
+import hashlib
+import json
 import logging
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import snowballstemmer
+
+
+if TYPE_CHECKING:
+    from app.services.embedding_provider import BaseEmbeddingProvider
 
 
 logger = logging.getLogger(__name__)
@@ -139,7 +148,7 @@ class WikiSection:
 
 
 class WikiRAGService:
-    """Retrieves relevant wiki sections for user queries via BM25 scoring."""
+    """Retrieves relevant wiki sections via embeddings (primary) or BM25 (fallback)."""
 
     def __init__(self, wiki_dir: Optional[Path] = None):
         self.sections: list[WikiSection] = []
@@ -147,6 +156,11 @@ class WikiRAGService:
         self.avg_dl: float = 0.0
         self.total_docs: int = 0
         self._files_indexed: int = 0
+
+        # Embedding search state
+        self._embedding_provider: Optional[BaseEmbeddingProvider] = None
+        self._embeddings: dict[str, list[float]] = {}  # section_id → vector
+        self._embedding_cache_path = Path("data/wiki_embeddings.json")
 
         if wiki_dir and wiki_dir.exists():
             self._load_and_index(wiki_dir)
@@ -251,32 +265,190 @@ class WikiRAGService:
             score += idf * tf_norm
         return score
 
+    # ---- Embedding methods ----
+
+    def set_embedding_provider(self, provider: BaseEmbeddingProvider) -> None:
+        """Set the embedding provider and try to load cached embeddings."""
+        self._embedding_provider = provider
+        self._load_embedding_cache()
+
+    def _section_id(self, section: WikiSection) -> str:
+        """Stable ID for a section (used as cache key)."""
+        raw = f"{section.source_file}::{section.title}"
+        return hashlib.md5(raw.encode()).hexdigest()
+
+    def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
+        """Pure Python cosine similarity — fine for ~600 vectors."""
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    def _load_embedding_cache(self) -> None:
+        """Load cached embeddings from JSON if provider matches."""
+        if not self._embedding_cache_path.exists():
+            return
+        try:
+            data = json.loads(self._embedding_cache_path.read_text(encoding="utf-8"))
+            cached_provider = data.get("provider", "")
+            cached_model = data.get("model", "")
+            if (
+                self._embedding_provider
+                and cached_provider == self._embedding_provider.provider_name()
+                and cached_model == self._embedding_provider.model_name
+            ):
+                self._embeddings = data.get("embeddings", {})
+                logger.info(
+                    f"📦 Wiki RAG: загружено {len(self._embeddings)} эмбеддингов из кэша "
+                    f"({cached_provider}/{cached_model})"
+                )
+            else:
+                logger.info(
+                    "📦 Wiki RAG: кэш эмбеддингов устарел "
+                    f"(cached={cached_provider}/{cached_model}), будет перестроен"
+                )
+                self._embeddings = {}
+        except Exception as e:
+            logger.warning(f"Wiki RAG: ошибка загрузки кэша эмбеддингов: {e}")
+            self._embeddings = {}
+
+    def _save_embedding_cache(self) -> None:
+        """Save embeddings to JSON cache."""
+        if not self._embedding_provider or not self._embeddings:
+            return
+        try:
+            self._embedding_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "provider": self._embedding_provider.provider_name(),
+                "model": self._embedding_provider.model_name,
+                "sections_count": len(self._embeddings),
+                "embeddings": self._embeddings,
+            }
+            self._embedding_cache_path.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8"
+            )
+            logger.info(f"💾 Wiki RAG: сохранено {len(self._embeddings)} эмбеддингов в кэш")
+        except Exception as e:
+            logger.warning(f"Wiki RAG: ошибка сохранения кэша эмбеддингов: {e}")
+
+    def build_embeddings(self) -> dict:
+        """Batch embed all indexed sections. Returns stats."""
+        if not self._embedding_provider:
+            return {"status": "no_provider"}
+        if not self.sections:
+            return {"status": "no_sections"}
+
+        # Identify sections that need embedding
+        section_ids = [self._section_id(s) for s in self.sections]
+        missing_ids = [sid for sid in section_ids if sid not in self._embeddings]
+
+        if not missing_ids:
+            return {
+                "status": "ok",
+                "cached": len(self._embeddings),
+                "new": 0,
+                "provider": self._embedding_provider.provider_name(),
+            }
+
+        # Prepare texts for missing sections
+        missing_indices = [i for i, sid in enumerate(section_ids) if sid in missing_ids]
+        texts = [
+            f"{self.sections[i].title}\n{self.sections[i].body[:1000]}" for i in missing_indices
+        ]
+
+        try:
+            vectors = self._embedding_provider.embed_texts(texts)
+        except Exception as e:
+            logger.error(f"Wiki RAG: ошибка эмбеддинга: {e}")
+            return {"status": "error", "error": str(e)}
+
+        # Store new embeddings
+        for idx, vec in zip(missing_indices, vectors, strict=True):
+            sid = section_ids[idx]
+            self._embeddings[sid] = vec
+
+        # Remove stale embeddings (sections no longer in index)
+        current_ids = set(section_ids)
+        stale = [k for k in self._embeddings if k not in current_ids]
+        for k in stale:
+            del self._embeddings[k]
+
+        self._save_embedding_cache()
+
+        return {
+            "status": "ok",
+            "cached": len(self._embeddings) - len(vectors),
+            "new": len(vectors),
+            "stale_removed": len(stale),
+            "total": len(self._embeddings),
+            "provider": self._embedding_provider.provider_name(),
+        }
+
+    def reindex_embeddings(self) -> dict:
+        """Force rebuild all embeddings from scratch."""
+        self._embeddings = {}
+        return self.build_embeddings()
+
+    def _embedding_search(self, query: str, top_k: int) -> list[tuple[float, WikiSection]]:
+        """Semantic search via embeddings. Returns scored sections."""
+        if not self._embedding_provider or not self._embeddings:
+            return []
+
+        try:
+            query_vec = self._embedding_provider.embed_query(query)
+        except Exception as e:
+            logger.warning(f"Wiki RAG: ошибка эмбеддинга запроса: {e}")
+            return []
+
+        scored: list[tuple[float, WikiSection]] = []
+        for section in self.sections:
+            sid = self._section_id(section)
+            if sid not in self._embeddings:
+                continue
+            sim = self._cosine_similarity(query_vec, self._embeddings[sid])
+            if sim > 0.3:  # minimum similarity threshold
+                scored.append((sim, section))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[:top_k]
+
+    @property
+    def embeddings_available(self) -> bool:
+        """True if we have both a provider and cached embeddings."""
+        return bool(self._embedding_provider and self._embeddings)
+
     def retrieve(self, query: str, top_k: int = 3, max_chars: int = 2500) -> str:
         """
         Find top_k relevant sections for query.
 
+        Tries embedding search first, falls back to BM25.
         Returns formatted markdown context string, or empty string if no match.
         """
         if not self.sections or not query.strip():
             return ""
 
-        query_tokens = self._tokenize(query)
-        if not query_tokens:
-            return ""
+        # Try embedding search first
+        top_sections = self._embedding_search(query, top_k) if self.embeddings_available else []
 
-        # Score each section
-        scored: list[tuple[float, WikiSection]] = []
-        for section in self.sections:
-            score = self._bm25_score(query_tokens, section)
-            if score >= MIN_SCORE:
-                scored.append((score, section))
+        # Fallback to BM25
+        if not top_sections:
+            query_tokens = self._tokenize(query)
+            if not query_tokens:
+                return ""
 
-        if not scored:
-            return ""
+            scored: list[tuple[float, WikiSection]] = []
+            for section in self.sections:
+                score = self._bm25_score(query_tokens, section)
+                if score >= MIN_SCORE:
+                    scored.append((score, section))
 
-        # Sort by score descending, take top_k
-        scored.sort(key=lambda x: x[0], reverse=True)
-        top_sections = scored[:top_k]
+            if not scored:
+                return ""
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top_sections = scored[:top_k]
 
         # Format context, respect max_chars
         parts: list[str] = ["[Документация по теме:]"]
@@ -302,34 +474,47 @@ class WikiRAGService:
         return "".join(parts) if len(parts) > 1 else ""
 
     def reload(self, wiki_dir: Path) -> dict:
-        """Re-index wiki from disk."""
+        """Re-index wiki from disk. Also rebuilds embeddings if provider is set."""
         old_count = len(self.sections)
         self._load_and_index(wiki_dir)
-        return {
+        result = {
             "previous_sections": old_count,
             "current_sections": len(self.sections),
             "files_indexed": self._files_indexed,
         }
+        # Rebuild embeddings for new/changed sections
+        if self._embedding_provider:
+            emb_result = self.build_embeddings()
+            result["embeddings"] = emb_result
+        return result
 
     def search(self, query: str, top_k: int = 3) -> list[dict]:
-        """Structured search results with scores (for API/UI)."""
+        """Structured search results with scores (for API/UI).
+
+        Tries embedding search first, falls back to BM25.
+        """
         if not self.sections or not query.strip():
             return []
 
-        query_tokens = self._tokenize(query)
-        if not query_tokens:
-            return []
+        # Try embedding search first
+        scored = self._embedding_search(query, top_k) if self.embeddings_available else []
+        search_engine = "embeddings" if scored else "bm25"
 
-        scored: list[tuple[float, WikiSection]] = []
-        for section in self.sections:
-            score = self._bm25_score(query_tokens, section)
-            if score >= MIN_SCORE:
-                scored.append((score, section))
-
+        # Fallback to BM25
         if not scored:
-            return []
+            query_tokens = self._tokenize(query)
+            if not query_tokens:
+                return []
 
-        scored.sort(key=lambda x: x[0], reverse=True)
+            for section in self.sections:
+                score = self._bm25_score(query_tokens, section)
+                if score >= MIN_SCORE:
+                    scored.append((score, section))
+
+            if not scored:
+                return []
+
+            scored.sort(key=lambda x: x[0], reverse=True)
 
         results = []
         for score, section in scored[:top_k]:
@@ -339,6 +524,7 @@ class WikiRAGService:
                     "body": section.body[:500],
                     "source_file": section.source_file,
                     "score": round(score, 3),
+                    "engine": search_engine,
                 }
             )
         return results
@@ -350,8 +536,13 @@ class WikiRAGService:
     @property
     def stats(self) -> dict:
         """Index statistics."""
+        embedding_engine = None
+        if self._embedding_provider:
+            embedding_engine = self._embedding_provider.provider_name()
         return {
-            "engine": "bm25",
+            "engine": "embeddings+bm25" if self._embeddings else "bm25",
+            "embedding_engine": embedding_engine,
+            "embedding_sections": len(self._embeddings),
             "sections_indexed": len(self.sections),
             "files_indexed": self._files_indexed,
             "unique_tokens": len(self.doc_freqs),
