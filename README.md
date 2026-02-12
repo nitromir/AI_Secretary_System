@@ -5,7 +5,7 @@
 
 **[Демо админ-панели](https://ai-sekretar24.ru/)** | **[Чат-бот техподдержки](https://t.me/shaerware_digital_bot)**
 
-Интеллектуальная система виртуального секретаря с клонированием голоса (XTTS v2, OpenVoice), предобученными голосами (Piper), локальным LLM (vLLM + Qwen/Llama) и облачным fallback (Gemini). Включает полнофункциональную Vue 3 админ-панель с PWA поддержкой.
+Интеллектуальная система виртуального секретаря с клонированием голоса (XTTS v2, OpenVoice), предобученными голосами (Piper), локальным LLM (vLLM + Qwen/Llama/DeepSeek), облачным LLM (Gemini, OpenAI, Claude, DeepSeek, Kimi, OpenRouter) и CLI-OpenAI bridge (Claude Code, Gemini CLI). Включает полнофункциональную Vue 3 админ-панель с 20 вкладками, i18n, PWA, multi-user RBAC, amoCRM интеграцией и воронкой продаж.
 
 ## Features
 
@@ -52,7 +52,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ### Modular API Structure
 
-API endpoints organized into 21 routers with ~369 endpoints:
+API endpoints organized into 21 routers with ~371 endpoints total:
 
 ```
 app/
@@ -60,27 +60,27 @@ app/
 ├── dependencies.py          # ServiceContainer for DI
 └── routers/
     ├── __init__.py
-    ├── auth.py              # 3 endpoints  - JWT login, logout, token refresh
-    ├── audit.py             # 4 endpoints  - Audit log viewing, export
+    ├── auth.py              # 6 endpoints  - JWT login, profile, password, auth status
+    ├── audit.py             # 4 endpoints  - Audit log viewing, export, cleanup
     ├── services.py          # 6 endpoints  - vLLM start/stop/restart, logs
-    ├── monitor.py           # 7 endpoints  - GPU stats, health, metrics SSE
+    ├── monitor.py           # 9 endpoints  - GPU/CPU/system stats, health, metrics SSE
     ├── faq.py               # 7 endpoints  - FAQ CRUD, reload, test
     ├── stt.py               # 4 endpoints  - STT status, transcribe, test
-    ├── llm.py               # 27 endpoints - Backend, persona, params, providers, VLESS proxy
-    ├── tts.py               # 13 endpoints - Presets, params, test, cache
-    ├── chat.py              # 10 endpoints - Sessions, messages, streaming
-    ├── telegram.py          # 22 endpoints - Bot instances CRUD, control
+    ├── llm.py               # 42 endpoints - Backend, persona, params, providers, VLESS proxy, models, bridge
+    ├── tts.py               # 14 endpoints - Presets, params, test, cache, streaming
+    ├── chat.py              # 13 endpoints - Sessions, messages, streaming, branching
+    ├── telegram.py          # 28 endpoints - Bot instances CRUD, control, sales, payments
     ├── widget.py            # 7 endpoints  - Widget instances CRUD
-    ├── gsm.py               # 12 endpoints - GSM telephony (SIM7600E-H)
-    ├── backup.py            # 4 endpoints  - Backup/restore configuration
-    ├── bot_sales.py         # 15 endpoints - Sales funnel config, segments, testimonials
-    ├── yoomoney_webhook.py  # 2 endpoints  - YooMoney payment callbacks
-    ├── amocrm.py            # 18 endpoints - amoCRM OAuth2, contacts, leads, pipelines
-    ├── usage.py             # 8 endpoints  - Usage tracking, limits, statistics
-    ├── legal.py             # 6 endpoints  - Legal compliance
-    ├── wiki_rag.py          # 8 endpoints  - Wiki RAG stats/search, Knowledge Base CRUD
+    ├── gsm.py               # 14 endpoints - GSM telephony (SIM7600E-H)
+    ├── backup.py            # 8 endpoints  - Backup/restore configuration
+    ├── bot_sales.py         # 43 endpoints - Sales funnel, segments, testimonials, subscribers, broadcast
+    ├── yoomoney_webhook.py  # 1 endpoint   - YooMoney payment callback
+    ├── amocrm.py            # 16 endpoints - amoCRM OAuth2, contacts, leads, pipelines
+    ├── usage.py             # 10 endpoints - Usage tracking, limits, statistics
+    ├── legal.py             # 11 endpoints - Legal compliance
+    ├── wiki_rag.py          # 9 endpoints  - Wiki RAG stats/search, Knowledge Base CRUD
     ├── whatsapp.py          # 10 endpoints - WhatsApp bot instances CRUD, control
-    └── github_webhook.py    # 2 endpoints  - GitHub CI/CD webhook
+    └── github_webhook.py    # 1 endpoint   - GitHub CI/CD webhook
 ```
 
 ### GPU Configuration (RTX 3060 12GB)
@@ -179,26 +179,27 @@ open http://localhost:8002/admin
 
 ## Admin Panel
 
-Полнофункциональная Vue 3 PWA админ-панель с 19 вкладками:
+Полнофункциональная Vue 3 PWA админ-панель с 20 вкладками:
 
 | Tab | Description |
 |-----|-------------|
 | **Dashboard** | Статусы сервисов, GPU спарклайны, health индикаторы |
-| **Chat** | Чат с ИИ, Voice Mode (auto-TTS), голосовой ввод (STT), редактирование промптов, управление чатами (rename, bulk delete, grouping) |
+| **Chat** | Чат с ИИ, Voice Mode (auto-TTS), голосовой ввод (STT), branching (ветвление диалогов), управление чатами |
 | **Services** | Запуск/остановка vLLM, SSE логи в реальном времени |
-| **LLM** | Выбор модели (Qwen/Llama/DeepSeek), персоны, параметры генерации |
+| **LLM** | Выбор модели (Qwen/Llama/DeepSeek), персоны, параметры генерации, Cloud providers |
 | **TTS** | Выбор голоса, пресеты XTTS, тестирование синтеза |
-| **FAQ** | Редактирование типичных ответов (CRUD) |
-| **Finetune** | Загрузка датасета, обучение, управление адаптерами |
-| **Monitoring** | GPU/CPU графики Chart.js, логи ошибок |
+| **FAQ** | Редактирование типичных ответов (CRUD), тест, импорт/экспорт |
+| **Finetune** | LoRA fine-tuning + Cloud AI Training (Wiki RAG, Knowledge Base) |
+| **Monitoring** | GPU/CPU/RAM/Disk/Docker/Network мониторинг, Chart.js графики |
 | **Models** | Управление скачанными моделями HuggingFace |
-| **Widget** | Настройка чат-виджета для сайтов |
-| **Telegram** | Настройка Telegram бота |
+| **Widget** | Multi-instance чат-виджеты для сайтов |
+| **Telegram** | Multi-instance Telegram боты с независимыми настройками |
+| **WhatsApp** | Multi-instance WhatsApp боты (Cloud API) |
 | **Audit** | Логирование действий, фильтрация, экспорт |
-| **Settings** | Язык, тема, экспорт/импорт конфигураций |
-| **GSM** | Управление GSM-модемом, звонки, SMS |
+| **Settings** | Профиль, язык, тема, экспорт/импорт |
+| **GSM** | Управление GSM-модемом SIM7600E-H, звонки, SMS |
 | **amoCRM** | OAuth2 интеграция, контакты, лиды, пайплайны |
-| **Sales** | Конфигурация воронки продаж, сегменты, отзывы |
+| **Sales** | Воронка продаж, сегменты, отзывы, подписчики, рассылки |
 | **Usage** | Трекинг использования TTS/STT/LLM, лимиты |
 | **Legal** | Юридическое соответствие, пользовательские соглашения |
 | **Backup** | Резервное копирование и восстановление конфигураций |
@@ -208,7 +209,7 @@ open http://localhost:8002/admin
 | Feature | Description |
 |---------|-------------|
 | **JWT Authentication** | Безопасный вход с dev-mode fallback |
-| **Multi-user Roles** | admin, operator, viewer с разными правами |
+| **Multi-user Roles** | admin, user, web, guest с разными правами (RBAC) |
 | **i18n** | Полная поддержка русского и английского |
 | **Themes** | Light, Dark, Night-Eyes (тёплая для глаз) |
 | **PWA** | Установка как приложение, offline кэширование |
@@ -240,8 +241,8 @@ npm run dev
 
 - **Frontend**: Vue 3 + Composition API + TypeScript
 - **Build**: Vite
-- **Styling**: Tailwind CSS (4 themes)
-- **State**: Pinia + persistedstate
+- **Styling**: Tailwind CSS (3 themes: Light, Dark, Night Eyes)
+- **State**: Pinia + persistedstate (11 stores)
 - **Data**: TanStack Query (caching + SSE)
 - **Charts**: Chart.js + vue-chartjs
 - **i18n**: vue-i18n (ru/en)
@@ -324,17 +325,27 @@ curl -X POST http://localhost:8002/admin/stt/transcribe \
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Таблицы SQLite
+### Таблицы SQLite (35 таблиц)
 
-| Таблица | Назначение |
-|---------|------------|
-| `chat_sessions` | Сессии чата (id, title, system_prompt, source, source_id) |
-| `chat_messages` | Сообщения (role, content, timestamp) |
-| `faq_entries` | FAQ вопрос-ответ |
-| `tts_presets` | Пользовательские пресеты TTS |
-| `system_config` | Конфиги (telegram, widget, etc.) |
-| `telegram_sessions` | Telegram user → chat session |
-| `audit_log` | Аудит действий пользователей |
+| Группа | Таблицы | Описание |
+|--------|---------|----------|
+| **Users & Auth** | `users` | Пользователи, роли (admin/user/web/guest), JWT аутентификация |
+| **Chat** | `chat_sessions`, `chat_messages` | Сессии и сообщения с branching (parent_id, is_active), source tracking |
+| **FAQ & TTS** | `faq_entries`, `tts_presets` | FAQ записи с hit_count; пресеты TTS с JSON параметрами |
+| **Config** | `system_config` | Key-value хранилище конфигурации |
+| **Telegram** | `telegram_sessions` | Маппинг Telegram user → chat session (composite PK: bot_id + user_id) |
+| **Bot Instances** | `bot_instances`, `widget_instances`, `whatsapp_instances` | Multi-instance боты с независимыми настройками (LLM, TTS, промпт) |
+| **Cloud LLM** | `cloud_llm_providers` | Провайдеры облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) |
+| **Sales Funnel** | `bot_agent_prompts`, `bot_quiz_questions`, `bot_segments`, `bot_user_profiles` | Промпты агентов, quiz-сегментация, профили пользователей |
+| **Follow-up** | `bot_followup_rules`, `bot_followup_queue`, `bot_events`, `bot_testimonials` | Правила follow-up, очередь отправки, события воронки, отзывы |
+| **Sales Config** | `bot_hardware_specs`, `bot_ab_tests`, `bot_discovery_responses`, `bot_subscribers`, `bot_github_configs` | A/B тесты, подписчики, GitHub webhook конфиг |
+| **Payments** | `payment_log` | Логи платежей (YooKassa, Telegram Stars) |
+| **Usage** | `usage_log`, `usage_limits`, `llm_presets` | Трекинг использования TTS/STT/LLM, лимиты, пресеты генерации |
+| **amoCRM** | `amocrm_config`, `amocrm_sync_log` | OAuth2 конфигурация (singleton), лог синхронизации |
+| **GSM** | `gsm_call_logs`, `gsm_sms_logs` | Логи звонков и SMS |
+| **Legal** | `user_consents` | Согласия пользователей (GDPR) |
+| **Knowledge** | `knowledge_documents` | Документы Knowledge Base (wiki-pages/) |
+| **Audit** | `audit_log` | Аудит всех действий пользователей |
 
 ### Redis кэширование (опционально)
 
@@ -361,22 +372,29 @@ python scripts/test_db.py
 
 ```
 data/
-└── secretary.db          # SQLite база данных (~72KB)
+└── secretary.db              # SQLite база данных
 
 db/
-├── __init__.py
-├── database.py           # Подключение SQLite
-├── models.py             # SQLAlchemy ORM модели
-├── redis_client.py       # Redis клиент
-├── integration.py        # Backward-compatible managers
-└── repositories/
-    ├── base.py           # Базовый репозиторий
-    ├── chat.py           # ChatRepository
-    ├── faq.py            # FAQRepository
-    ├── preset.py         # PresetRepository
-    ├── config.py         # ConfigRepository
-    ├── telegram.py       # TelegramRepository
-    └── audit.py          # AuditRepository
+├── database.py               # Async SQLAlchemy + aiosqlite
+├── models.py                 # 35 ORM моделей
+├── redis_client.py           # Redis клиент (опционально)
+├── integration.py            # DatabaseManager singleton + backward-compat
+└── repositories/             # 25 репозиториев (BaseRepository[Model] паттерн)
+    ├── base.py               # Базовый generic репозиторий
+    ├── chat.py               # ChatRepository (sessions + messages + branching)
+    ├── faq.py, preset.py     # FAQ, TTS presets
+    ├── config.py, audit.py   # System config, audit log
+    ├── user.py, telegram.py  # Users, Telegram sessions
+    ├── bot_instance.py       # Telegram bot instances
+    ├── widget_instance.py    # Widget instances
+    ├── whatsapp_instance.py  # WhatsApp instances
+    ├── cloud_provider.py     # Cloud LLM providers
+    ├── bot_*.py (12 файлов)  # Sales funnel (prompts, quiz, segments, profiles, followup, events...)
+    ├── payment.py, usage.py  # Payments, usage tracking + limits
+    ├── amocrm.py, gsm.py    # amoCRM, GSM call/SMS logs
+    ├── consent.py            # Legal consents
+    ├── knowledge_document.py # Knowledge Base documents
+    └── llm_preset.py         # LLM generation presets
 ```
 
 ## External Access (ngrok)
@@ -662,7 +680,7 @@ curl -X POST http://localhost:8002/v1/audio/speech \
 curl http://localhost:8002/v1/models
 ```
 
-### Admin API (~348 endpoints via 19 routers)
+### Admin API (~371 endpoints via 21 routers)
 
 ```bash
 # Authentication
@@ -848,74 +866,120 @@ TTS Voice: anna
 ## Environment Variables
 
 ```bash
-# Required
-LLM_BACKEND=vllm                    # "vllm" or "gemini"
+# LLM Backend
+LLM_BACKEND=vllm                    # "vllm", "cloud:{provider_id}", or legacy "gemini"
+DEPLOYMENT_MODE=full                # "full" (all features), "cloud" (no GPU/hardware), "local"
 
 # vLLM configuration
 VLLM_API_URL=http://localhost:11434
+VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
 VLLM_MODEL_NAME=lydia               # LoRA adapter name
+VLLM_GPU_ID=1                       # GPU device ID
+VLLM_CONTAINER_NAME=ai-secretary-vllm  # Docker container name for vLLM
 
-# Optional
-SECRETARY_PERSONA=anna             # "anna" or "marina"
-GEMINI_API_KEY=...                  # Only for gemini backend
+# Cloud LLM (managed in DB, but Gemini key can be set via env)
+GEMINI_API_KEY=...                  # Gemini API key
+GEMINI_MODEL=gemini-2.0-flash      # Gemini model
+HF_TOKEN=...                       # HuggingFace token (for gated models)
+
+# Server
 ORCHESTRATOR_PORT=8002
-CUDA_VISIBLE_DEVICES=1              # GPU index
+SECRETARY_PERSONA=anna             # "anna" or "marina"
+
+# Security
 ADMIN_JWT_SECRET=...                # JWT secret (auto-generated if empty)
-REDIS_URL=redis://localhost:6379/0  # Optional caching (graceful fallback if unavailable)
+ADMIN_JWT_EXPIRATION_HOURS=24       # Token lifetime
+ADMIN_AUTH_ENABLED=true             # Enable authentication
+RATE_LIMIT_ENABLED=true             # Enable rate limiting
+SECURITY_HEADERS_ENABLED=true       # Enable security headers
+CORS_ORIGINS=*                      # Allowed origins
+
+# Database
+REDIS_URL=redis://localhost:6379/0  # Optional caching (graceful fallback)
+
+# Voice
+VOICE_SAMPLES_DIR=./Марина          # Voice samples directory
+COQUI_TOS_AGREED=1                  # XTTS license agreement
+
+# Docker
+DOCKER_CONTAINER=0                  # Set to "1" inside Docker
 ```
 
 ## File Structure
 
 ```
 AI_Secretary_System/
-├── orchestrator.py          # FastAPI server + app/routers/ (19 routers, ~348 endpoints)
-├── auth_manager.py          # JWT authentication
-├── service_manager.py       # Service process control
-├── finetune_manager.py      # Fine-tuning pipeline
+├── orchestrator.py          # FastAPI server (port 8002), mounts app/routers/
+├── auth_manager.py          # JWT authentication + RBAC (admin/user/web/guest)
+├── service_manager.py       # Service process control (vLLM, Docker)
+├── finetune_manager.py      # LoRA fine-tuning pipeline
 ├── voice_clone_service.py   # XTTS v2 + custom presets
 ├── openvoice_service.py     # OpenVoice v2
 ├── piper_tts_service.py     # Piper TTS (CPU)
 ├── stt_service.py           # Vosk (realtime) + Whisper (batch) STT
 ├── vllm_llm_service.py      # vLLM + runtime params
-├── llm_service.py           # Gemini fallback
+├── cloud_llm_service.py     # Cloud LLM providers (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter)
+├── llm_service.py           # Gemini fallback (legacy)
+├── bridge_manager.py        # CLI-OpenAI bridge (Claude Code, Gemini CLI)
 ├── telegram_bot_service.py  # Telegram bot service
+├── multi_bot_manager.py     # Multi-instance bot lifecycle manager
+├── whatsapp_manager.py      # WhatsApp Cloud API manager
+├── model_manager.py         # HuggingFace model download manager
+├── system_monitor.py        # GPU/CPU/RAM/Docker monitoring (nvidia-smi, psutil)
+├── xray_proxy_manager.py    # VLESS proxy for Gemini (xray-core)
+├── phone_service.py         # GSM telephony (SIM7600E-H)
 │
-├── db/                      # Database layer (SQLite + Redis)
-│   ├── __init__.py
-│   ├── database.py          # SQLite connection
-│   ├── models.py            # SQLAlchemy ORM models
-│   ├── redis_client.py      # Redis caching
-│   ├── integration.py       # Backward-compatible managers
-│   └── repositories/        # Data access layer
-│       ├── chat.py          # Chat sessions & messages
-│       ├── faq.py           # FAQ entries
-│       ├── preset.py        # TTS presets
-│       ├── config.py        # System configs
-│       ├── telegram.py      # Telegram sessions
-│       └── audit.py         # Audit log
+├── app/                     # Modular API layer
+│   ├── dependencies.py      # ServiceContainer for DI
+│   ├── cors_middleware.py    # CORS middleware
+│   ├── rate_limiter.py      # Rate limiting
+│   ├── security_headers.py  # Security headers
+│   ├── routers/             # 21 API routers (~371 endpoints)
+│   │   ├── auth.py, audit.py, services.py, monitor.py
+│   │   ├── llm.py, tts.py, stt.py, faq.py, chat.py
+│   │   ├── telegram.py, widget.py, whatsapp.py, gsm.py
+│   │   ├── bot_sales.py, amocrm.py, backup.py
+│   │   ├── usage.py, legal.py, wiki_rag.py
+│   │   └── yoomoney_webhook.py, github_webhook.py
+│   └── services/            # Business logic services
+│       ├── sales_funnel.py  # Sales funnel FSM
+│       ├── wiki_rag_service.py  # Wiki RAG (embeddings + BM25)
+│       ├── amocrm_service.py, gsm_service.py
+│       ├── backup_service.py, yoomoney_service.py
+│       ├── audio_pipeline.py    # GSM audio (8kHz, PCM16)
+│       └── embedding_provider.py # Embeddings for RAG
+│
+├── db/                      # Database layer (async SQLAlchemy + aiosqlite)
+│   ├── models.py            # 35 ORM models
+│   ├── database.py          # Async engine + session
+│   ├── integration.py       # DatabaseManager singleton
+│   ├── redis_client.py      # Redis caching (optional)
+│   └── repositories/        # 25 repository files (BaseRepository[Model])
 │
 ├── data/                    # Persistent data
 │   └── secretary.db         # SQLite database
 │
-├── scripts/                 # Utility scripts
-│   ├── migrate_json_to_db.py  # JSON → SQLite migration
-│   ├── test_db.py           # Database tests
-│   └── setup_db.sh          # Database setup
+├── scripts/                 # Utility & migration scripts
+│   ├── manage_users.py      # CLI user management
+│   ├── migrate_*.py         # 15+ migration scripts
+│   ├── seed_tz_*.py         # TZ generator seeds
+│   ├── setup_db.sh          # Database setup
+│   └── test_db.py           # Database tests
+│
+├── wiki-pages/              # Wiki documentation (37 .md files, used by Wiki RAG)
 │
 ├── web-widget/              # Embeddable chat widget
-│   ├── ai-chat-widget.js    # Widget source code
-│   └── README.md            # Widget documentation
+│   └── ai-chat-widget.js   # Dynamic widget script
 │
 ├── admin/                   # Vue 3 admin panel (PWA)
 │   ├── src/
-│   │   ├── views/           # 19 main views + LoginView
-│   │   ├── api/             # API clients + SSE
-│   │   ├── stores/          # Pinia (auth, theme, toast, audit, ...)
+│   │   ├── views/           # 20 views + LoginView
+│   │   ├── api/             # API clients + SSE + demo mocks (22 files)
+│   │   ├── stores/          # 11 Pinia stores (auth, theme, toast, audit, ...)
 │   │   ├── components/      # UI + charts
-│   │   ├── composables/     # useSSE, useRealtimeMetrics
-│   │   └── plugins/         # i18n
+│   │   ├── composables/     # useSSE, useRealtimeMetrics, ...
+│   │   └── plugins/         # i18n (ru/en)
 │   ├── public/              # PWA manifest + service worker
-│   ├── docs/                # Implementation docs
 │   └── dist/                # Production build
 │
 ├── Анна/                    # Voice samples (122 WAV)
@@ -925,9 +989,12 @@ AI_Secretary_System/
 │   └── vosk/                # Vosk models (STT)
 ├── logs/                    # Service logs
 │
-├── # Configuration files
-├── pyproject.toml           # Python project config (ruff, mypy, pytest)
+├── pyproject.toml           # Python config (ruff, mypy, pytest)
 ├── .pre-commit-config.yaml  # Pre-commit hooks
+├── docker-compose.yml       # Docker deployment (orchestrator + redis)
+├── docker-compose.full.yml  # Full Docker (+ vLLM container)
+├── docker-compose.cpu.yml   # CPU-only Docker mode
+├── Dockerfile               # Production container
 │
 ├── start_gpu.sh             # Launch GPU mode
 ├── start_cpu.sh             # Launch CPU mode
@@ -1102,32 +1169,32 @@ npm run build
 
 **Выполнено:**
 - [x] Базовая архитектура (orchestrator, TTS, LLM)
-- [x] Vue 3 админ-панель (13 табов, PWA)
-- [x] XTTS v2 + Piper TTS
-- [x] vLLM + Gemini fallback + hot-switching
-- [x] Vosk STT (realtime streaming)
-- [x] Chat TTS playback
-- [x] Website Widget (чат для сайтов)
-- [x] Telegram Bot интеграция
-- [x] **Database Integration** — SQLite + Redis (транзакции, кэширование)
-- [x] **Cloud LLM Providers** — Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter (dropdown UI, custom models)
-- [x] **Multi-Instance Bots/Widgets** — несколько ботов и виджетов с независимыми настройками
+- [x] Vue 3 админ-панель (20 вкладок, PWA, i18n, 3 темы)
+- [x] XTTS v2 + OpenVoice v2 + Piper TTS
+- [x] vLLM + Cloud LLM providers + hot-switching
+- [x] Vosk STT (realtime streaming) + Whisper (batch)
+- [x] Chat с TTS playback, branching (ветвление диалогов), voice input
+- [x] Website Widget (multi-instance чат-виджеты для сайтов)
+- [x] Telegram Bot (multi-instance с независимыми настройками)
+- [x] WhatsApp Bot (multi-instance через Cloud API)
+- [x] **Database** — SQLite + Redis (async SQLAlchemy, 35 таблиц, 25 репозиториев)
+- [x] **Cloud LLM Providers** — Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter + CLI-OpenAI bridge
+- [x] **RBAC** — 4 роли (admin, user, web, guest) с resource ownership
 - [x] **Docker Compose** — one-command deployment (GPU + CPU режимы)
-- [x] **Code Quality** — ruff, mypy, eslint, pre-commit hooks
-- [x] **Chat Management** — переименование, групповое удаление, группировка по источнику
-- [x] **Source Tracking** — отслеживание источника чат-сессий (admin/telegram/widget)
-- [x] **VLESS Proxy for Gemini** — маршрутизация через VLESS прокси с multiple proxies и автоматическим failover
-- [x] **Sales Funnel** — quiz-сегментация, TZ генератор, оплата (YooMoney, Telegram Stars)
+- [x] **Code Quality** — ruff, mypy, eslint, pre-commit hooks, CI/CD
+- [x] **Chat Management** — переименование, групповое удаление, группировка по источнику, branching
+- [x] **VLESS Proxy** — маршрутизация Gemini через VLESS прокси с автоматическим failover
+- [x] **Sales Funnel** — quiz-сегментация, TZ генератор, оплата (YooMoney, Telegram Stars), follow-up, A/B тесты
 - [x] **amoCRM Integration** — OAuth2, контакты, лиды, пайплайны, синхронизация
-- [x] **Responsive Admin** — mobile-first адаптивная верстка для всех устройств
-- [x] **Web Role** — роль `web` с ограниченным доступом к инфраструктурным вкладкам
-- [x] **News System** — автоматические новости из GitHub PR/коммитов для Telegram
-- [x] **FAQ Sections** — тематические разделы FAQ (Продукт, Установка, Цены и поддержка)
-- [x] **Usage Tracking** — трекинг использования TTS/STT/LLM с лимитами
+- [x] **Wiki RAG** — семантический поиск (embeddings + BM25) по wiki-pages/ для контекста LLM
+- [x] **Knowledge Base** — загрузка документов, управление через админ-панель
+- [x] **Usage Tracking** — трекинг TTS/STT/LLM с лимитами и статистикой
+- [x] **Legal Compliance** — пользовательские соглашения, GDPR consent tracking
 - [x] **Backup & Restore** — экспорт/импорт конфигурации системы
+- [x] **Responsive Admin** — mobile-first адаптивная верстка, command palette (⌘K)
 
 **В планах:**
-- [ ] Телефония SIM7600G-H (AT-команды)
+- [ ] Телефония SIM7600G-H (AT-команды, GSM модем)
 - [ ] Automated Testing (unit, integration, e2e)
 
 ## License

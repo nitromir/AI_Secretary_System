@@ -1,109 +1,118 @@
 # Models (Модели)
 
-Управление скачанными моделями из HuggingFace Hub.
+Управление AI-моделями: загрузка из HuggingFace Hub, просмотр, удаление, переключение.
 
-## Скриншот
+> **Видимость:** Скрыта в режиме `cloud` и для роли `web`.
 
-<!-- Вставьте скриншот страницы Models -->
-![Models](images/models.png)
+## Категории моделей
 
-## Список моделей
+### LLM модели (для vLLM)
 
-### Доступные модели
+| Модель | Параметры | Формат | VRAM | Скорость |
+|--------|-----------|--------|------|----------|
+| Qwen2.5-7B-Instruct-AWQ | 7B | AWQ-Int4 | ~6 GB | Быстро |
+| Qwen2.5-7B-Instruct | 7B | FP16 | ~14 GB | Быстро |
+| Llama-3.1-8B-Instruct-GPTQ | 8B | GPTQ-Int4 | ~8 GB | Быстро |
+| DeepSeek-7B-Chat | 7B | FP16 | ~14 GB | Средне |
 
-Таблица всех моделей в системе:
+**Рекомендация:** AWQ/GPTQ модели для GPU с 12 GB VRAM.
 
-| Колонка | Описание |
-|---------|----------|
-| **Название** | Имя модели |
-| **Тип** | LLM / TTS / STT |
-| **Размер** | Размер на диске |
-| **Формат** | GPTQ / AWQ / FP16 / ONNX |
-| **Статус** | Загружена / Не загружена |
+### TTS модели
 
-### Фильтры
+| Модель | Движок | Размер | GPU |
+|--------|--------|--------|-----|
+| XTTS v2 | Coqui TTS | ~2 GB | CC ≥ 7.0 |
+| ru_RU-dmitri-medium | Piper | ~60 MB | CPU |
+| ru_RU-irina-medium | Piper | ~60 MB | CPU |
 
-- **По типу** — LLM, TTS, STT, LoRA
-- **По статусу** — Загруженные / Все
-- **Поиск** — по названию
+XTTS скачивается автоматически при первом использовании в `~/.cache/tts_models/`. Piper модели лежат в `models/piper/`.
 
-## LLM модели
+### STT модели
 
-### Поддерживаемые модели
+| Модель | Движок | Язык | Размер |
+|--------|--------|------|--------|
+| vosk-model-ru-0.42 | Vosk | Русский | ~1.5 GB |
+| vosk-model-small-ru | Vosk | Русский (мини) | ~45 MB |
+| Whisper | OpenAI Whisper | Мульти | Авто |
 
-| Модель | Размер | Формат | VRAM |
-|--------|--------|--------|------|
-| Qwen2.5-7B-Instruct | 7B | FP16 | 14GB |
-| Qwen2.5-7B-Instruct-GPTQ | 7B | GPTQ-Int4 | 6GB |
-| Llama-3.1-8B-Instruct | 8B | FP16 | 16GB |
-| Llama-3.1-8B-Instruct-GPTQ | 8B | GPTQ-Int4 | 8GB |
-| DeepSeek-7B-Chat | 7B | FP16 | 14GB |
+Vosk модель нужно скачать вручную в `models/vosk/`. Whisper скачивается автоматически.
 
-### Загрузка модели
+### LoRA адаптеры
+
+Обученные LoRA адаптеры из [[Finetune]]:
+
+| Адаптер | База | Назначение |
+|---------|------|------------|
+| qwen2.5-7b-anna-lora | Qwen2.5-7B | Персона Анна |
+| qwen2.5-7b-marina-lora | Qwen2.5-7B | Персона Марина |
+
+Расположение: `models/lora/` или `finetune/output/`.
+
+## Загрузка модели
+
+### Через админ-панель
 
 1. Нажмите "Скачать модель"
-2. Введите HuggingFace ID (например: `Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4`)
-3. Выберите папку назначения
-4. Нажмите "Скачать"
+2. Введите HuggingFace ID: `Qwen/Qwen2.5-7B-Instruct-AWQ`
+3. Дождитесь загрузки (прогресс-бар, скорость, ETA)
+4. Модель появится в списке
 
-### Прогресс загрузки
+### Через API
 
-- Отображается прогресс-бар
-- Скорость скачивания
-- Оставшееся время
-- Возможность отмены
+```bash
+POST /admin/llm/models/download
+{"model_id": "Qwen/Qwen2.5-7B-Instruct-AWQ"}
+```
 
-## TTS модели
-
-### XTTS v2
-
-- Автоматически скачивается при первом использовании
-- Размер: ~2GB
-- Расположение: `~/.cache/tts_models/`
-
-### Piper модели
-
-| Модель | Голос | Размер |
-|--------|-------|--------|
-| ru_RU-dmitri-medium | Дмитрий | ~60MB |
-| ru_RU-irina-medium | Ирина | ~60MB |
-
-## STT модели
-
-### Vosk
-
-| Модель | Язык | Размер |
-|--------|------|--------|
-| vosk-model-ru-0.42 | Русский | ~1.5GB |
-| vosk-model-small-ru | Русский (мини) | ~45MB |
-
-### Whisper
-
-Модели Whisper скачиваются автоматически через библиотеку.
+Прогресс через SSE: `GET /admin/llm/models/download/progress`
 
 ## Управление
 
-### Удаление модели
+### Удаление
 
-1. Выберите модель
-2. Нажмите "Удалить"
-3. Подтвердите удаление
+1. Выберите модель → иконка корзины
+2. Подтвердите удаление
 
-⚠️ **Внимание:** Удаление необратимо!
+Нельзя удалить модель, которая используется активным vLLM.
 
-### Перемещение
+### Активация LoRA
 
-Модели можно переместить в другую директорию через настройки.
+```bash
+POST /admin/finetune/adapters/activate
+{"adapter": "qwen2.5-7b-anna-lora"}
+```
+
+Hot-swap без перезапуска vLLM (если vLLM поддерживает).
 
 ## Пути хранения
 
-| Тип | Путь по умолчанию |
-|-----|-------------------|
-| LLM | `./models/llm/` |
-| TTS | `./models/tts/` или `~/.cache/tts_models/` |
-| STT | `./models/vosk/` |
-| LoRA | `./models/lora/` |
-| Piper | `./models/piper/` |
+| Тип | Путь |
+|-----|------|
+| LLM | `~/.cache/huggingface/` (HF Hub cache) |
+| XTTS | `~/.cache/tts_models/` |
+| Piper | `models/piper/` |
+| Vosk | `models/vosk/` |
+| LoRA | `models/lora/` или `finetune/output/` |
+
+## Выбор модели по VRAM
+
+| VRAM | Рекомендация |
+|------|-------------|
+| 8 GB | Qwen2.5-7B AWQ (+ Piper TTS) |
+| 12 GB | Qwen2.5-7B AWQ + XTTS v2 |
+| 16 GB+ | Llama-3.1-8B FP16 + XTTS v2 |
+| Без GPU | Cloud LLM + Piper TTS |
+
+## API
+
+| Endpoint | Описание |
+|----------|----------|
+| `GET /admin/llm/models` | Список моделей |
+| `POST /admin/llm/models/download` | Начать загрузку |
+| `GET /admin/llm/models/download/progress` | SSE прогресса |
+| `DELETE /admin/llm/models/{model_id}` | Удалить модель |
+| `GET /admin/finetune/adapters` | Список LoRA адаптеров |
+| `POST /admin/finetune/adapters/activate` | Активировать LoRA |
 
 ---
 

@@ -2,28 +2,49 @@
 
 Эта папка содержит подготовленные страницы для GitHub Wiki.
 
-## Структура файлов
+## Структура файлов (37 страниц)
 
 ```
 wiki-pages/
-├── Home.md              # Главная страница
-├── _Sidebar.md          # Боковое меню
-├── Dashboard.md         # Вкладка Dashboard
-├── Chat.md              # Вкладка Chat
-├── Services.md          # Вкладка Services
-├── LLM.md               # Вкладка LLM
-├── TTS.md               # Вкладка TTS
-├── FAQ.md               # Вкладка FAQ
-├── Finetune.md          # Вкладка Finetune
-├── Monitoring.md        # Вкладка Monitoring
-├── Models.md            # Вкладка Models
-├── Widget.md            # Вкладка Widget
-├── Telegram.md          # Вкладка Telegram
-├── Audit.md             # Вкладка Audit
-├── Settings.md          # Вкладка Settings
-├── Cloud-LLM-Providers.md
-├── VLESS-Proxy.md
-└── README.md            # Эта инструкция
+├── Home.md                  # Главная страница
+├── _Sidebar.md              # Боковое меню
+│
+│ # Вкладки админ-панели (20)
+├── Dashboard.md             # Главная панель
+├── Chat.md                  # Чат с ИИ
+├── Services.md              # Управление сервисами
+├── LLM.md                   # Настройки LLM
+├── TTS.md                   # Синтез речи
+├── FAQ.md                   # Быстрые ответы
+├── Finetune.md              # Дообучение
+├── Monitoring.md            # Мониторинг системы
+├── Models.md                # Управление моделями
+├── Widget.md                # Веб-виджеты
+├── Telegram.md              # Telegram боты
+├── WhatsApp.md              # WhatsApp боты
+├── GSM.md                   # GSM телефония
+├── Sales.md                 # Воронка продаж
+├── CRM.md                   # amoCRM интеграция
+├── Usage.md                 # Статистика использования
+├── Audit.md                 # Аудит действий
+├── Settings.md              # Настройки
+│
+│ # Интеграции и справка
+├── Cloud-LLM-Providers.md   # Облачные LLM провайдеры
+├── VLESS-Proxy.md           # VLESS прокси для Gemini
+├── Payments.md              # Платежи (Stars, YooKassa)
+├── Personas.md              # Персоны секретаря
+├── Prompts.md               # Системные промпты
+├── Wiki-RAG.md              # База знаний и RAG
+├── Backup.md                # Резервное копирование
+├── Deployment-Profiles.md   # Профили развёртывания
+├── Cloud-AI-Training.md     # Wiki RAG обучение
+├── API-Reference.md         # Справочник API
+├── Installation.md          # Установка
+├── Troubleshooting.md       # Решение проблем
+│
+├── images/                  # Скриншоты
+└── README.md                # Эта инструкция
 ```
 
 ## Как загрузить в GitHub Wiki
@@ -65,19 +86,12 @@ git push
 
 1. Сделайте скриншоты каждой вкладки админки
 2. Сохраните их в папку `images/` с именами:
-   - `dashboard.png`
-   - `chat.png`
-   - `services.png`
-   - `llm.png`
-   - `tts.png`
-   - `faq.png`
-   - `finetune.png`
-   - `monitoring.png`
-   - `models.png`
-   - `widget.png`
-   - `telegram.png`
-   - `audit.png`
-   - `settings.png`
+   - `dashboard.png`, `chat.png`, `services.png`
+   - `llm.png`, `tts.png`, `faq.png`, `finetune.png`
+   - `monitoring.png`, `models.png`
+   - `widget.png`, `telegram.png`, `whatsapp.png`
+   - `gsm.png`, `sales.png`, `crm.png`
+   - `usage.png`, `audit.png`, `settings.png`
 
 3. Загрузите в wiki репозиторий:
 ```bash
