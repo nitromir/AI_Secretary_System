@@ -222,6 +222,7 @@ python scripts/manage_users.py list
 | `HF_TOKEN` | — | Токен Hugging Face (для закрытых моделей типа Llama) |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis (опционально, кэширование) |
 | `RATE_LIMIT_ENABLED` | `true` | Включить rate limiting |
+| `DEPLOYMENT_MODE` | `full` | Профиль развёртывания: `full`, `cloud`, `local` (см. [[Deployment-Profiles]]) |
 | `DEV_MODE` | — | `1` для проксирования на Vite dev server (:5173) |
 
 ## Обновление

@@ -50,9 +50,9 @@ const allNavGroups = computed(() => [
     icon: Activity,
     items: [
       { path: '/', nameKey: 'nav.dashboard', icon: LayoutDashboard, excludeRoles: ['web'] as UserRole[], localOnly: true },
-      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole, localOnly: true },
+      { path: '/monitoring', nameKey: 'nav.monitoring', icon: Activity, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[], localOnly: true },
       { path: '/services', nameKey: 'nav.services', icon: Server, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[], localOnly: true },
-      { path: '/audit', nameKey: 'nav.audit', icon: FileText, minRole: 'user' as UserRole },
+      { path: '/audit', nameKey: 'nav.audit', icon: FileText, minRole: 'user' as UserRole, excludeRoles: ['web'] as UserRole[] },
     ]
   },
   {
