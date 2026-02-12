@@ -1,7 +1,7 @@
 """
 Lightweight Wiki RAG service — retrieves relevant wiki sections for user queries.
 
-Uses TF-IDF-like scoring with no external dependencies. Parses wiki-pages/*.md
+Uses BM25 Okapi scoring with Russian/English stemming. Parses wiki-pages/*.md
 on startup, builds an inverted index, and returns top-k relevant sections
 formatted as context for LLM system prompt injection.
 
@@ -16,8 +16,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import snowballstemmer
+
 
 logger = logging.getLogger(__name__)
+
+# Stemmers — singleton per language
+_ru_stemmer = snowballstemmer.stemmer("russian")
+_en_stemmer = snowballstemmer.stemmer("english")
+
+# BM25 Okapi parameters
+BM25_K1 = 1.5  # term frequency saturation
+BM25_B = 0.75  # document length normalization
+MIN_SCORE = 0.5  # ignore garbage matches
 
 # Базовые стоп-слова (русские + английские) — фильтруем шум из запросов
 STOP_WORDS = frozenset(
@@ -105,6 +116,18 @@ STOP_WORDS = frozenset(
 MIN_TOKEN_LEN = 2
 
 
+def _is_cyrillic(word: str) -> bool:
+    """Check if word contains Cyrillic characters."""
+    return any("\u0400" <= ch <= "\u04ff" for ch in word)
+
+
+def _stem(word: str) -> str:
+    """Stem a single word using the appropriate language stemmer."""
+    if _is_cyrillic(word):
+        return _ru_stemmer.stemWord(word)
+    return _en_stemmer.stemWord(word)
+
+
 @dataclass
 class WikiSection:
     """One indexed section from a wiki page."""
@@ -116,20 +139,22 @@ class WikiSection:
 
 
 class WikiRAGService:
-    """Retrieves relevant wiki sections for user queries via TF-IDF scoring."""
+    """Retrieves relevant wiki sections for user queries via BM25 scoring."""
 
     def __init__(self, wiki_dir: Optional[Path] = None):
         self.sections: list[WikiSection] = []
-        self.idf: dict[str, float] = {}
+        self.doc_freqs: Counter = Counter()
+        self.avg_dl: float = 0.0
+        self.total_docs: int = 0
         self._files_indexed: int = 0
 
         if wiki_dir and wiki_dir.exists():
             self._load_and_index(wiki_dir)
 
     def _tokenize(self, text: str) -> list[str]:
-        """Unicode-aware tokenization — works with Cyrillic."""
+        """Unicode-aware tokenization with stemming — works with Cyrillic."""
         tokens = re.findall(r"\w+", text.lower())
-        return [t for t in tokens if len(t) >= MIN_TOKEN_LEN and t not in STOP_WORDS]
+        return [_stem(t) for t in tokens if len(t) >= MIN_TOKEN_LEN and t not in STOP_WORDS]
 
     def _split_md_by_headers(self, content: str) -> list[tuple[str, str]]:
         """Split markdown by ## and ### headers. Returns (header, body) pairs."""
@@ -154,9 +179,10 @@ class WikiRAGService:
         return sections
 
     def _load_and_index(self, wiki_dir: Path) -> None:
-        """Parse all .md files in wiki_dir, build TF-IDF index."""
+        """Parse all .md files in wiki_dir, build BM25 index."""
         self.sections = []
-        doc_freq: Counter = Counter()
+        self.doc_freqs = Counter()
+        total_tokens = 0
 
         md_files = sorted(wiki_dir.glob("*.md"))
         files_processed = 0
@@ -179,8 +205,8 @@ class WikiRAGService:
                 if len(body_stripped) < 50:
                     continue
 
-                # Токенизируем заголовок + тело (заголовок весомее — дублируем)
-                text = f"{title} {title} {body_stripped}"
+                # Токенизируем заголовок + тело (заголовок весомее — 4x boost)
+                text = f"{title} {title} {title} {title} {body_stripped}"
                 tokens = Counter(self._tokenize(text))
 
                 section = WikiSection(
@@ -193,20 +219,39 @@ class WikiRAGService:
 
                 # Обновляем document frequency
                 for token in tokens:
-                    doc_freq[token] += 1
+                    self.doc_freqs[token] += 1
 
-        # Вычисляем IDF
-        n = len(self.sections)
-        if n > 0:
-            self.idf = {token: math.log(n / df) for token, df in doc_freq.items()}
+                total_tokens += sum(tokens.values())
+
+        # BM25 stats
+        self.total_docs = len(self.sections)
+        self.avg_dl = total_tokens / self.total_docs if self.total_docs > 0 else 1.0
 
         self._files_indexed = files_processed
         logger.info(
-            f"📚 Wiki RAG: проиндексировано {len(self.sections)} секций "
-            f"из {files_processed} файлов, {len(self.idf)} уникальных токенов"
+            f"📚 Wiki RAG (BM25): проиндексировано {self.total_docs} секций "
+            f"из {files_processed} файлов, "
+            f"{len(self.doc_freqs)} уникальных стемов, "
+            f"avg_dl={self.avg_dl:.1f}"
         )
 
-    def retrieve(self, query: str, top_k: int = 3, max_chars: int = 1500) -> str:
+    def _bm25_score(self, query_tokens: list[str], section: WikiSection) -> float:
+        """Compute BM25 Okapi score for a section against query tokens."""
+        score = 0.0
+        doc_len = sum(section.tokens.values())
+        for token in query_tokens:
+            if token not in section.tokens:
+                continue
+            tf = section.tokens[token]
+            df = self.doc_freqs.get(token, 0)
+            idf = math.log((self.total_docs - df + 0.5) / (df + 0.5) + 1.0)
+            tf_norm = (tf * (BM25_K1 + 1)) / (
+                tf + BM25_K1 * (1 - BM25_B + BM25_B * doc_len / self.avg_dl)
+            )
+            score += idf * tf_norm
+        return score
+
+    def retrieve(self, query: str, top_k: int = 3, max_chars: int = 2500) -> str:
         """
         Find top_k relevant sections for query.
 
@@ -222,13 +267,8 @@ class WikiRAGService:
         # Score each section
         scored: list[tuple[float, WikiSection]] = []
         for section in self.sections:
-            score = 0.0
-            for token in query_tokens:
-                if token in section.tokens:
-                    tf = section.tokens[token]
-                    idf = self.idf.get(token, 0.0)
-                    score += tf * idf
-            if score > 0:
+            score = self._bm25_score(query_tokens, section)
+            if score >= MIN_SCORE:
                 scored.append((score, section))
 
         if not scored:
@@ -282,13 +322,8 @@ class WikiRAGService:
 
         scored: list[tuple[float, WikiSection]] = []
         for section in self.sections:
-            score = 0.0
-            for token in query_tokens:
-                if token in section.tokens:
-                    tf = section.tokens[token]
-                    idf = self.idf.get(token, 0.0)
-                    score += tf * idf
-            if score > 0:
+            score = self._bm25_score(query_tokens, section)
+            if score >= MIN_SCORE:
                 scored.append((score, section))
 
         if not scored:
@@ -316,8 +351,10 @@ class WikiRAGService:
     def stats(self) -> dict:
         """Index statistics."""
         return {
+            "engine": "bm25",
             "sections_indexed": len(self.sections),
             "files_indexed": self._files_indexed,
-            "unique_tokens": len(self.idf),
+            "unique_tokens": len(self.doc_freqs),
+            "avg_doc_length": round(self.avg_dl, 1),
             "available": len(self.sections) > 0,
         }
