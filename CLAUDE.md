@@ -165,11 +165,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 - FAQ is split into 3 sections: Product (`what_is`, `offline`, `security`, `vs_cloud`, `cloud_models`), Installation (`hardware`, `install`, `integrations`), Pricing & Support (`price`, `support`, `free_trial`). Callback data uses `faq:cat_*` for categories, `faq:back_*` for navigation, `faq:{key}` for answers. `FAQ_KEY_TO_SECTION` dict in `texts.py` maps answer keys to sections for back-navigation.
 - Reply keyboard buttons are loaded from DB (`action_buttons` config) or fallback to `DEFAULT_ACTION_BUTTONS` in `keyboards.py`. Button text matching in handlers must match the `"{icon} {label}"` format from the DB config.
 
-**WhatsApp Sales Bot** (`whatsapp_bot/sales/` + `whatsapp_bot/handlers/`): Maps Telegram's inline keyboards to WhatsApp interactive messages. Key modules:
-- `whatsapp_bot/sales/texts.py` — message templates adapted for WhatsApp (`*bold*` not `**bold**`), 11 FAQ answers, section intros, placeholder texts for WA-10 flows
-- `whatsapp_bot/sales/keyboards.py` — 32 keyboard builders using `_quick_reply()` (≤3 buttons, titles ≤20 chars) and `_list_message()` (≤10 sections, ≤10 rows) helpers. Naming: `*_buttons()` = quick-reply, `*_list()` = list message
-- `whatsapp_bot/handlers/interactive.py` — callback routing by `prefix:action` format: `sales:*` (welcome flow), `faq:*` (full FAQ navigation), `tz:*` (WA-10 placeholder), `nav:*` (generic). Helpers `_send_buttons()` / `_send_list()` extract payloads from keyboard dicts
-- `whatsapp_bot/handlers/messages.py` — greeting detection (9 trigger words) sends welcome buttons instead of LLM
+**WhatsApp Sales Bot** (`whatsapp_bot/sales/` + `whatsapp_bot/handlers/`): Full sales funnel ported from Telegram with WhatsApp interactive messages. Key modules:
+- `whatsapp_bot/sales/texts.py` — message templates adapted for WhatsApp (`*bold*` not `**bold**`), 11 FAQ answers, section intros, quiz/DIY/basic/custom path texts, quote template
+- `whatsapp_bot/sales/keyboards.py` — 35 keyboard builders using `_quick_reply()` (≤3 buttons, titles ≤20 chars) and `_list_message()` (≤10 sections, ≤10 rows) helpers. Naming: `*_buttons()` = quick-reply, `*_list()` = list message
+- `whatsapp_bot/sales/database.py` — SQLite persistence (`data/wa_sales_{instance_id}.db`), `user_id TEXT PRIMARY KEY` (phone number), `funnel_state` column for free-text input state machine, tables: `users`, `events`, `custom_discovery`. Singleton via `get_sales_db()`
+- `whatsapp_bot/handlers/interactive.py` — callback routing by `prefix:action` format: `sales:*` → `handlers/sales/router.py`, `faq:*` (full FAQ navigation), `tz:*` (placeholder), `nav:*` (generic). Helpers `_send_buttons()` / `_send_list()` extract payloads from keyboard dicts
+- `whatsapp_bot/handlers/messages.py` — greeting detection (9 trigger words) sends welcome buttons; state-aware routing checks `funnel_state` for free-text input (`custom_step_1`, `diy_gpu_custom`) before falling through to LLM
+- `whatsapp_bot/handlers/sales/` — handler package: `router.py` (central dispatcher for all `sales:*` actions), `welcome.py`, `quiz.py` (tech + infra → segment routing), `diy.py` (GPU audit, GitHub CTA), `basic.py` (value prop, demo, checkout, YooMoney payment link), `custom.py` (5-step discovery, quote calculation via `calculate_quote()`, "too expensive" alternatives)
+- Segmentation logic imported directly from `telegram_bot.sales.segments` (`determine_segment()`, `GPU_AUDIT`, `calculate_quote()`, `INTEGRATION_PRICES`) — no duplication
+- Custom step 3 (integrations): sequential single-select with "More"/"Done" buttons (WhatsApp lists are single-select, unlike Telegram's toggle keyboards)
+- Payment: YooMoney link + contact info in text message (no Telegram Payments API equivalent)
 - WhatsApp constraints: no URL buttons (URLs in body text), no message editing (new message per interaction), reply IDs use `prefix:action` convention (same as Telegram `callback_data`)
 - FAQ sections identical to Telegram: Product (5 questions), Installation (3), Pricing & Support (3). Same `FAQ_KEY_TO_SECTION` mapping for back-navigation
 

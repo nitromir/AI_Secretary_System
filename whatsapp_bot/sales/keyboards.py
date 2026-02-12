@@ -189,6 +189,17 @@ def diy_audit_result_buttons() -> dict[str, Any]:
     )
 
 
+def diy_audit_unknown_buttons() -> dict[str, Any]:
+    """After unknown GPU — choose from list or go to GitHub."""
+    return _quick_reply(
+        body="Выберите действие 👇",
+        buttons=[
+            ("sales:diy_gpu_list", "📋 Из списка"),
+            ("sales:diy_github", "📦 GitHub"),
+        ],
+    )
+
+
 def diy_gpu_list() -> dict[str, Any]:
     """GPU model selection (5 options -> list)."""
     return _list_message(
@@ -268,6 +279,17 @@ def basic_checkout_buttons() -> dict[str, Any]:
     )
 
 
+def basic_pay_buttons() -> dict[str, Any]:
+    """After payment info — contact or back."""
+    return _quick_reply(
+        body="Выберите действие 👇",
+        buttons=[
+            ("sales:contact", "📞 Связаться"),
+            ("nav:welcome", "← Назад"),
+        ],
+    )
+
+
 def basic_no_gpu_list() -> dict[str, Any]:
     """No-GPU options (4 items -> list)."""
     return _list_message(
@@ -304,6 +326,17 @@ def basic_no_gpu_list() -> dict[str, Any]:
 
 
 # ─── Custom Path (WA-10) ─────────────────────────────────────
+
+
+def custom_step_3_more_buttons() -> dict[str, Any]:
+    """After selecting an integration — add more or proceed."""
+    return _quick_reply(
+        body="Добавить ещё или продолжить?",
+        buttons=[
+            ("sales:ci_more", "➕ Ещё"),
+            ("sales:ci_done", "→ Далее"),
+        ],
+    )
 
 
 def custom_intro_buttons() -> dict[str, Any]:
