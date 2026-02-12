@@ -85,7 +85,7 @@ def migrate():
     # Create index on parent_id if it doesn't exist
     try:
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS ix_chat_messages_parent_id " "ON chat_messages(parent_id)"
+            "CREATE INDEX IF NOT EXISTS ix_chat_messages_parent_id ON chat_messages(parent_id)"
         )
     except sqlite3.OperationalError:
         pass  # Index may already exist
