@@ -35,6 +35,7 @@
 * [[Settings]]
 * [[Backup]]
 * [[Wiki-RAG]]
+* [[Deployment-Profiles]]
 
 ### Интеграции
 * [[Cloud-LLM-Providers]]

@@ -76,7 +76,7 @@ const router = createRouter({
       path: '/monitoring',
       name: 'monitoring',
       component: MonitoringView,
-      meta: { title: 'Monitoring', icon: 'Activity', minRole: 'user', localOnly: true }
+      meta: { title: 'Monitoring', icon: 'Activity', minRole: 'user', excludeRoles: ['web'], localOnly: true }
     },
     {
       path: '/models',
@@ -112,13 +112,13 @@ const router = createRouter({
       path: '/audit',
       name: 'audit',
       component: AuditView,
-      meta: { title: 'Audit', icon: 'FileText', minRole: 'user' }
+      meta: { title: 'Audit', icon: 'FileText', minRole: 'user', excludeRoles: ['web'] }
     },
     {
       path: '/usage',
       name: 'usage',
       component: UsageView,
-      meta: { title: 'Usage', icon: 'BarChart3', minRole: 'user' }
+      meta: { title: 'Usage', icon: 'BarChart3', minRole: 'user', excludeRoles: ['web'] }
     },
     {
       path: '/settings',
