@@ -113,7 +113,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (21 routers, ~369 endpoints) │
+│  orchestrator.py + app/routers/ (21 routers, ~371 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │        Vue 3 Admin Panel (20 views, PWA)                │  │
 │  │                admin/dist/                              │  │
