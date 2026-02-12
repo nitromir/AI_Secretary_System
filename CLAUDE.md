@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Secretary System — virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony (SIM7600E-H), amoCRM integration (OAuth2, contacts, leads, pipelines, sync), Vue 3 PWA admin panel, i18n (ru/en), multi-instance Telegram bots with sales/payments, website chat widgets, and LoRA fine-tuning.
+AI Secretary System — virtual secretary with voice cloning (XTTS v2, OpenVoice), pre-trained voices (Piper), local LLM (vLLM + Qwen/Llama/DeepSeek), cloud LLM fallback (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter), and Claude Code CLI bridge. Features GSM telephony (SIM7600E-H), amoCRM integration (OAuth2, contacts, leads, pipelines, sync), Vue 3 PWA admin panel, i18n (ru/en), multi-instance Telegram bots with sales/payments, multi-instance WhatsApp bots (Cloud API), website chat widgets, and LoRA fine-tuning.
 
 ## Commands
 
@@ -61,6 +61,8 @@ python scripts/migrate_legal_compliance.py   # Legal compliance tables
 python scripts/migrate_gemini_to_cloud.py    # Migrate standalone gemini backend to cloud provider
 python scripts/migrate_knowledge_base.py     # Knowledge base documents table (wiki-pages/ tracking)
 python scripts/migrate_widget_placeholder_style.py  # Widget placeholder style migration
+python scripts/migrate_rate_limit.py             # Per-instance rate limiting for bots/widgets
+python scripts/migrate_whatsapp.py               # WhatsApp bot instances table
 python scripts/seed_tz_generator.py          # Seed TZ generator bot data
 python scripts/seed_tz_widget.py             # Seed TZ widget data
 ```
@@ -109,9 +111,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                  Orchestrator (port 8002)                     │
-│  orchestrator.py + app/routers/ (20 routers, ~359 endpoints) │
+│  orchestrator.py + app/routers/ (21 routers, ~369 endpoints) │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │        Vue 3 Admin Panel (19 views, PWA)                │  │
+│  │        Vue 3 Admin Panel (20 views, PWA)                │  │
 │  │                admin/dist/                              │  │
 │  └────────────────────────────────────────────────────────┘  │
 └────────────┬──────────────┬──────────────┬───────────────────┘
@@ -137,7 +139,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **Telegram bots**: Run as subprocesses managed by `multi_bot_manager.py`. Each bot instance has independent config (LLM backend, TTS, prompts, system prompt). Bots with `auto_start=true` restart on app startup. Two Telegram frameworks: `python-telegram-bot` (legacy) and `aiogram` (new bots). In multi-instance mode, `BOT_INSTANCE_ID` and `BOT_INTERNAL_TOKEN` env vars are passed to the subprocess. The bot loads its config (including token) from orchestrator API at startup — `TELEGRAM_BOT_TOKEN` env var is not needed. `LLMRouter` in `telegram_bot/services/llm_router.py` routes LLM requests through the orchestrator chat API, auto-creates orchestrator DB sessions (mapping bot session IDs to real DB sessions via `_ensure_session()`), and uses the bot instance's `llm_backend` setting. `stream_renderer.py` handles both plain string chunks and OpenAI-format dicts.
 
-**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`. Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`, `wiki_rag_service.py`).
+**WhatsApp bots**: Run as subprocesses managed by `whatsapp_manager.py` (same pattern as Telegram's `multi_bot_manager.py`). Each instance has independent config (phone_number_id, access_token, LLM backend, TTS, system prompt). Bots with `auto_start=true` restart on app startup. Env vars passed to subprocess: `WA_INSTANCE_ID`, `WA_INTERNAL_TOKEN` (internal admin JWT). Bot module: `whatsapp_bot/` (runs as `python -m whatsapp_bot`). Logs: `logs/whatsapp_bot_{instance_id}.log`. DB model: `WhatsAppInstance` in `db/models.py`, repo: `db/repositories/whatsapp_instance.py`, manager: `AsyncWhatsAppInstanceManager` in `db/integration.py`. API: `app/routers/whatsapp.py` (10 endpoints: CRUD + start/stop/restart/status/logs). Migration: `scripts/migrate_whatsapp.py`. Admin UI: `WhatsAppView.vue`.
+
+**Two service layers**: Core AI services live at project root (`cloud_llm_service.py`, `vllm_llm_service.py`, `voice_clone_service.py`, `openvoice_service.py`, `piper_tts_service.py`, `stt_service.py`, `llm_service.py`). Orchestration services also at root: `service_manager.py`, `multi_bot_manager.py`, `whatsapp_manager.py`, `telegram_bot_service.py`, `system_monitor.py`, `tts_finetune_manager.py`. Domain-specific services live in `app/services/` (`amocrm_service.py`, `gsm_service.py`, `backup_service.py`, `sales_funnel.py`, `yoomoney_service.py`, `audio_pipeline.py`, `wiki_rag_service.py`).
 
 **Cloud LLM routing**: `cloud_llm_service.py` (project root) has `CloudLLMService` with a factory pattern. OpenAI-compatible providers use `OpenAICompatibleProvider` automatically. Custom SDKs (Gemini) get their own provider class inheriting `BaseLLMProvider`. Provider types defined in `PROVIDER_TYPES` dict in `db/models.py`. The standalone `gemini` backend (`llm_service.py`) is deprecated — all cloud LLM is now routed via `CloudLLMService`. Legacy `LLM_BACKEND=gemini` is auto-migrated to `cloud:{provider_id}` on startup (auto-creates a Gemini provider from `GEMINI_API_KEY` env if needed). Migration script: `scripts/migrate_gemini_to_cloud.py`.
 
@@ -147,7 +151,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main`/`develop` and
 
 **GSM telephony**: `app/services/gsm_service.py` manages SIM7600E-H modem via AT commands over serial port (`/dev/ttyUSB2`). Auto-switches to mock mode when hardware is unavailable. `app/routers/gsm.py` exposes call/SMS management endpoints. Call and SMS logs stored via `GSMCallLogRepository` and `GSMSMSLogRepository` in `db/repositories/gsm.py`. Models: `GSMCallLog`, `GSMSMSLog` in `db/models.py`. Manager: `AsyncGSMManager` in `db/integration.py`. Migration: `scripts/migrate_gsm_tables.py`.
 
-**Multi-user RBAC**: `User` model in `db/models.py` with roles: `guest` (read-only), `user` (own resources), `admin` (full access). `auth_manager.py` provides DB-backed auth with salted password hashing, JWT tokens with `user_id`, and `require_not_guest` dependency for write endpoints. Resources with `owner_id` column (ChatSession, BotInstance, WidgetInstance, CloudLLMProvider, TTSPreset) are filtered by ownership for non-admin users. `UserRepository` in `db/repositories/user.py`, `AsyncUserManager` in `db/integration.py`. Profile/password endpoints in `app/routers/auth.py`. Migration: `scripts/migrate_users.py`, `scripts/migrate_user_ownership.py`. CLI management: `scripts/manage_users.py`.
+**Multi-user RBAC**: `User` model in `db/models.py` with roles: `guest` (read-only), `user` (own resources), `admin` (full access). `auth_manager.py` provides DB-backed auth with salted password hashing, JWT tokens with `user_id`, and `require_not_guest` dependency for write endpoints. Resources with `owner_id` column (ChatSession, BotInstance, WidgetInstance, WhatsAppInstance, CloudLLMProvider, TTSPreset) are filtered by ownership for non-admin users. `UserRepository` in `db/repositories/user.py`, `AsyncUserManager` in `db/integration.py`. Profile/password endpoints in `app/routers/auth.py`. Migration: `scripts/migrate_users.py`, `scripts/migrate_user_ownership.py`. CLI management: `scripts/manage_users.py`.
 
 **Sales & payments**: `app/routers/bot_sales.py` manages Telegram bot sales funnels (quiz, segments, agent prompts, follow-ups, testimonials). `app/services/sales_funnel.py` implements funnel logic with segment paths: `diy`, `basic`, `custom` (original bot), `qualified`, `unqualified`, `needs_analysis` (TZ generator bot). `app/routers/yoomoney_webhook.py` + `app/services/yoomoney_service.py` handle YooMoney payment callbacks. Migration: `scripts/migrate_sales_bot.py`, `scripts/migrate_add_payment_fields.py`. Seed scripts: `scripts/seed_tz_generator.py` (TZ bot), `scripts/seed_tz_widget.py` (TZ widget).
 
@@ -226,6 +230,8 @@ ADMIN_PASSWORD_HASH=...             # Legacy fallback (SHA-256 of password)
 REDIS_URL=redis://localhost:6379/0  # Optional, graceful fallback if unavailable
 DEV_MODE=1                          # Makes backend proxy to Vite dev server (:5173)
 AMOCRM_PROXY=http://host:8888      # Optional, for Docker/VPN environments
+RATE_LIMIT_ENABLED=true             # Global rate limiting (slowapi)
+RATE_LIMIT_DEFAULT=60/minute        # Default rate limit for all endpoints
 ```
 
 ## Codebase Conventions

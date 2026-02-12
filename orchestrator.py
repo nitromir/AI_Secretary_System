@@ -54,6 +54,7 @@ from app.routers import (
     telegram,
     tts,
     usage,
+    whatsapp,
     widget,
     wiki_rag,
     yoomoney_webhook,
@@ -419,6 +420,7 @@ if tts is not None:
     app.include_router(tts.router)
 app.include_router(chat.router)
 app.include_router(telegram.router)
+app.include_router(whatsapp.router)
 app.include_router(usage.router)
 app.include_router(widget.router)
 app.include_router(gsm.router)
@@ -559,6 +561,36 @@ async def _auto_start_telegram_bots():
             logger.info(f"📱 Auto-started {started}/{len(instances)} Telegram bots")
     except Exception as e:
         logger.error(f"📱 Error during Telegram bot auto-start: {e}")
+
+
+async def _auto_start_whatsapp_bots():
+    """Auto-start WhatsApp bots that have auto_start=True."""
+    from db.integration import async_whatsapp_instance_manager
+    from whatsapp_manager import whatsapp_manager
+
+    try:
+        instances = await async_whatsapp_instance_manager.get_auto_start_instances()
+        if not instances:
+            logger.info("📱 No WhatsApp bots configured for auto-start")
+            return
+
+        started = 0
+        for instance in instances:
+            instance_id = instance["id"]
+            try:
+                result = await whatsapp_manager.start_bot(instance_id)
+                if result.get("status") in ["started", "already_running"]:
+                    started += 1
+                    logger.info(f"📱 Auto-started WhatsApp bot: {instance['name']}")
+                else:
+                    logger.warning(f"📱 Failed to auto-start WhatsApp bot {instance_id}: {result}")
+            except Exception as e:
+                logger.error(f"📱 Error auto-starting WhatsApp bot {instance_id}: {e}")
+
+        if started > 0:
+            logger.info(f"📱 Auto-started {started}/{len(instances)} WhatsApp bots")
+    except Exception as e:
+        logger.error(f"📱 Error during WhatsApp bot auto-start: {e}")
 
 
 class ConversationRequest(BaseModel):
@@ -833,6 +865,9 @@ async def startup_event():
 
         # Auto-start Telegram bots that were running before restart
         await _auto_start_telegram_bots()
+
+        # Auto-start WhatsApp bots that were running before restart
+        await _auto_start_whatsapp_bots()
 
         # Auto-start bridge if enabled claude_bridge provider exists
         await _auto_start_bridge_if_needed()
