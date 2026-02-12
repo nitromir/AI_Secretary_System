@@ -270,11 +270,82 @@ RATE_LIMIT_DEFAULT=60/minute        # Default rate limit for all endpoints
 - **mypy strict scope** — Only `db/`, `auth_manager.py`, `service_manager.py` require typed defs; other modules are relaxed. mypy is soft in CI (`|| true`).
 - **Pre-commit hooks** — ruff lint+format, mypy (core only), eslint, hadolint (Docker), plus standard checks (trailing whitespace, large files ≤1MB, private key detection, merge conflicts). See `.pre-commit-config.yaml`.
 
+## Server Deployment
+
+The production server runs at `admin.ai-sekretar24.ru`. Single repo at `/opt/ai-secretary/` serves as both **development workspace** and **production runtime**.
+
+### Server Architecture
+
+```
+/opt/ai-secretary/                  ← single Git repo (dev + production)
+    ├── .env                        ← production config (DEPLOYMENT_MODE=cloud, etc.)
+    ├── apply_patches.py            ← cloud-mode patches (makes GPU imports optional)
+    ├── deploy.sh                   ← auto-deploy script
+    ├── webhook_server.py           ← GitHub webhook for demo auto-deploy
+    ├── admin/.env.production.local ← VITE_BASE_PATH=/
+    └── venv/                       ← Python 3.12 virtualenv
+
+Systemd services:
+    ai-secretary.service            ← orchestrator (port 8002)
+    demo-webhook.service            ← webhook listener (port 9876)
+
+Static sites:
+    /var/www/admin-ai-sekretar24/   ← admin panel (rsync from admin/dist/)
+    /var/www/ai-sekretar24/         ← demo site (demo build)
+```
+
+**Local-only files** (not in git, backed up by deploy.sh): `.env`, `apply_patches.py`, `deploy.sh`, `webhook_server.py`, `admin/.env.production.local`
+
+### Development Workflow (on server)
+
+```bash
+cd /opt/ai-secretary
+git pull origin main                         # sync with remote
+git checkout -b server/my-feature            # create feature branch
+# ... make changes ...
+ruff check . && cd admin && npm run lint:check && npm run build  # verify
+git add <files> && git commit -m "feat: ..."
+git push -u origin server/my-feature
+gh pr create --title "..." --body "..."
+gh pr checks <N> --watch                     # wait for CI
+gh pr merge <N> --merge                      # merge
+git checkout main && git pull                # sync
+bash deploy.sh                               # deploy to production
+```
+
+### deploy.sh Steps
+
+1. Backs up local-only files to `/tmp/`
+2. `git reset --hard origin/main` (syncs to latest main)
+3. Restores local-only files
+4. `python3 apply_patches.py` (cloud-mode: makes TTS/STT/GPU imports optional)
+5. `pip install -r services/bridge/requirements.txt`
+6. `npm ci && npm run build` (admin panel)
+7. `rsync admin/dist/ → /var/www/admin-ai-sekretar24/`
+8. `systemctl restart ai-secretary`
+9. Health check: `curl http://localhost:8002/health`
+
+### Demo Site (ai-sekretar24.ru)
+
+Fully offline demo build of the admin panel — no backend needed, mock data only.
+
+```bash
+bash /root/deploy-demo.sh       # pull → build --mode demo → deploy to /var/www/ai-sekretar24/
+```
+
+- **URL**: https://ai-sekretar24.ru (login: admin/admin)
+- **Build**: `npm run build -- --mode demo` (loads `.env.demo`, sets `VITE_DEMO_MODE=true`)
+- **How it works**: monkey-patches `window.fetch` in `client.ts` to intercept all API calls with mock data
+- **SSE**: polling (3s interval) instead of real EventSource
+- **Mock data**: 22 files in `admin/src/api/demo/`, in-memory store for session-persistent mutations
+- **Auto-deploy**: GitHub webhook → `demo-webhook.service` (port 9876) → `/root/deploy-demo.sh` on push to main
+- **Nginx**: `admin/nginx-demo.conf`, hash history, no server-side routing needed
+
 ## Parallel Development (Two Claude Code Instances)
 
 This project is developed simultaneously from two machines running Claude Code:
 - **local** — dev workstation with GPU (RTX 3060), hardware access, full stack
-- **server** — cloud VPS, no GPU, cloud LLM only, production-facing
+- **server** — cloud VPS at `/opt/ai-secretary/`, no GPU, cloud LLM only, production-facing
 
 ### Environment Detection
 
