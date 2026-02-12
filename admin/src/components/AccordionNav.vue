@@ -72,6 +72,7 @@ const allNavGroups = computed(() => [
     items: [
       { path: '/chat', nameKey: 'nav.chat', icon: MessageCircle },
       { path: '/telegram', nameKey: 'nav.telegram', icon: Send, minRole: 'user' as UserRole },
+      { path: '/whatsapp', nameKey: 'nav.whatsapp', icon: MessageCircle, minRole: 'user' as UserRole },
       { path: '/widget', nameKey: 'nav.widget', icon: Code2, minRole: 'user' as UserRole },
       { path: '/gsm', nameKey: 'nav.gsm', icon: Phone, minRole: 'admin' as UserRole },
     ]
