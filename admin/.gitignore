@@ -26,6 +26,8 @@ dist-ssr
 # Env
 .env
 .env.*
+!.env.demo
+!.env.demo-*
 
 # OS
 .DS_Store

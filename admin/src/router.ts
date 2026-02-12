@@ -70,7 +70,7 @@ const router = createRouter({
       path: '/finetune',
       name: 'finetune',
       component: FinetuneView,
-      meta: { title: 'Fine-tune', icon: 'Sparkles', localOnly: true }
+      meta: { title: 'Fine-tune', icon: 'Sparkles' }
     },
     {
       path: '/monitoring',

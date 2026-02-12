@@ -128,7 +128,7 @@ export const useAuthStore = defineStore('auth', () => {
     const payload = btoa(JSON.stringify({
       sub: username,
       user_id: 0,
-      role: 'admin',
+      role: import.meta.env.VITE_DEMO_ROLE || 'admin',
       exp: Math.floor(Date.now() / 1000) + 86400, // 24 hours
       iat: Math.floor(Date.now() / 1000),
       dev: true
@@ -172,12 +172,12 @@ export const useAuthStore = defineStore('auth', () => {
       return true
     } catch (e) {
       // In dev mode, allow login without backend
-      if ((isDev || isDemo) && username === 'admin' && password === 'admin') {
+      if ((isDev || isDemo) && ((username === 'admin' && password === 'admin') || (username === 'demo' && password === 'demo'))) {
         console.warn('⚠️ Dev/Demo mode: Backend unavailable, using mock authentication')
         const devToken = createDevToken(username)
         token.value = devToken
         localStorage.setItem('admin_token', devToken)
-        user.value = { id: 0, username, role: 'admin' }
+        user.value = { id: 0, username, role: (import.meta.env.VITE_DEMO_ROLE || 'admin') as UserRole }
         error.value = null
         return true
       }
