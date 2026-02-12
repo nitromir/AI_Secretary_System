@@ -1,7 +1,8 @@
-// Demo mode interceptor — must run before any API calls
-if (import.meta.env.VITE_DEMO_MODE === 'true') {
-  import('./demo/index').then(({ setupDemoInterceptor }) => setupDemoInterceptor())
-}
+// Demo mode interceptor — loaded async but awaited before first API call
+const demoReady: Promise<void> | null =
+  import.meta.env.VITE_DEMO_MODE === 'true'
+    ? import('./demo/index').then(({ setupDemoInterceptor }) => setupDemoInterceptor())
+    : null
 
 // Base API client
 const BASE_URL = ''
@@ -25,6 +26,7 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (demoReady) await demoReady
   const url = `${BASE_URL}${endpoint}`
 
   const response = await fetch(url, {
@@ -63,6 +65,7 @@ export const api = {
     request<T>(endpoint, { method: 'DELETE' }),
 
   upload: async <T>(endpoint: string, file: File): Promise<T> => {
+    if (demoReady) await demoReady
     const formData = new FormData()
     formData.append('file', file)
 
@@ -86,6 +89,7 @@ export function createSSE<T = unknown>(endpoint: string, onMessage: (data: T) =>
   if (import.meta.env.VITE_DEMO_MODE === 'true') {
     let stopped = false
     const poll = async () => {
+      if (demoReady) await demoReady
       while (!stopped) {
         try {
           const res = await fetch(`${BASE_URL}${endpoint}`)
