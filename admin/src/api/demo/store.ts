@@ -5,6 +5,7 @@ interface StoreState {
   faq: Record<string, string>
   chatSessions: ChatSessionData[]
   botInstances: BotInstanceData[]
+  whatsappInstances: WhatsAppInstanceData[]
   widgetInstances: WidgetInstanceData[]
   cloudProviders: CloudProviderData[]
   llmPresets: LlmPresetData[]
@@ -12,6 +13,34 @@ interface StoreState {
   usageLimits: UsageLimitData[]
   customTtsPresets: Record<string, Record<string, number>>
   initialized: boolean
+}
+
+export interface WhatsAppInstanceData {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  auto_start: boolean
+  phone_number_id: string
+  waba_id?: string
+  access_token_masked?: string
+  verify_token?: string
+  app_secret?: string
+  webhook_port: number
+  llm_backend: string
+  system_prompt?: string
+  tts_enabled: boolean
+  tts_engine: string
+  tts_voice: string
+  tts_preset?: string
+  allowed_phones: string[]
+  blocked_phones: string[]
+  rate_limit_count?: number | null
+  rate_limit_hours?: number | null
+  running?: boolean
+  pid?: number
+  created?: string
+  updated?: string
 }
 
 export interface ChatSessionData {
@@ -164,6 +193,7 @@ const store: StoreState = {
   faq: {},
   chatSessions: [],
   botInstances: [],
+  whatsappInstances: [],
   widgetInstances: [],
   cloudProviders: [],
   llmPresets: [],

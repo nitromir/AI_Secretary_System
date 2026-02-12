@@ -18,6 +18,7 @@ import { sttRoutes } from './stt'
 import { ttsFinetueRoutes } from './ttsFinetune'
 import { botSalesRoutes } from './botSales'
 import { amocrmRoutes } from './amocrm'
+import { whatsappRoutes, initWhatsAppData } from './whatsapp'
 
 // All routes — order matters: more specific patterns first
 const allRoutes: DemoRoute[] = [
@@ -25,6 +26,7 @@ const allRoutes: DemoRoute[] = [
   ...amocrmRoutes,
   ...botSalesRoutes,  // Must be before telegramRoutes (more specific patterns)
   ...telegramRoutes,
+  ...whatsappRoutes,
   ...widgetRoutes,
   ...chatRoutes,
   ...faqRoutes,
@@ -110,6 +112,7 @@ export function setupDemoInterceptor() {
   initFaqData()
   initChatData()
   initTelegramData()
+  initWhatsAppData()
   initWidgetData()
   initLlmData()
   initAuditData()
