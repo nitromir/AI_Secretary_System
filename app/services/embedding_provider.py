@@ -40,79 +40,56 @@ class BaseEmbeddingProvider(ABC):
 
 class GeminiEmbeddingProvider(BaseEmbeddingProvider):
     """
-    Google Gemini embedding via google-generativeai SDK.
+    Google Gemini embedding via REST API (httpx).
 
-    Model: models/text-embedding-004 (768 dims, free tier 1500 req/min).
+    Uses httpx instead of genai SDK to avoid gRPC proxy conflicts when
+    GeminiProvider for LLM sets global HTTP_PROXY env vars for VLESS.
+
+    Model: text-embedding-004 (768 dims, free tier 1500 req/min).
     Batch: up to 100 texts per call.
-    If VLESS proxy env vars are set (by GeminiProvider for LLM), retries without proxy on failure.
     """
 
+    API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
     def __init__(self, api_key: str):
-        try:
-            import google.generativeai as genai
-        except ImportError:
-            raise ImportError("google-generativeai not installed")
+        import httpx
 
-        self._genai = genai
+        # Don't use proxy for embedding requests (LLM GeminiProvider sets proxy globally)
+        self._client = httpx.Client(timeout=60.0, proxy=None)
         self._api_key = api_key
-        self.model_name = "models/text-embedding-004"
+        self.model_name = "text-embedding-004"
         self.dimension = 768
+        logger.info(f"GeminiEmbeddingProvider initialized: {self.model_name} (REST API)")
 
-        genai.configure(api_key=api_key)
-        logger.info(f"GeminiEmbeddingProvider initialized: {self.model_name}")
+    def _call_api(self, texts: list[str], task_type: str) -> list[list[float]]:
+        url = f"{self.API_URL}/{self.model_name}:batchEmbedContents"
+        requests = [
+            {
+                "model": f"models/{self.model_name}",
+                "content": {"parts": [{"text": t}]},
+                "taskType": task_type,
+            }
+            for t in texts
+        ]
+        payload = {"requests": requests}
 
-    def _call_with_proxy_fallback(self, func):
-        """Try the call; if proxy fails, retry without proxy."""
-        import os
+        response = self._client.post(url, json=payload, params={"key": self._api_key})
+        response.raise_for_status()
+        data = response.json()
 
-        try:
-            return func()
-        except Exception as first_err:
-            # Check if proxy env vars are set (from GeminiProvider for LLM)
-            proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]
-            saved = {k: os.environ.pop(k) for k in proxy_vars if k in os.environ}
-            if not saved:
-                raise  # No proxy was set, can't retry
-
-            logger.info("Wiki RAG embeddings: retrying without VLESS proxy...")
-            try:
-                self._genai.configure(api_key=self._api_key)
-                result = func()
-                logger.info("Wiki RAG embeddings: success without proxy")
-                return result
-            except Exception:
-                # Restore proxy vars and raise original error
-                os.environ.update(saved)
-                self._genai.configure(api_key=self._api_key)
-                raise first_err
+        return [item["values"] for item in data["embeddings"]]
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         results: list[list[float]] = []
         batch_size = 100
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-
-            def _embed(b=batch):
-                return self._genai.embed_content(
-                    model=self.model_name,
-                    content=b,
-                    task_type="RETRIEVAL_DOCUMENT",
-                )
-
-            response = self._call_with_proxy_fallback(_embed)
-            results.extend(response["embedding"])
+            results.extend(self._call_api(batch, "RETRIEVAL_DOCUMENT"))
         return results
 
     def embed_query(self, text: str) -> list[float]:
-        def _embed():
-            return self._genai.embed_content(
-                model=self.model_name,
-                content=text,
-                task_type="RETRIEVAL_QUERY",
-            )
-
-        response = self._call_with_proxy_fallback(_embed)
-        return response["embedding"]
+        vectors = self._call_api([text], "RETRIEVAL_QUERY")
+        return vectors[0]
 
     def provider_name(self) -> str:
         return "gemini"
