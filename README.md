@@ -13,10 +13,11 @@
 - **Local LLM**: vLLM с Qwen2.5-7B/Llama-3.1-8B/DeepSeek-7B + LoRA fine-tuning
 - **Cloud LLM Providers**: Подключение облачных LLM (Gemini, Kimi, OpenAI, Claude, DeepSeek, OpenRouter) с хранением credentials в БД
 - **Multi-Instance Bots**: Несколько Telegram ботов с независимыми настройками (LLM, TTS, промпт)
+- **WhatsApp Bots**: Multi-instance WhatsApp боты (Cloud API) с воронкой продаж, FAQ, AI-чатом
 - **Multi-Instance Widgets**: Несколько чат-виджетов для разных сайтов/отделов
 - **FAQ System**: Мгновенные ответы на типичные вопросы
 - **Sales Funnel**: Quiz-based segmentation, TZ generator, payment integration (YooMoney, Telegram Stars)
-- **Admin Panel**: Vue 3 PWA с 19 вкладками, i18n, темами, аудитом, responsive layout
+- **Admin Panel**: Vue 3 PWA с 20 вкладками, i18n, темами, аудитом, responsive layout
 - **GSM Telephony**: Поддержка SIM7600E-H для голосовых звонков и SMS
 - **Website Widget**: Встраиваемый чат-виджет для любого сайта
 - **Telegram Bot**: Общение с ассистентом через Telegram
@@ -34,7 +35,7 @@
                               │           orchestrator.py                │
                               │                                          │
                               │  ┌────────────────────────────────────┐  │
-                              │  │  Vue 3 Admin Panel (19 views, PWA) │  │
+                              │  │  Vue 3 Admin Panel (20 views, PWA) │  │
                               │  │         admin/dist/                │  │
                               │  └────────────────────────────────────┘  │
                               └──────────────────┬───────────────────────┘
@@ -49,7 +50,7 @@ manager.py    manager.py                   service.py    service.py   service.py
 
 ### Modular API Structure
 
-API endpoints organized into 19 routers with ~348 endpoints:
+API endpoints organized into 21 routers with ~369 endpoints:
 
 ```
 app/
@@ -75,6 +76,8 @@ app/
     ├── amocrm.py            # 18 endpoints - amoCRM OAuth2, contacts, leads, pipelines
     ├── usage.py             # 8 endpoints  - Usage tracking, limits, statistics
     ├── legal.py             # 6 endpoints  - Legal compliance
+    ├── wiki_rag.py          # 8 endpoints  - Wiki RAG stats/search, Knowledge Base CRUD
+    ├── whatsapp.py          # 10 endpoints - WhatsApp bot instances CRUD, control
     └── github_webhook.py    # 2 endpoints  - GitHub CI/CD webhook
 ```
 
