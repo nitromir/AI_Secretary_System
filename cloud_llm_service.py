@@ -646,6 +646,10 @@ class CloudLLMService:
             self.faq = {}
         logger.info(f"🔄 FAQ перезагружен: {len(self.faq)} записей")
 
+    def get_system_prompt(self) -> str:
+        """Return the system prompt configured for this provider."""
+        return self.system_prompt or ""
+
     def is_available(self) -> bool:
         """Check if provider is available."""
         return self.provider.is_available()

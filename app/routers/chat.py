@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/chat", tags=["chat"])
 
+# Default system prompt for RAG-augmented conversations (when no custom prompt is set)
+_DEFAULT_RAG_PROMPT = (
+    "Ты — ИИ-секретарь. Отвечай на вопросы пользователя кратко и по делу, "
+    "используя предоставленную документацию. Отвечай на языке пользователя. "
+    "Не используй function_calls, tools или code blocks для ответа — "
+    "отвечай обычным текстом."
+)
+
 
 # ============== Pydantic Models ==============
 
@@ -182,6 +190,15 @@ async def admin_send_chat_message(
     default_prompt = None
     if hasattr(llm_service, "get_system_prompt"):
         default_prompt = llm_service.get_system_prompt()
+
+    # RAG: inject relevant wiki context into system prompt
+    wiki_rag = container.wiki_rag_service
+    if wiki_rag and msg_request.content:
+        wiki_context = wiki_rag.retrieve(msg_request.content, top_k=3)
+        if wiki_context:
+            base = default_prompt or _DEFAULT_RAG_PROMPT
+            default_prompt = f"{base}\n\n{wiki_context}"
+
     messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     # Генерируем ответ
@@ -321,10 +338,11 @@ async def admin_stream_chat_message(
 
     # RAG: inject relevant wiki context into system prompt
     wiki_rag = container.wiki_rag_service
-    if wiki_rag and default_prompt and msg_request.content:
+    if wiki_rag and msg_request.content:
         wiki_context = wiki_rag.retrieve(msg_request.content, top_k=3)
         if wiki_context:
-            default_prompt = f"{default_prompt}\n\n{wiki_context}"
+            base = default_prompt or _DEFAULT_RAG_PROMPT
+            default_prompt = f"{base}\n\n{wiki_context}"
 
     messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
@@ -398,6 +416,15 @@ async def admin_edit_chat_message(
     default_prompt = None
     if hasattr(llm_service, "get_system_prompt"):
         default_prompt = llm_service.get_system_prompt()
+
+    # RAG: inject relevant wiki context
+    wiki_rag = container.wiki_rag_service
+    if wiki_rag and request.content:
+        wiki_context = wiki_rag.retrieve(request.content, top_k=3)
+        if wiki_context:
+            base = default_prompt or _DEFAULT_RAG_PROMPT
+            default_prompt = f"{base}\n\n{wiki_context}"
+
     messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     try:
@@ -475,6 +502,16 @@ async def admin_regenerate_chat_response(
     default_prompt = None
     if hasattr(llm_service, "get_system_prompt"):
         default_prompt = llm_service.get_system_prompt()
+
+    # RAG: inject relevant wiki context (use the user message content)
+    user_content = target_msg["content"] if target_msg["role"] == "user" else ""
+    wiki_rag = container.wiki_rag_service
+    if wiki_rag and user_content:
+        wiki_context = wiki_rag.retrieve(user_content, top_k=3)
+        if wiki_context:
+            base = default_prompt or _DEFAULT_RAG_PROMPT
+            default_prompt = f"{base}\n\n{wiki_context}"
+
     llm_messages = await async_chat_manager.get_messages_for_llm(session_id, default_prompt)
 
     try:
